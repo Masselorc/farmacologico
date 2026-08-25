@@ -359,21 +359,27 @@ interface RecordDisplayMeta{ title:string; color:PaletteColorId; note?:string }
 type HistoricalProfileRef =
   | { type:'official'; substanceId:string; profileId:string; datasetVersion:number }
   | { type:'custom'; customProfileId:string };
-// Source 'manual' NÃO gera HistoricalProfileRef (ausência explícita — nunca inventar fake profileId).
+/* TIPO DERIVADO (helper conceitual): computado de `scenarioSnapshot.source` quando
+   necessário para exibição/export/filtros — NÃO é persistido em nenhum contrato.
+   library → ref official · custom_profile → ref custom · manual → ausência. */
 interface ComparatorScenarioResultSnapshot{
-  scenarioId:string; name:string; color:PaletteColorId;
-  profileRef?:HistoricalProfileRef;      // ausente p/ cenário manual
-  input:SimulationInput;
+  scenarioId:string;
+  scenarioSnapshot:Scenario;             // Scenario lógico COMPLETO — fonte do REABRIR
+  simulationInput:SimulationInput;       // entrada científica — fonte do RECALCULAR
   resultSnapshot:Pick<SimulationOutput,'currentState'|'analysisCurve'|'peak'|'milestones'|'warnings'|'metadata'>;
 }
-// Invariantes do registro multicenário: scenarios.length ≥ 1; scenarioId único no
-// registro; cada displayPointsByScenario[].scenarioId casa com exatamente um item de
-// scenarios (cardinalidade científica = visual, sem série órfã nem cenário órfão);
-// labels/cores consistentes entre scenarios e chartViewSnapshot.
-interface CalculationRecordBase{ id:string; createdAt:InstantIso;
-  profileRefs:HistoricalProfileRef[]; display:RecordDisplayMeta }
-// profileRefs são metadados de RASTREABILIDADE discriminados — VISUALIZAR não
-// depende deles (snapshots de exibição são autossuficientes); nenhum ID nu.
+// Invariantes: scenarioSnapshot.id === scenarioId; cada item de scenarios[] possui
+// exatamente um Scenario salvo + um SimulationInput + um resultado científico; cada
+// displayPointsByScenario[].scenarioId casa com scenarioSnapshot.id (cardinalidade
+// científica = visual, sem série órfã nem cenário órfão). Semântica das ações:
+// VISUALIZAR → somente ChartViewSnapshot · REABRIR → somente scenarioSnapshot ·
+// RECALCULAR → simulationInput + engine/sampling atuais. Rastreabilidade DERIVA de
+// scenarioSnapshot.source — nenhum campo de perfil duplicado no registro.
+interface CalculationRecordBase{ id:string; createdAt:InstantIso; display:RecordDisplayMeta }
+// Base contém apenas campos comuns aos três tipos de registro; dados específicos
+// (inputs científicos, snapshots, protocolos) vivem em cada variante da union.
+// Rastreabilidade de perfis deriva de scenarioSnapshot.source / protocolsSnapshot —
+// sem índice persistido global e sem segunda fonte de verdade.
 interface ProtocolAnalysisSeriesSnapshot{
   componentId:string; label:string; color:PaletteColorId;
   displayPoints:DisplayPoint[];                 // pontos EFETIVOS da visualização salva
@@ -585,8 +591,8 @@ Tabela legada normalizada (unidades em dias; cores normativas definidas abaixo):
 Abas fixas; transições pré-preenchem parâmetros/datas, nunca doses; faixas exigem seleção explícita.
 
 **Histórico — três ações (todos os módulos):**
-- **VISUALIZAR:** renderiza DIRETAMENTE os pontos persistidos — Comparador usa `chartViewSnapshot.displayPointsByScenario[].points` (já amostrados na gravação, com `valueKind` mg|normalized_ratio); Protocolos usa `snapshot.series[].displayPoints` — **em ambos os casos reproduz fielmente a apresentação salva, NÃO executa PK Engine, NÃO executa `sampleForDisplay`, não depende do algoritmo de sampling atual nem do dataset/engine antigo**. `resultSnapshot.analysisCurve` permanece como snapshot científico para inspeção, métricas, dados e export — não é necessário para desenhar o gráfico salvo.
-- **REABRIR:** carrega `input`s/snapshots para inspeção/edição (rascunho; não cria registro) — no Comparador multicenário, restaura TODOS os cenários salvos (`scenarios[]` + `chartViewSnapshot`).
+- **VISUALIZAR:** renderiza DIRETAMENTE os pontos persistidos — Comparador usa `chartViewSnapshot.displayPointsByScenario[].points` (já amostrados na gravação, com `valueKind` mg|normalized_ratio); Protocolos usa `snapshot.series[].displayPoints` — **em ambos os casos reproduz fielmente a apresentação salva, NÃO executa PK Engine, NÃO executa `sampleForDisplay`, não depende do algoritmo de sampling atual nem do dataset/engine antigo**. Cada cenário preserva seu próprio snapshot científico (`scenarios[].resultSnapshot.analysisCurve`, …) para inspeção, métricas, dados, export e rastreabilidade — o gráfico salvo não depende dele.
+- **REABRIR:** usa o `scenarioSnapshot` (Scenario lógico COMPLETO) + inputs por cenário para inspeção/edição (rascunho; não cria registro) — **nunca reconstrói Scenario a partir de SimulationInput** e não consulta o dataset atual; no Comparador multicenário restaura TODOS os cenários salvos preservando source, displayUnit, selectedPkParameters, selectionNote, doses (`InstantIso`) e snapshots/proveniência.
 - **RECALCULAR:** engine atual ⇒ NOVO registro; original intacto — no Comparador, recalcula CADA `SimulationInput` de `scenarios[]` e cria um novo registro completo. Divergência: “Este resultado foi calculado com pk@X. Recalcular utilizará pk@Y e criará um novo registro.”
 - Engines antigos executáveis FORA DA V1. Frase oficial: “histórico rastreável e preservado por snapshot”.
 
@@ -612,7 +618,7 @@ Histórico: FIFO 500; imutável; gravação só por ação explícita; budget de
 
 **Migrações (não destrutivas; apps legadas = fontes de formato):**
 - `hormoTrackerProtocols`: aceita envelope `{schemaVersion:2, savedAt, protocols[]}` e array legado simples com campos `id?, name, halfLife, tmax, dose, startDate, startTime, type('single'|'weekly'), daysOfWeek?, weeksCount?, color, protocolId?, groupId?, isBlend/esters?` (sanitizar tudo; inválidos descartados com contagem). **N irmãos com mesmo groupId ⇒ 1 Protocol canônico**: `totalDoseMg=Σ doses`; `proportion_i=doseLegacy_i/totalDoseMg`; `totalDoseMg<=0` ⇒ inválido→quarentena/report; cada componente recebe `selectedPkParameters`+`pkParametersSnapshot` dos valores legados. Cores: na paleta ⇒ preserva; fora ⇒ `legacyOriginalHex` + remapeamento (vizinho mais próximo, distância euclidiana quadrática sRGB; empate ⇒ menor id lexicográfico) + entrada em `MigrationReport.colorRemaps`. groupId existe só no migrador.
-- `meiavida:v2:data`: cenários → Scenario (source custom/library conforme dado); datetime-local convertido usando a **timezone assumida**; doses com `amountMg` nulo/não finito/fora de `SIMULATION_DOSE_MG_MAX` são descartadas e contabilizadas no relatório.
+- `meiavida:v2:data`: cenários → Scenario com `source` apenas `'library'` ou `'manual'`: **library** somente quando a associação oficial for inequívoca (substanceId+profileId oficiais + datasetVersion + snapshot de parâmetros); caso contrário **manual**, preservando `selectedPkParameters`, `PkParametersSnapshot` (quando disponível), nome, doses e horários. **NUNCA produzir `source:'custom'` nem fabricar CustomProfile/customProfileId** na migração — custom_profile só existe com entidade real criada/importada explicitamente. datetime-local convertido usando a **timezone assumida**; doses com `amountMg` nulo/não finito/fora de `SIMULATION_DOSE_MG_MAX` são descartadas e contabilizadas no relatório.
 - `meiavida:v2:persistence-enabled`: apenas sugestão na tela de migração.
 - Política: copiar, nunca apagar originais; `fk:v1:migrated-from=<origem>`; remoção manual posterior. localStorage é por ORIGEM (não path): sob `masselorc.github.io` as chaves são lidas diretamente.
 
@@ -737,7 +743,9 @@ Convenção: tolerâncias da seção 4; proibido igualdade bit-a-bit/exato/diff-
 - **Datetime do Comparador:** criação em TZ A ⇒ troca de dispositivo para TZ B mantém o `InstantIso`; display converte para o fuso vigente; edição sem mudança de valor preserva o instante; GAP/OVERLAP conforme política global; proibido `new Date(datetimeLocalString)`.
 - **Log (apresentação):** absolute floor = peak×`LOG_REL_EPSILON`; normalized floor = ε; série toda zero ⇒ sem domínio log válido; valor exatamente no epsilon e abaixo são clipados apenas visualmente; snapshots log preservam a ciência.
 - **Identidade do dataset:** migration substance válida; migration profile na MESMA substância; migration profile ENTRE substâncias (4 IDs explícitos); mesmo profileId em substâncias diferentes não gera ambiguidade (identidade composta); ciclo substance rejeitado; ciclo profile rejeitado; destino inválido rejeitado; resolução determinística; rename preserva id; deprecated resolve.
-- **Histórico multicenário do Comparador:** 1/2/20 cenários; `scenarioId` únicos; cardinalidade `scenarios == displayPointsByScenario`; série visual sem cenário científico rejeitada; cenário científico sem série visual rejeitado; REABRIR restaura todos; RECALCULAR cria novo registro completo; FullBackup round-trip preserva todos.
+- **Histórico multicenário do Comparador:** 1/2/20 cenários; `scenarioSnapshot.id` casa com `scenarioId`; `simulationInput` corresponde ao Scenario salvo; cardinalidade `scenarios == displayPointsByScenario`; série visual sem cenário científico rejeitada; cenário científico sem série visual rejeitado; REABRIR restaura todos; RECALCULAR cria novo registro completo; FullBackup round-trip preserva o Scenario COMPLETO.
+- **REABRIR (Comparador):** scenarios library/custom_profile/manual restauram source, displayUnit, selectedPkParameters, selectionNote, doses (`InstantIso`) e snapshots/proveniência **sem consultar dataset e sem reconstruir Scenario a partir de SimulationInput**.
+- **Rastreabilidade:** library deriva ref official corretamente; custom_profile deriva ref custom corretamente; manual ⇒ ausência (sem fake ref); nenhuma segunda fonte persistida de rastreabilidade (`profileRefs` removido do registro).
 - **custom_profile/manual:** sources library/custom_profile/manual distintos; `custom_profile` armazena `customProfileId`; manual não inventa ref de perfil; conversão custom_profile→manual preserva `selectedPkParameters`+`pkParametersSnapshot`; exclusão bloqueada com refs ativas e permitida após conversão; histórico antigo íntegro.
 - **datasetVersion:** mudança científica incrementa; mudança de identity mapping incrementa; mudança puramente cosmética pode preservar.
 - **Dose/DoseDraft:** draft aceita `amountMg:null`; Dose persistida nunca aceita null; schema impede persistência de draft; limite máximo (`SIMULATION_DOSE_MG_MAX`) permanece aplicado.
@@ -745,7 +753,7 @@ Convenção: tolerâncias da seção 4; proibido igualdade bit-a-bit/exato/diff-
 - **Favorites:** official e custom com o MESMO texto de ID não colidem (discriminador); round-trip export/import preserva `type`; ref inexistente rejeitada/quarentenada.
 - **HistoricalProfileRef:** official/custom discriminados; snapshot histórico continua autossuficiente; nenhum ID nu ambíguo.
 - **Cutoff property:** ka>ke, ka<ke, ka≈ke ⇒ contribuição além do cutoff `< CUTOFF_TOLERANCE×dose`.
-- Análise: horizonte 10,5; invariantes dos marcos; 0,1% ∈ 9,9–10,1 T½; truncamento < AMOUNT_RTOL.
+- Análise: horizonte 10,5; invariantes dos marcos; 0,1% ∈ 9,9–10,1 T½; truncamento aprovado pelo comparador central `amountClose` nas grandezas comparáveis.
 - **Blend:** 3 componentes ⇒ 3 SimulationInputs; dose derivada; Σ proporções=1; snapshot pertence ao componente (reordenação não troca associação).
 - Recorrência: janela parcial (fronteira); única/semanal; fim inclusivo; rotação ±1/±7.
 - **Datas/DST (Temporal, fixtures explícitas):** GAP 1 h ⇒ 02:30→03:30 ('later'); OVERLAP ⇒ primeira ocorrência ('earlier'); mudança de TZ do dispositivo não altera protocolo salvo; fusos distintos no dia correto da exibição; chips c/ contribuição anterior.
@@ -785,6 +793,7 @@ Metas iniciais (calibrar em E13): materialização ano×200 protocolos ≤50 ms;
 - **Errata de consistência contratual:** dados custom com fonte canônica única e zero duplicação; doses PK com limites técnicos definidos e declarados como não clínicos; erro agregado do cutoff testado (44 mantido como normativo); histórico do Comparador renderiza pontos salvos diretamente, sem `sampleForDisplay`; absolute/normalized com semântica persistida inequívoca (`valueKind`); IDs oficiais estáveis, nunca reutilizados, com deprecated/alias/`idMigrations` definidos; datetime-local do Comparador via Temporal+`calendarTimeZone`, instante imutável após trocas de fuso; log com pisos distintos absoluto/normalizado e clipping apenas visual; §18 sem duplicatas e referências internas corretas.
 - **Microerrata contratual final:** todas as referências §18.x corretas (varridas uma a uma); §9.1 contém a política de identidade do dataset; `DatasetIdMigration` com `entityKind` e regras anti-ciclo/cross-kind; `datasetVersion` cobre ciência + identidade/resolução semântica; `Dose` persistível nunca possui `amountMg=null` (`DoseDraft` separado); `AMOUNT_ATOL_MG` definido com fórmula central `amountClose`; cutoff agregado usa o comparador central; `LOG_REL_EPSILON` na lista oficial com origem explícita de `seriesPeakMg`; `Favorites` diferencia official/custom via `SubstanceRef`; histórico usa `HistoricalProfileRef` discriminado, sem IDs nus.
 - **Microerrata de cardinalidade/cutoff/origem custom:** registro `pharmacokinetics` preserva N inputs+N resultados científicos+N séries visuais (um por cenário; cardinalidades consistentes; IDs únicos); REABRIR/RECALCULAR multicenário completos e FullBackup preserva tudo; equivalência cutoff×referência compara apenas contribuição presente via `amountClose` — **nunca `eliminatedMg`/`administeredMg`/`administeredCount`/`plannedCount` entre universos distintos**, conservação intra-simulação; `DatasetIdMigration` de profile com identidade composta anti-ciclo; sources library/custom_profile/manual em ScenarioSource e ProtocolComponent.source, com manual sem fake ref; exclusão de CustomProfile bloqueada com refs ativas e conversão para manual preservando snapshots.
+- **Microcorreção REABRIR/rastreabilidade:** REABRIR do Comparador usa o `scenarioSnapshot` (Scenario COMPLETO preservado no histórico); SimulationInput nunca é usado para reconstruir Scenario; `CalculationRecordBase` sem `profileRefs` (rastreabilidade derivada de `scenarioSnapshot.source` — fonte única); migração meiavida produz apenas library/manual (nunca `source:'custom'`, nunca customProfileId fabricado), associação ambígua cai para manual; truncamento validado via `amountClose`; regra anti-ciclo refere-se a cadeias de `DatasetIdMigration`.
 - **Persistência:** zero escrita de dados do usuário sem consentimento; corrupção⇒quarentena≤5; desligar sem quarentena oculta; FullBackup visualiza histórico sem dataset; import não liga persistência.
 - **Migração:** fixtures verdes; assumedTimeZone+colorRemaps no relatório; nenhum protocolo perdido por cor; idempotente; originais intactos.
 - **PWA/manifest:** artefato buildado contém base/scope/start_url derivados de app.config.ts; **nenhum segundo manifest**; instalável/offline; atualização via banner.
@@ -897,6 +906,20 @@ E0 confirmações de deploy (não bloqueia) → E1 scaffold+spike CSP → E2 uni
 
 # 20. Checklist final
 
+**Microcorreção final — REABRIR e rastreabilidade:**
+[ ] ComparatorScenarioResultSnapshot preserva Scenario completo — ✔ `scenarioSnapshot` (§6)
+[ ] REABRIR usa scenarioSnapshot — ✔ §6/§10
+[ ] RECALCULAR usa SimulationInput — ✔ §6/§10
+[ ] VISUALIZAR usa ChartViewSnapshot — ✔ §10
+[ ] CalculationRecordBase não possui profileRefs — ✔ removido (§6)
+[ ] nenhuma rastreabilidade duplicada — ✔ derivada de scenarioSnapshot.source (§6/§9.1)
+[ ] referências antigas a resultSnapshot singular removidas — ✔ varredura concluída
+[ ] migração meiavida usa library/manual — ✔ §11
+[ ] migração não cria custom_profile artificial — ✔ §11
+[ ] truncamento usa amountClose — ✔ §13
+[ ] anti-ciclo refere-se a DatasetIdMigration — ✔ checklist corrigido (§13/§9.1)
+[ ] nenhuma implementação iniciada — ✔
+
 **Microerrata final — cardinalidade, cutoff e origem custom:**
 [ ] Comparador histórico é multicenário no snapshot científico — ✔ `scenarios[]` (§6)
 [ ] CalculationRecord pharmacokinetics não usa input singular — ✔ removido (§6)
@@ -918,7 +941,7 @@ E0 confirmações de deploy (não bloqueia) → E1 scaffold+spike CSP → E2 uni
 [ ] todas as referências §18.x estão corretas — ✔ varridas uma a uma (mapa semântico)
 [ ] §9.1 contém política de identidade do dataset — ✔
 [ ] DatasetIdMigration possui entityKind — ✔ §6
-[ ] aliases não podem formar ciclo — ✔ §9.1/§13
+[ ] cadeias de `DatasetIdMigration` não podem formar ciclos — ✔ §6/§9.1/§13
 [ ] datasetVersion cobre ciência + identidade/resolução semântica — ✔ §6/§9.1
 [ ] Dose persistível nunca possui amountMg=null — ✔ §6
 [ ] DoseDraft é separado do domínio persistível — ✔ §6/§13
