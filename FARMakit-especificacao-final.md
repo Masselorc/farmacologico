@@ -84,7 +84,7 @@ Incerteza/intervalo a partir de faixas; steady-state/trough/flutuação analíti
 
 Convenção global: internamente **ms** e **mg**; IEEE-754 duplo; **arredondamento/formato somente na apresentação** (Intl pt-BR); persistência em precisão plena; conversões centralizadas. Formatos de apresentação: massa/dose pt-BR com até 3 casas; duração `X d Y h Z min` (ou `0 min`); datas curtas `dd/mm/aaaa hh:mm`; título de tooltip com data completa por extenso.
 
-**Tolerâncias oficiais** (`domain/shared/tolerances.ts`): `RATES_RTOL=1e-10`, `AMOUNT_RTOL=1e-9`, `CONSERVATION_RTOL=1e-9`, `TMAX_RECOMPOSITION_RTOL=1e-9`, `PEAK_TIME_ABS_TOL=60_000 ms`, `MILESTONE_TIME_ABS_TOL=60_000 ms`, **`CUTOFF_TOLERANCE=1e-12`** (relativo à dose de cada administração). Determinismo intra-plataforma; entre engines JS, conformidade pelas tolerâncias. Proibido “exato/bit a bit/diff 0” em ponto flutuante.
+**Tolerâncias oficiais** (`domain/shared/tolerances.ts`): `RATES_RTOL=1e-10`, `AMOUNT_RTOL=1e-9`, **`AMOUNT_ATOL_MG=1e-12 mg`**, `CONSERVATION_RTOL=1e-9`, `TMAX_RECOMPOSITION_RTOL=1e-9`, `PEAK_TIME_ABS_TOL=60_000 ms`, `MILESTONE_TIME_ABS_TOL=60_000 ms`, **`CUTOFF_TOLERANCE=1e-12`** (relativo à dose de cada administração). **Comparador numérico central para quantidades:** `amountClose(a,b) ⟺ |a−b| ≤ AMOUNT_ATOL_MG + AMOUNT_RTOL·max(|a|,|b|)` — comportamento perto de zero definido via ATOL, sem divisão por zero; obrigatório nos testes de quantidade (cutoff agregado/equivalência/conservação). **Constante de apresentação (não é tolerância farmacocinética):** `LOG_REL_EPSILON=1e-12` (política log da §4). Determinismo intra-plataforma; entre engines JS, conformidade pelas tolerâncias. Proibido “exato/bit a bit/diff 0” em ponto flutuante.
 
 **Não-finito:** underflow esperado (ex.: `e^(−Δ)` grande) resulta legitimamente em 0; não-finito **inesperado** ⇒ erro `NUMERIC_FAILURE` (ou warning `EXTREME_PARAMETERS` quando parametrizado) — nunca zero silencioso.
 
@@ -108,11 +108,11 @@ Convenção global: internamente **ms** e **mg**; IEEE-754 duplo; **arredondamen
                                effectiveTmaxMs + 86_400_000)
   requiredPkLookback(params[]) = maxᵢ cutoffAgeFor(paramsᵢ)   // mesma função
   ```
-  **Justificativa:** o valor 44 foi dimensionado para atender `CUTOFF_TOLERANCE=1e-12` **inclusive no caso numericamente crítico ka≈ke**, cuja curva degenerada é `A(t)/dose = k·t·e^(−k·t)` (fator temporal multiplicativo — a exponencial simples `0,5⁴⁴≈5,7×10⁻¹⁴` NÃO é usada como justificativa isolada). No pior caso válido (`Tmax=1/k`; idade no corte = `effectiveTmaxMs + 44·T½term`): `k·t = 1 + 44·ln2` ⇒ `A/dose ≈ 6,6×10⁻¹³ < 10⁻¹²` [CALC]. O valor anterior (40) produzia ≈9,6×10⁻¹² > 10⁻¹² e violava a própria propriedade — por isso a constante foi elevada. **Prioridade: manter a tolerância declarada e elevar o cutoff quando necessário; nunca reduzir a tolerância para preservar uma constante.** Propriedades obrigatórias (§13): ∀domínio suportado (ka>ke, ka<ke, ka≈ke com Tmax=1/k, Tmax instantâneo), `contributionBeyondCutoff < CUTOFF_TOLERANCE × dose`; se futuros property tests mostrarem 44 insuficiente em alguma região válida, eleva-se a constante. **Garantia agregada:** para o conjunto D de administrações descartadas pelo cutoff vale a invariante `Σ_{i∈D} contributionᵢ < CUTOFF_TOLERANCE × Σ_{i∈D} doseᵢ` (consequência direta da propriedade individual). Adicionalmente, property tests de **equivalência prática** compararão a simulação padrão (cutoff/lookback normativo) contra uma **referência estendida** (janela muito além do cutoff ou todas as ocorrências do domínio bounded do teste) sobre central/depósito/eliminado/primeiros pontos da DisplayWindow/pontos críticos da curva, exigindo conformidade dentro das tolerâncias oficiais (AMOUNT_RTOL). Casos: dose única; weekly longo; múltiplos weekdays; blend; fixture de máximo de ocorrências; ka>ke; ka<ke; ka≈ke; Tmax instantâneo — se demonstrarem 44 insuficiente, eleva-se a constante; até prova em contrário, **44 é o valor normativo**.
+  **Justificativa:** o valor 44 foi dimensionado para atender `CUTOFF_TOLERANCE=1e-12` **inclusive no caso numericamente crítico ka≈ke**, cuja curva degenerada é `A(t)/dose = k·t·e^(−k·t)` (fator temporal multiplicativo — a exponencial simples `0,5⁴⁴≈5,7×10⁻¹⁴` NÃO é usada como justificativa isolada). No pior caso válido (`Tmax=1/k`; idade no corte = `effectiveTmaxMs + 44·T½term`): `k·t = 1 + 44·ln2` ⇒ `A/dose ≈ 6,6×10⁻¹³ < 10⁻¹²` [CALC]. O valor anterior (40) produzia ≈9,6×10⁻¹² > 10⁻¹² e violava a própria propriedade — por isso a constante foi elevada. **Prioridade: manter a tolerância declarada e elevar o cutoff quando necessário; nunca reduzir a tolerância para preservar uma constante.** Propriedades obrigatórias (§13): ∀domínio suportado (ka>ke, ka<ke, ka≈ke com Tmax=1/k, Tmax instantâneo), `contributionBeyondCutoff < CUTOFF_TOLERANCE × dose`; se futuros property tests mostrarem 44 insuficiente em alguma região válida, eleva-se a constante. **Garantia agregada:** para o conjunto D de administrações descartadas pelo cutoff vale a invariante `Σ_{i∈D} contributionᵢ < CUTOFF_TOLERANCE × Σ_{i∈D} doseᵢ` (consequência direta da propriedade individual). Adicionalmente, property tests de **equivalência prática** compararão a simulação padrão (cutoff/lookback normativo) contra uma **referência estendida** (janela muito além do cutoff ou todas as ocorrências do domínio bounded do teste) sobre central/depósito/eliminado/primeiros pontos da DisplayWindow/pontos críticos da curva, exigindo conformidade via comparador central `amountClose` (RTOL+ATOL, §4). Casos: dose única; weekly longo; múltiplos weekdays; blend; fixture de máximo de ocorrências; ka>ke; ka<ke; ka≈ke; Tmax instantâneo — se demonstrarem 44 insuficiente, eleva-se a constante; até prova em contrário, **44 é o valor normativo**.
 - **Janelas:** `DisplayWindow` (visível) e `CalculationWindow{start=displayStart−requiredPkLookback(...), end=displayEnd}`. Fluxo: DisplayWindow → lookback (blends = máximo entre componentes) → CalculationWindow → `generateOccurrences(schedule, calcStart, calcEnd)` → SimulationInput[] → PK Engine → recorte/apresentação na DisplayWindow.
 - Análise: taxa terminal `min(ke,ka)`; horizonte `lastDose+max(10,5·T½term, 2·Tmax, 2·T½)`; amostragem de análise default 1600 intervalos + pontos em cada dose e `dose+tmax`; pico (varredura+ternária 80); marcos `[50,25,12.5,10,5,1,0.1]%` (varredura reversa+bisseção 80; null⇒warning). Invariantes dos marcos: `targetMg≤peak.amountMg`; `timeMs ≥ peak.timeMs − MILESTONE_TIME_ABS_TOL`; tempos não decrescentes com % decrescentes; `targetMg=peak·pct/100` rtol 1e-12.
 - Ciência × pixels: resultados derivam de `analysisCurve`/pontos críticos; `sampleForDisplay(analysisCurve, constraints)→DisplayPoint[]` é **geometria pura** (roda sobre snapshots sem executar PK Engine) e apenas reamostra.
-- **Política log (apresentação — relativa por série):** `LOG_REL_EPSILON=1e-12`. Série absoluta: `absoluteLogFloorMg = seriesPeakMg × LOG_REL_EPSILON` (se `seriesPeakMg ≤ 0`, a série não possui domínio log válido — excluir do modo log com aviso). Série normalizada: piso = `LOG_REL_EPSILON` (máximo normalizado = 1). Valores ≤ piso podem ser clipados/omitidos no modo log, marcando `clippedBelowLogEpsilon=true`; **a ciência persistida jamais é substituída pelo epsilon** — clipping existe apenas na geometria/apresentação. Eventual piso absoluto adicional imposto por limitação de biblioteca gráfica será documentado como detalhe de apresentação, nunca como regra farmacocinética. Constante definida em `domain/shared/tolerances.ts` (constante de apresentação).
+- **Política log (apresentação — relativa por série):** `LOG_REL_EPSILON=1e-12` (constante oficial da lista de tolerâncias acima). Série absoluta: `absoluteLogFloorMg = seriesPeakMg × LOG_REL_EPSILON`, com **`seriesPeakMg = peak.amountMg` da série científica correspondente (`SimulationOutput.peak`) — proibido conceito alternativo de pico**; se `seriesPeakMg ≤ 0`, a série não possui domínio log válido — excluir do modo log com aviso). Série normalizada: piso = `LOG_REL_EPSILON` (máximo normalizado = 1). Valores ≤ piso podem ser clipados/omitidos no modo log, marcando `clippedBelowLogEpsilon=true`; **a ciência persistida jamais é substituída pelo epsilon** — clipping existe apenas na geometria/apresentação. Eventual piso absoluto adicional imposto por limitação de biblioteca gráfica será documentado como detalhe de apresentação, nunca como regra farmacocinética. Constante definida em `domain/shared/tolerances.ts` (constante de apresentação).
 
 ## Reconstituição
 - `concentração=massa×1000÷volume`; `volume_dose=dose÷concentração`; `unidades=volume_dose×unitsPerMl`; `rendimento_teorico_maximo=⌊massa×1000÷dose⌋` (rotulado teórico).
@@ -184,12 +184,17 @@ type ProfileOrigin =
 
 interface Source{ id:string; doi?:string; pmid?:string; url?:string; title?:string;
   authors?:string[]; year?:number; population?:string; notes?:string; reviewedAt?:InstantIso }
-interface DatasetIdMigration{ fromId:string; toId:string;
+type DatasetEntityKind='substance'|'profile';
+interface DatasetIdMigration{ entityKind:DatasetEntityKind;
+  fromId:string; toId:string;   // ambos do MESMO entityKind; destino deve existir; sem ciclos
   sinceDatasetVersion:number; reason:string }
 interface DatasetMetadata{ datasetVersion:number; updatedAt:InstantIso; substanceCount:number;
   changelog?:Array<{version:number;date:InstantIso;summary:string}>;
   idMigrations?:DatasetIdMigration[] }
-// datasetVersion muda SOMENTE com conteúdo científico. IDs oficiais são estáveis,
+// datasetVersion muda quando conteúdo científico OU identidade/resolução semântica
+// do dataset muda (parâmetros, perfis, sources, IDs/idMigrations). Alterações
+// exclusivamente cosméticas de apresentação podem preservar a versão.
+// IDs oficiais são estáveis,
 // imutáveis e NUNCA reutilizados (política completa na §9).
 interface EngineVersions{ pk:string; recurrence:string; reconstitution:string }
 
@@ -256,7 +261,13 @@ interface PkParametersSnapshot{ halfLife:DurationValue; tmax:DurationValue|null;
   selectedFromRange?:{ halfLife?:DurationRange; tmax?:DurationRange } }
 
 // ── Comparador (source discriminada) ────────────────────────
-interface Dose{ id:string; amountMg:number|null; time:InstantIso }
+interface Dose{ id:string; amountMg:number; time:InstantIso }
+// amountMg: finite>0 e ≤ SIMULATION_DOSE_MG_MAX — entidade VÁLIDA/persistível.
+// Fluxo de camadas: FORM/UI → DoseDraft (incompleto permitido) → VALIDAÇÃO →
+// Dose válida → PERSISTÊNCIA (somente Dose válida) → PK ENGINE (somente SimulationDose).
+// Nenhum null de formulário chega à persistência ou ao motor.
+interface DoseDraft{ id:string; amountMg:number|null;
+  localDate?:LocalDate; localTime?:LocalTime }
 type ScenarioSource =
   | { type:'library'; substanceId:string; profileId:string; datasetVersion:number;
       pkParametersSnapshot:PkParametersSnapshot }
@@ -329,8 +340,13 @@ type DomainErrorCode='HALF_LIFE_NON_POSITIVE'|'TMAX_NEGATIVE'|'NO_DOSES'|'INVALI
 
 // ── Histórico reproducível (snapshot-first; tipado) ──────────
 interface RecordDisplayMeta{ title:string; color:PaletteColorId; note?:string }
+type HistoricalProfileRef =
+  | { type:'official'; substanceId:string; profileId:string; datasetVersion:number }
+  | { type:'custom'; customProfileId:string };
 interface CalculationRecordBase{ id:string; createdAt:InstantIso;
-  substanceProfileIds:string[]; display:RecordDisplayMeta }
+  profileRefs:HistoricalProfileRef[]; display:RecordDisplayMeta }
+// profileRefs são metadados de RASTREABILIDADE discriminados — VISUALIZAR não
+// depende deles (snapshots de exibição são autossuficientes); nenhum ID nu.
 interface ProtocolAnalysisSeriesSnapshot{
   componentId:string; label:string; color:PaletteColorId;
   displayPoints:DisplayPoint[];                 // pontos EFETIVOS da visualização salva
@@ -377,7 +393,12 @@ interface ChartViewSnapshot{ displayWindow:DisplayWindow; scaleMode:ChartScaleMo
 // ── Persistência (estado do USUÁRIO; sem dataset oficial; sem consentimento restaurável) ──
 interface AppSettings{ theme:'system'|'light'|'dark'; calendarTimeZone:TimeZoneId;
   graduationWarnThreshold?:number }
-interface Favorites{ substanceIds:string[]; recipeIds:string[] }
+type SubstanceRef =
+  | { type:'official'; substanceId:string; datasetVersion:number }  // resolve no dataset oficial
+  | { type:'custom'; substanceId:string };                          // resolve em customSubstances
+interface Favorites{ substances:SubstanceRef[]; recipeIds:string[] }
+// Sem IDs nus ambíguos: o discriminador resolve o namespace; export/import preserva
+// o `type`; referência inexistente é rejeitada (import) ou quarentenada conforme contexto.
 interface PersistedStateV1{ schemaVersion:1; settings:AppSettings; favorites:Favorites;
   customSubstances:CustomSubstance[]; customProfiles:CustomProfile[]; recipes:ReconstitutionRecipe[];
   scenarios:Scenario[]; protocols:Protocol[] }
@@ -516,6 +537,21 @@ Tabela legada normalizada (unidades em dias; cores normativas definidas abaixo):
 
 `LEGACY_COLORS` = conjunto distinto desses hexes: {#9b59b6, #27ae60, #1abc9c, #2ecc71, #e74c3c, #3498db, #f1c40f, #c0392b, #2c3e50, #8e44ad, #e67e22, #d35400, #ff7979, #f39c12, #ff9f43} — 15 cores (repetições contam uma vez). O fallback padrão do legado (`#3498db`) já pertence ao conjunto. `PALETTE_ALLOWED = PALETTE_MODERN ∪ LEGACY_COLORS` permanece a definição vigente; cores legadas servem à compatibilidade/migração e não precisam aparecer como recomendações da UI moderna. **Esta tabela esgota o necessário para implementar cores: nenhum valor depende de auditoria, commit ou documento anterior.**
 
+## 9.1 Política de identidade e evolução do dataset
+
+1. `Substance.id` oficial é **estável e imutável**.
+2. `PharmacokineticProfile.id` oficial é **estável e imutável**.
+3. Renomear `name`/`slug`/`aliases`/`tags`/textos **NÃO altera ID**.
+4. Um ID oficial **nunca é reutilizado** para outra entidade.
+5. Entidade removida da UI/seletor passa a `deprecated:true` e **permanece resolvível** — nada é apagado semanticamente para liberar ID.
+6. Perfil cientificamente substituído recebe **novo profileId**.
+7. O perfil antigo pode permanecer `deprecated:true`.
+8. Histórico mantém **snapshot e ID antigo** intactos.
+9. Mudança inevitável de ID exige **migration mapping explícito**: `DatasetIdMigration{entityKind:'substance'|'profile', fromId, toId, sinceDatasetVersion, reason}` em `DatasetMetadata.idMigrations` — `fromId`/`toId` sempre do mesmo `entityKind`, sem ciclos, destino existente, resolução determinística em export/import/migração.
+10. Nenhum agente altera IDs por preferência estética.
+
+`datasetVersion` muda quando **conteúdo científico OU identidade/resolução semântica** do dataset muda (parâmetros, perfis, sources, IDs/idMigrations); mudanças exclusivamente cosméticas podem preservar a versão. Casos de teste obrigatórios na §13 (identidade/versionamento).
+
 ---
 
 # 10. UX e navegação
@@ -550,7 +586,7 @@ Histórico: FIFO 500; imutável; gravação só por ação explícita; budget de
 
 **Migrações (não destrutivas; apps legadas = fontes de formato):**
 - `hormoTrackerProtocols`: aceita envelope `{schemaVersion:2, savedAt, protocols[]}` e array legado simples com campos `id?, name, halfLife, tmax, dose, startDate, startTime, type('single'|'weekly'), daysOfWeek?, weeksCount?, color, protocolId?, groupId?, isBlend/esters?` (sanitizar tudo; inválidos descartados com contagem). **N irmãos com mesmo groupId ⇒ 1 Protocol canônico**: `totalDoseMg=Σ doses`; `proportion_i=doseLegacy_i/totalDoseMg`; `totalDoseMg<=0` ⇒ inválido→quarentena/report; cada componente recebe `selectedPkParameters`+`pkParametersSnapshot` dos valores legados. Cores: na paleta ⇒ preserva; fora ⇒ `legacyOriginalHex` + remapeamento (vizinho mais próximo, distância euclidiana quadrática sRGB; empate ⇒ menor id lexicográfico) + entrada em `MigrationReport.colorRemaps`. groupId existe só no migrador.
-- `meiavida:v2:data`: cenários → Scenario (source custom/library conforme dado); datetime-local convertido usando a **timezone assumida**.
+- `meiavida:v2:data`: cenários → Scenario (source custom/library conforme dado); datetime-local convertido usando a **timezone assumida**; doses com `amountMg` nulo/não finito/fora de `SIMULATION_DOSE_MG_MAX` são descartadas e contabilizadas no relatório.
 - `meiavida:v2:persistence-enabled`: apenas sugestão na tela de migração.
 - Política: copiar, nunca apagar originais; `fk:v1:migrated-from=<origem>`; remoção manual posterior. localStorage é por ORIGEM (não path): sob `masselorc.github.io` as chaves são lidas diretamente.
 
@@ -674,6 +710,12 @@ Convenção: tolerâncias da seção 4; proibido igualdade bit-a-bit/exato/diff-
 - **IDs do dataset:** rename preserva id; ID nunca reutilizado; `deprecated:true` permanece resolvível; alias/`idMigrations` resolve corretamente; snapshot antigo íntegro.
 - **Datetime do Comparador:** criação em TZ A ⇒ troca de dispositivo para TZ B mantém o `InstantIso`; display converte para o fuso vigente; edição sem mudança de valor preserva o instante; GAP/OVERLAP conforme política global; proibido `new Date(datetimeLocalString)`.
 - **Log (apresentação):** absolute floor = peak×`LOG_REL_EPSILON`; normalized floor = ε; série toda zero ⇒ sem domínio log válido; valor exatamente no epsilon e abaixo são clipados apenas visualmente; snapshots log preservam a ciência.
+- **Identidade do dataset:** migration com `entityKind:'substance'`; migration com `entityKind:'profile'`; cross-kind rejeitado; ciclo rejeitado; destino inexistente rejeitado; rename preserva id; deprecated resolve.
+- **datasetVersion:** mudança científica incrementa; mudança de identity mapping incrementa; mudança puramente cosmética pode preservar.
+- **Dose/DoseDraft:** draft aceita `amountMg:null`; Dose persistida nunca aceita null; schema impede persistência de draft; limite máximo (`SIMULATION_DOSE_MG_MAX`) permanece aplicado.
+- **Amount comparator:** perto de zero (ATOL domina); valores grandes (RTOL domina); igualdade dentro de ATOL; dentro de RTOL; fora de tolerância reprovada; cutoff vs referência estendida usa `amountClose`.
+- **Favorites:** official e custom com o MESMO texto de ID não colidem (discriminador); round-trip export/import preserva `type`; ref inexistente rejeitada/quarentenada.
+- **HistoricalProfileRef:** official/custom discriminados; snapshot histórico continua autossuficiente; nenhum ID nu ambíguo.
 - **Cutoff property:** ka>ke, ka<ke, ka≈ke ⇒ contribuição além do cutoff `< CUTOFF_TOLERANCE×dose`.
 - Análise: horizonte 10,5; invariantes dos marcos; 0,1% ∈ 9,9–10,1 T½; truncamento < AMOUNT_RTOL.
 - **Blend:** 3 componentes ⇒ 3 SimulationInputs; dose derivada; Σ proporções=1; snapshot pertence ao componente (reordenação não troca associação).
@@ -713,6 +755,7 @@ Metas iniciais (calibrar em E13): materialização ano×200 protocolos ≤50 ms;
 - **Protocolos:** golden de datas; blend canônico 3 componentes; mover/rotacionar; Desfazer; chips c/ lookback e filtro <0,01 mg; geração ∝ CalculationWindow (instrumentação); fusos distintos no dia correto.
 - **Histórico:** Ver produz o mesmo gráfico **sem executar engine** (teste com engine removido/stubado); Reabrir traz inputs; Recalcular cria novo registro com aviso de versão; versões corretas por motor; recon só por botão; **Comparador restaura janela/escala/eixo do `chartViewSnapshot` sem engine**.
 - **Errata de consistência contratual:** dados custom com fonte canônica única e zero duplicação; doses PK com limites técnicos definidos e declarados como não clínicos; erro agregado do cutoff testado (44 mantido como normativo); histórico do Comparador renderiza pontos salvos diretamente, sem `sampleForDisplay`; absolute/normalized com semântica persistida inequívoca (`valueKind`); IDs oficiais estáveis, nunca reutilizados, com deprecated/alias/`idMigrations` definidos; datetime-local do Comparador via Temporal+`calendarTimeZone`, instante imutável após trocas de fuso; log com pisos distintos absoluto/normalizado e clipping apenas visual; §18 sem duplicatas e referências internas corretas.
+- **Microerrata contratual final:** todas as referências §18.x corretas (varridas uma a uma); §9.1 contém a política de identidade do dataset; `DatasetIdMigration` com `entityKind` e regras anti-ciclo/cross-kind; `datasetVersion` cobre ciência + identidade/resolução semântica; `Dose` persistível nunca possui `amountMg=null` (`DoseDraft` separado); `AMOUNT_ATOL_MG` definido com fórmula central `amountClose`; cutoff agregado usa o comparador central; `LOG_REL_EPSILON` na lista oficial com origem explícita de `seriesPeakMg`; `Favorites` diferencia official/custom via `SubstanceRef`; histórico usa `HistoricalProfileRef` discriminado, sem IDs nus.
 - **Persistência:** zero escrita de dados do usuário sem consentimento; corrupção⇒quarentena≤5; desligar sem quarentena oculta; FullBackup visualiza histórico sem dataset; import não liga persistência.
 - **Migração:** fixtures verdes; assumedTimeZone+colorRemaps no relatório; nenhum protocolo perdido por cor; idempotente; originais intactos.
 - **PWA/manifest:** artefato buildado contém base/scope/start_url derivados de app.config.ts; **nenhum segundo manifest**; instalável/offline; atualização via banner.
@@ -825,6 +868,24 @@ E0 confirmações de deploy (não bloqueia) → E1 scaffold+spike CSP → E2 uni
 
 # 20. Checklist final
 
+**Microerrata de consistência contratual (final):**
+[ ] todas as referências §18.x estão corretas — ✔ varridas uma a uma (mapa semântico)
+[ ] §9.1 contém política de identidade do dataset — ✔
+[ ] DatasetIdMigration possui entityKind — ✔ §6
+[ ] aliases não podem formar ciclo — ✔ §9.1/§13
+[ ] datasetVersion cobre ciência + identidade/resolução semântica — ✔ §6/§9.1
+[ ] Dose persistível nunca possui amountMg=null — ✔ §6
+[ ] DoseDraft é separado do domínio persistível — ✔ §6/§13
+[ ] AMOUNT_ATOL_MG está definido — ✔ §4
+[ ] amountClose possui fórmula explícita — ✔ §4
+[ ] cutoff agregado usa comparador numérico central — ✔ §4/§13
+[ ] LOG_REL_EPSILON está na lista oficial — ✔ §4
+[ ] seriesPeakMg possui origem explícita — ✔ peak.amountMg (§4)
+[ ] Favorites diferencia official/custom — ✔ SubstanceRef (§6)
+[ ] histórico não usa IDs nus ambíguos — ✔ HistoricalProfileRef (§6)
+[ ] checklist é factualmente verdadeiro — ✔ revisado nesta errata
+[ ] nenhuma implementação foi executada nesta tarefa — ✔
+
 **Errata final de consistência contratual:**
 [ ] §18 deduplicada — ✔ itens 1–31 sem repetição
 [ ] §18 renumerada — ✔ 1–31 sequenciais
@@ -844,8 +905,8 @@ E0 confirmações de deploy (não bloqueia) → E1 scaffold+spike CSP → E2 uni
 [ ] VISUALIZAR não chama sampleForDisplay — ✔ §10/§13/§18.10
 [ ] ChartSnapshotPoint possui semântica de unidade — ✔ `valueKind` (§6)
 [ ] normalizado usa ratio numérico inequívoco — ✔ [0,1], fórmula amountMg/peakMg (§6)
-[ ] IDs oficiais são imutáveis — ✔ §9/§18.28
-[ ] IDs nunca são reutilizados — ✔ §9/§18.28
+[ ] IDs oficiais são imutáveis — ✔ §9.1/§18.28
+[ ] IDs nunca são reutilizados — ✔ §9.1/§18.28
 [ ] deprecated/alias/migrationMap definidos — ✔ `deprecated?`, `DatasetIdMigration`, `idMigrations?` (§6/§9)
 [ ] datetime-local do Comparador usa calendarTimeZone — ✔ §4
 [ ] datetime-local usa Temporal — ✔ §4 (proibido `new Date` civil)
@@ -853,14 +914,14 @@ E0 confirmações de deploy (não bloqueia) → E1 scaffold+spike CSP → E2 uni
 [ ] log absolute possui floor definido — ✔ `absoluteLogFloorMg = peak×LOG_REL_EPSILON` (§4)
 [ ] log normalized possui floor definido — ✔ piso = LOG_REL_EPSILON (§4)
 [ ] clipping não altera ciência — ✔ §4/§6
-[ ] nenhuma nova arquitetura foi introduzida — ✔ apenas formalizações da v-vigente
+[ ] nenhuma mudança de arquitetura macro/stack foi introduzida; alterações estruturais ficaram restritas aos contratos explicitamente corrigidos nesta errata
 [ ] nenhuma implementação foi iniciada — ✔ somente edição documental
 
 **Ajuste documental final (tooling · diário · congelamento):**
 [ ] frase residual da §9 sobre auditoria de cores removida — ✔ §9
 [ ] tabela de cores continua autossuficiente — ✔ §9
-[ ] `.token-optimizer/` explicitamente reconhecido como tooling versionado — ✔ cabeçalho/§12.3/§18.31
-[ ] `.token-optimizer/` NÃO deve ser removido — ✔ §12.3/§18.31
+[ ] `.token-optimizer/` explicitamente reconhecido como tooling versionado — ✔ cabeçalho/§12.3/§18.27 — Tooling versionado
+[ ] `.token-optimizer/` NÃO deve ser removido — ✔ §12.3/§18.27 — Tooling versionado
 [ ] `.token-optimizer/` NÃO deve entrar no .gitignore — ✔ §12.3/§15(E1)
 [ ] `.token-optimizer/` não integra runtime — ✔ §12.3
 [ ] `.token-optimizer/` não integra dist/ — ✔ critério de aceite §12.3
@@ -874,7 +935,7 @@ E0 confirmações de deploy (não bloqueia) → E1 scaffold+spike CSP → E2 uni
 [ ] diário não contém secrets — ✔ §12.2 (proibições)
 [ ] hierarquia documental está definida — ✔ §12.1
 [ ] especificação permanece fonte normativa — ✔ cabeçalho/§12.1/§18.1
-[ ] desvios da spec não podem ser silenciosos — ✔ §12.1/§18.30
+[ ] desvios da spec não podem ser silenciosos — ✔ §12.1/§18.26 — Hierarquia/divergência
 [ ] README futuro documentará Token Optimizer — ✔ §14/E14
 [ ] README futuro documentará diário de bordo — ✔ §14/E14
 [ ] cutoff normativo continua em 44 — ✔ §4/§6/§18.15
@@ -921,10 +982,10 @@ E0 confirmações de deploy (não bloqueia) → E1 scaffold+spike CSP → E2 uni
 [ ] checklist não afirma falsamente que nenhum commit ocorreu — ✔ reformulado abaixo
 [ ] nenhum código da FARMakit foi criado — ✔
 [ ] nenhum commit de implementação foi realizado — ✔ somente documentação de planejamento foi modificada/commitada historicamente
-[ ] budgets absolutos de performance são inicialmente benchmark targets — ✔ §13/E13/§18.18
+[ ] budgets absolutos de performance são inicialmente benchmark targets — ✔ §13/E13/§18.20 — Performance
 [ ] manifest possui uma única fonte — ✔ gerado pelo build
 [ ] app.config.ts controla base/scope/start_url — ✔ §5/§12
-[ ] README futuro aponta somente para a spec vigente — ✔ §14/§18.19
+[ ] README futuro aponta somente para a spec vigente — ✔ §14/§18.23 — README/E10B
 [ ] pendência de deploy não bloqueia desenvolvimento — ✔ STATUS/§18.24
 [ ] nenhuma contradição conhecida permanece — ✔ varredura final executada
 
