@@ -64,7 +64,8 @@ Nota: as tabelas históricas acima são informativas; os requisitos normativos r
 ## Obrigatório para V1
 - Shell/hash routes (Biblioteca · Meia-vida · Reconstituir · Protocolos · Histórico · Ajustes); CSP meta efetiva; paleta fechada; PWA prompt-update; **gate E1 spike CSP×Chart.js**.
 - **Biblioteca:** busca/fichas/perfis (`route:'unknown'` no legado), faixas com seleção obrigatória, badges por origem; CTAs para Comparador/Protocolos sem preencher doses.
-- **Comparador:** cenários (cap 20), múltiplas doses, análise ao vivo (relógio 1 s), métricas + `phaseHint`, marcos, Detalhes do modelo, warning flip-flop, gráfico com eixo-X rotulado, modos absoluto/normalizado, log c/ política de zeros; **“Salvar análise no histórico”**.
+- **Comparador:** cenários (cap 20), múltiplas doses, análise ao vivo (relógio 1 s), métricas + `phaseHint`, marcos, Detalhes do modelo, warning flip-flop, gráfico com eixo-X rotulado, modos absoluto/normalizado, log c/ política de zeros; **“Salvar análise no histórico”** captura também o `ChartViewSnapshot` (janela/modos/pontos por cenário).
+- **Modo log (apresentação):** política relativa por série da §4 (`LOG_REL_EPSILON=1e-12`; pisos `absoluteLogFloorMg` e normalizado); valores no/baixo piso são clipados/omitidos com marcação `clippedBelowLogEpsilon`; tooltip/resumo informam o clipping; a série pode iniciar na primeira contribuição positiva; dados científicos persistidos permanecem intocados.
 - **Reconstituição:** tela única automática; erros `DOSE_EXCEEDS_VIAL_CONTENT`/capacidade (mensagem neutra)/precisão por graduação; régua; copiar; **“Salvar no histórico”**.
 - **Protocolos:** entidade canônica com componentes autocontidos; presets legados (19 entidades/16 visíveis); calendário multi-fuso desktop/mobile Agenda-Semana-Mês; drag+teclado+Desfazer; chips 20:00 com lookback (filtro <0,01 mg); gráficos combinado/individuais com guias; materialização por CalculationWindow; **“Salvar análise no histórico”**.
 - **Histórico:** registros imutáveis tipados; ações VISUALIZAR (snapshot)/REABRIR (inputs)/RECALCULAR (engine atual ⇒ novo registro).
@@ -94,6 +95,7 @@ Convenção global: internamente **ms** e **mg**; IEEE-754 duplo; **arredondamen
   - **GAP** (horário civil inexistente pela transição): `disambiguation:'later'` — o horário é **deslocado para frente pela duração do gap**. Exemplo: gap de 1 hora ⇒ `02:30` inexistente → `03:30`.
   - **OVERLAP** (horário civil corresponde a dois instantes): `disambiguation:'earlier'` — seleciona a **primeira ocorrência**.
   - Mesma política em criação de protocolos, Recurrence Engine, drag/move, migração e testes, com fixtures explícitas (seção 13). As duas regras são distintas por definição; proibido tratá-las como sinônimos.
+- **Comparador — datetime-local → instante:** o campo civil digitado é interpretado com o `calendarTimeZone` vigente na criação/edição da dose: `LocalDate+LocalTime+calendarTimeZone → Temporal.ZonedDateTime → política DST (GAP 'later' / OVERLAP 'earlier') → InstantIso`. O `Dose.time` persistido é o **instante canônico**: trocas posteriores de timezone do dispositivo ou de `calendarTimeZone` NÃO alteram o instante salvo, apenas sua representação visual. Ao editar, a UI converte o `InstantIso` para o `calendarTimeZone` atual para preencher o controle; salvar regenera o instante conforme o fuso usado na edição. Proibido interpretar horário civil com `new Date(datetimeLocalString)`.
 - Eliminação: `ke=ln2/T½` (erro se ≤0/não finito).
 - Absorção: `g(y)=y/expm1(y)=ke·Tmax`, decrescente ℝ→(0,∞), solução única ∀Tmax>0; Taylor `1−y/2+y²/12` p/ `|y|<1e-8`; bisseção 180 iter.; bracket meiavida; `ka=ke·e^ŷ`. Ramos: `Tmax=0⇒ka=null` (instantânea); `<T½/ln2⇒ka>ke`; `≈⇒degênero`; `>⇒ka<ke` (flip-flop, warning). Âncoras rtol 1e-4: 6 d/2 d ⇒ ka=1,34159 dia⁻¹; ka=0,36 dia⁻¹ ⇒ Tmax≈4,649224 d. Identidade testada PELA EQUAÇÃO (§13).
 - Central por dose (Δt≥0): instantânea `dose·e^(−ke·Δt)`; degênero (`|ka−ke|≤max(ka,ke)·1e-8`) `dose·ka·Δt·e^(−ke·Δt)`; Bateman geral; clamp `[0,dose]` só sobre valores finitos.
@@ -106,10 +108,11 @@ Convenção global: internamente **ms** e **mg**; IEEE-754 duplo; **arredondamen
                                effectiveTmaxMs + 86_400_000)
   requiredPkLookback(params[]) = maxᵢ cutoffAgeFor(paramsᵢ)   // mesma função
   ```
-  **Justificativa:** o valor 44 foi dimensionado para atender `CUTOFF_TOLERANCE=1e-12` **inclusive no caso numericamente crítico ka≈ke**, cuja curva degenerada é `A(t)/dose = k·t·e^(−k·t)` (fator temporal multiplicativo — a exponencial simples `0,5⁴⁴≈5,7×10⁻¹⁴` NÃO é usada como justificativa isolada). No pior caso válido (`Tmax=1/k`; idade no corte = `effectiveTmaxMs + 44·T½term`): `k·t = 1 + 44·ln2` ⇒ `A/dose ≈ 6,6×10⁻¹³ < 10⁻¹²` [CALC]. O valor anterior (40) produzia ≈9,6×10⁻¹² > 10⁻¹² e violava a própria propriedade — por isso a constante foi elevada. **Prioridade: manter a tolerância declarada e elevar o cutoff quando necessário; nunca reduzir a tolerância para preservar uma constante.** Propriedades obrigatórias (§13): ∀domínio suportado (ka>ke, ka<ke, ka≈ke com Tmax=1/k, Tmax instantâneo), `contributionBeyondCutoff < CUTOFF_TOLERANCE × dose`; se futuros property tests mostrarem 44 insuficiente em alguma região válida, eleva-se a constante.
+  **Justificativa:** o valor 44 foi dimensionado para atender `CUTOFF_TOLERANCE=1e-12` **inclusive no caso numericamente crítico ka≈ke**, cuja curva degenerada é `A(t)/dose = k·t·e^(−k·t)` (fator temporal multiplicativo — a exponencial simples `0,5⁴⁴≈5,7×10⁻¹⁴` NÃO é usada como justificativa isolada). No pior caso válido (`Tmax=1/k`; idade no corte = `effectiveTmaxMs + 44·T½term`): `k·t = 1 + 44·ln2` ⇒ `A/dose ≈ 6,6×10⁻¹³ < 10⁻¹²` [CALC]. O valor anterior (40) produzia ≈9,6×10⁻¹² > 10⁻¹² e violava a própria propriedade — por isso a constante foi elevada. **Prioridade: manter a tolerância declarada e elevar o cutoff quando necessário; nunca reduzir a tolerância para preservar uma constante.** Propriedades obrigatórias (§13): ∀domínio suportado (ka>ke, ka<ke, ka≈ke com Tmax=1/k, Tmax instantâneo), `contributionBeyondCutoff < CUTOFF_TOLERANCE × dose`; se futuros property tests mostrarem 44 insuficiente em alguma região válida, eleva-se a constante. **Garantia agregada:** para o conjunto D de administrações descartadas pelo cutoff vale a invariante `Σ_{i∈D} contributionᵢ < CUTOFF_TOLERANCE × Σ_{i∈D} doseᵢ` (consequência direta da propriedade individual). Adicionalmente, property tests de **equivalência prática** compararão a simulação padrão (cutoff/lookback normativo) contra uma **referência estendida** (janela muito além do cutoff ou todas as ocorrências do domínio bounded do teste) sobre central/depósito/eliminado/primeiros pontos da DisplayWindow/pontos críticos da curva, exigindo conformidade dentro das tolerâncias oficiais (AMOUNT_RTOL). Casos: dose única; weekly longo; múltiplos weekdays; blend; fixture de máximo de ocorrências; ka>ke; ka<ke; ka≈ke; Tmax instantâneo — se demonstrarem 44 insuficiente, eleva-se a constante; até prova em contrário, **44 é o valor normativo**.
 - **Janelas:** `DisplayWindow` (visível) e `CalculationWindow{start=displayStart−requiredPkLookback(...), end=displayEnd}`. Fluxo: DisplayWindow → lookback (blends = máximo entre componentes) → CalculationWindow → `generateOccurrences(schedule, calcStart, calcEnd)` → SimulationInput[] → PK Engine → recorte/apresentação na DisplayWindow.
 - Análise: taxa terminal `min(ke,ka)`; horizonte `lastDose+max(10,5·T½term, 2·Tmax, 2·T½)`; amostragem de análise default 1600 intervalos + pontos em cada dose e `dose+tmax`; pico (varredura+ternária 80); marcos `[50,25,12.5,10,5,1,0.1]%` (varredura reversa+bisseção 80; null⇒warning). Invariantes dos marcos: `targetMg≤peak.amountMg`; `timeMs ≥ peak.timeMs − MILESTONE_TIME_ABS_TOL`; tempos não decrescentes com % decrescentes; `targetMg=peak·pct/100` rtol 1e-12.
 - Ciência × pixels: resultados derivam de `analysisCurve`/pontos críticos; `sampleForDisplay(analysisCurve, constraints)→DisplayPoint[]` é **geometria pura** (roda sobre snapshots sem executar PK Engine) e apenas reamostra.
+- **Política log (apresentação — relativa por série):** `LOG_REL_EPSILON=1e-12`. Série absoluta: `absoluteLogFloorMg = seriesPeakMg × LOG_REL_EPSILON` (se `seriesPeakMg ≤ 0`, a série não possui domínio log válido — excluir do modo log com aviso). Série normalizada: piso = `LOG_REL_EPSILON` (máximo normalizado = 1). Valores ≤ piso podem ser clipados/omitidos no modo log, marcando `clippedBelowLogEpsilon=true`; **a ciência persistida jamais é substituída pelo epsilon** — clipping existe apenas na geometria/apresentação. Eventual piso absoluto adicional imposto por limitação de biblioteca gráfica será documentado como detalhe de apresentação, nunca como regra farmacocinética. Constante definida em `domain/shared/tolerances.ts` (constante de apresentação).
 
 ## Reconstituição
 - `concentração=massa×1000÷volume`; `volume_dose=dose÷concentração`; `unidades=volume_dose×unitsPerMl`; `rendimento_teorico_maximo=⌊massa×1000÷dose⌋` (rotulado teórico).
@@ -181,9 +184,13 @@ type ProfileOrigin =
 
 interface Source{ id:string; doi?:string; pmid?:string; url?:string; title?:string;
   authors?:string[]; year?:number; population?:string; notes?:string; reviewedAt?:InstantIso }
+interface DatasetIdMigration{ fromId:string; toId:string;
+  sinceDatasetVersion:number; reason:string }
 interface DatasetMetadata{ datasetVersion:number; updatedAt:InstantIso; substanceCount:number;
-  changelog?:Array<{version:number;date:InstantIso;summary:string}> }
-// datasetVersion muda SOMENTE com conteúdo científico.
+  changelog?:Array<{version:number;date:InstantIso;summary:string}>;
+  idMigrations?:DatasetIdMigration[] }
+// datasetVersion muda SOMENTE com conteúdo científico. IDs oficiais são estáveis,
+// imutáveis e NUNCA reutilizados (política completa na §9).
 interface EngineVersions{ pk:string; recurrence:string; reconstitution:string }
 
 type TmaxSpecification =
@@ -200,22 +207,45 @@ interface PharmacokineticProfile{
   /** METADADO NA V1 — não participa de cálculo (motor usa F relativo=1). */
   bioavailability?:number|Range;
   populationContext?:string; origin:ProfileOrigin;
+  deprecated?:boolean;   // substituído/descontinuado — permanece resolvível; ID nunca reutilizado
 }
 interface Range{min:number; max:number}
 
 interface SingleSubstance{ kind:'single'; id:string; slug:string; name:string; aliases:string[];
   category:SubstanceCategory; tags:string[]; profiles:PharmacokineticProfile[];
-  componentOnly?:boolean /* true ⇒ interna; fora do seletor */ }
+  componentOnly?:boolean;   /* true ⇒ interna; fora do seletor */
+  deprecated?:boolean }     /* descontinuada — ID nunca reutilizado */
 interface BlendComponent{ substanceId:string; profileId:string;   // DEVEM resolver no dataset
   proportion:number; displayColor?:DisplayColor }
 interface BlendSubstance{ kind:'blend'; id:string; slug:string; name:string; aliases:string[];
   tags:string[]; components:BlendComponent[];
-  origin:ProfileOrigin /* próprio do blend, não herdado */ }
+  origin:ProfileOrigin; /* próprio do blend, não herdado */
+  deprecated?:boolean }
 type Substance=SingleSubstance|BlendSubstance;
 
-interface CustomProfile{ id:string; substanceId:string;
-  profile:PharmacokineticProfile & { origin:{kind:'user_defined'; reviewStatus:'not_applicable'} } }
-interface CustomSubstance extends SingleSubstance {} // todos os perfis obrigatoriamente user_defined (refine zod)
+/* Perfis personalizados: `customProfiles` é a ÚNICA fonte canônica persistida.
+   A Biblioteca monta uma VIEW agregada Substance+profiles em memória — derivada,
+   nunca fonte de verdade. */
+type CustomProfileOwner =
+  | { type:'official'; substanceId:string }   // substância do dataset oficial (bundle)
+  | { type:'custom';   substanceId:string };  // substância personalizada do usuário
+interface CustomProfile{
+  id:string;                                  // único ID canônico do perfil custom
+  owner:CustomProfileOwner;                   // referência validada (substanceId deve existir)
+  route:AdministrationRoute; formulation?:string; ester?:string;
+  halfLife:Duration; tmaxSpec:TmaxSpecification;
+  bioavailability?:number|Range; populationContext?:string;
+  origin:{kind:'user_defined'; reviewStatus:'not_applicable'};
+  createdAt:InstantIso; updatedAt:InstantIso;
+}
+interface CustomSubstance{ id:string; slug:string; name:string; aliases:string[];
+  category:SubstanceCategory; tags:string[];
+  createdAt:InstantIso; updatedAt:InstantIso }
+// SEM profiles[] — invariantes: (1) perfil custom existe em UM único local persistido;
+// (2) CustomSubstance não contém cópia concorrente de perfil;
+// (3) exclusão de CustomSubstance com perfis vinculados é bloqueada, oferecendo
+//     remoção em cascata com confirmação explícita;
+// (4) export/import preserva owner↔perfil sem duplicação.
 interface ReconstitutionRecipe{ id:string; name:string; input:ReconstitutionInput;
   createdAt:InstantIso; updatedAt:InstantIso }
 
@@ -295,7 +325,7 @@ interface DomainError{ code:DomainErrorCode; params?:Record<string,number|string
 type DomainErrorCode='HALF_LIFE_NON_POSITIVE'|'TMAX_NEGATIVE'|'NO_DOSES'|'INVALID_DOSE_AMOUNT'
  |'INVALID_DOSE_TIME'|'INVALID_HORIZON'|'ABSORPTION_SOLVER_FAILURE'|'SCENARIO_NAME_REQUIRED'
  |'DOSE_EXCEEDS_VIAL_CONTENT'|'INVALID_RECONSTITUTION_INPUT'|'BLEND_PROPORTIONS_MUST_SUM_ONE'
- |'NUMERIC_FAILURE';
+ |'NUMERIC_FAILURE'|'PROTOCOL_TOTAL_DOSE_INVALID';
 
 // ── Histórico reproducível (snapshot-first; tipado) ──────────
 interface RecordDisplayMeta{ title:string; color:PaletteColorId; note?:string }
@@ -329,10 +359,20 @@ interface ProtocolAnalysisVersions{ pkEngineVersion:string; recurrenceEngineVers
 
 type ChartScaleMode='absolute'|'normalized';
 type ChartYAxisMode='linear'|'log';
+type ChartSnapshotValueKind='mg'|'normalized_ratio';
+interface ChartSnapshotPoint{ timeMs:number; value:number; valueKind:ChartSnapshotValueKind;
+  clippedBelowLogEpsilon?:boolean }
+// Semântica inequívoca: scaleMode='absolute' ⇒ TODOS os points com valueKind='mg'
+// e value em mg; scaleMode='normalized' ⇒ TODOS com valueKind='normalized_ratio',
+// value finito em [0,1], onde 1 = pico projetado da própria série
+// (normalizedRatio(t) = amountMg(t)/projectedPeakMg). Percentuais são formados
+// apenas na camada de UI (0.75 → 75%); snapshot guarda precisão plena.
+interface ChartViewScenarioSnapshot{ scenarioId:string; label:string;
+  color:PaletteColorId; points:ChartSnapshotPoint[] }
 interface ChartViewSnapshot{ displayWindow:DisplayWindow; scaleMode:ChartScaleMode;
   yAxisMode:ChartYAxisMode;
-  displayPointsByScenario:Array<{ scenarioId:string; label:string;
-    color:PaletteColorId; points:DisplayPoint[] }> }
+  displayPointsByScenario:ChartViewScenarioSnapshot[] }
+// VISUALIZAR renderiza ESTES pontos DIRETAMENTE — sem PK Engine e sem sampleForDisplay.
 
 // ── Persistência (estado do USUÁRIO; sem dataset oficial; sem consentimento restaurável) ──
 interface AppSettings{ theme:'system'|'light'|'dark'; calendarTimeZone:TimeZoneId;
@@ -370,7 +410,12 @@ export const SAFETY_LIMITS={ IMPORT_BYTES_MAX:2_000_000, SCENARIOS_MAX:20,
   HISTORY_RECORDS_MAX:500, QUARANTINE_ITEMS_MAX:5,
   HALF_LIFE_DAYS_MAX:3650, TMAX_DAYS_MAX:3650,
   RECON_VIAL_MASS_MG_MAX:100_000, RECON_DILUENT_ML_MAX:1000, RECON_DOSE_MCG_MAX:1_000_000,
-  SYRINGE_GRADUATION_UNITS_MAX:100 } as const;   // graduationUnits: finite>0 (decimais ok) — AJUSTÁVEIS pós-benchmark
+  SYRINGE_GRADUATION_UNITS_MAX:100,
+  SIMULATION_DOSE_MG_MAX:1_000_000, PROTOCOL_TOTAL_DOSE_MG_MAX:1_000_000 } as const;
+// graduationUnits: finite>0 (decimais ok). Limites de dose PK = TÉCNICOS
+// (integridade numérica, validação de entrada, proteção contra payloads
+// patológicos/import malformado) — NÃO são orientação clínica nem dose máxima
+// recomendada. AJUSTÁVEIS pós-benchmark.
 export const UX_LIMITS={ NAME_MAX_CHARS:100, FAVORITES_MAX:100,
   GRADUATION_ERROR_WARN_THRESHOLD:0.05 } as const;
 ```
@@ -391,7 +436,7 @@ Nenhuma feature calcula lookback próprio.
 
 **Recurrence (`domain/recurrence`):** `generateOccurrences(scheduleShape, rangeStartMs, rangeEndMs)`; `shiftSchedule(schedule, deltaDays)`; `validateRecurrence(r)`.
 
-**Cola (`domain/simulation`):** `assembleScenarioInputs(scenario, nowMs)`; `assembleProtocolInputs(protocol, occurrences): SimulationInput[]` (UM POR COMPONENTE; deriva dose por proporção; proibidas médias); `derivePhaseHint(...)` heurística; orquestração de análise de protocolos monta `ProtocolAnalysisSnapshot` (usa `sampleForDisplay`) e registra `ProtocolAnalysisVersions`; a análise do Comparador monta analogicamente o `ChartViewSnapshot` (janela, modos e pontos da visualização salva) no registro histórico.
+**Cola (`domain/simulation`):** `assembleScenarioInputs(scenario, nowMs)`; `assembleProtocolInputs(protocol, occurrences): SimulationInput[]` (UM POR COMPONENTE; deriva dose por proporção; proibidas médias); `derivePhaseHint(...)` heurística; orquestração de análise de protocolos monta `ProtocolAnalysisSnapshot` (usa `sampleForDisplay`) e registra `ProtocolAnalysisVersions`; a análise do Comparador monta analogicamente o `ChartViewSnapshot` no registro histórico — os pontos são gerados por `sampleForDisplay` **apenas no momento da gravação**; a visualização histórica consome-os diretamente, sem executar engine nem sampling.
 
 Casos explícitos: ka>ke; ka<ke (flip-flop+warning); ka≈ke (degênero+warning); Tmax=0; extremos (`EXTREME_PARAMETERS`/`NUMERIC_FAILURE`). Invariantes: conservação; superposição; clamp finito; marcos (§4); horizonte 10,5; cutoff validado por propriedade nas três regiões; determinismo intra-plataforma.
 
@@ -478,7 +523,7 @@ Tabela legada normalizada (unidades em dias; cores normativas definidas abaixo):
 Abas fixas; transições pré-preenchem parâmetros/datas, nunca doses; faixas exigem seleção explícita.
 
 **Histórico — três ações (todos os módulos):**
-- **VISUALIZAR:** renderiza do snapshot preservado — Comparador usa `resultSnapshot.analysisCurve` **+ `chartViewSnapshot` (janela, escala e eixo salvos)** via `sampleForDisplay` (geometria pura); Protocolos usa `snapshot.series[].displayPoints` — **em ambos os casos reproduz fielmente a apresentação salva, NÃO executa PK Engine, não depende do dataset atual nem de engine antigo**.
+- **VISUALIZAR:** renderiza DIRETAMENTE os pontos persistidos — Comparador usa `chartViewSnapshot.displayPointsByScenario[].points` (já amostrados na gravação, com `valueKind` mg|normalized_ratio); Protocolos usa `snapshot.series[].displayPoints` — **em ambos os casos reproduz fielmente a apresentação salva, NÃO executa PK Engine, NÃO executa `sampleForDisplay`, não depende do algoritmo de sampling atual nem do dataset/engine antigo**. `resultSnapshot.analysisCurve` permanece como snapshot científico para inspeção, métricas, dados e export — não é necessário para desenhar o gráfico salvo.
 - **REABRIR:** carrega `input`s/snapshots para inspeção/edição (rascunho; não cria registro).
 - **RECALCULAR:** engine atual ⇒ NOVO registro; original intacto. Divergência: “Este resultado foi calculado com pk@X. Recalcular utilizará pk@Y e criará um novo registro.”
 - Engines antigos executáveis FORA DA V1. Frase oficial: “histórico rastreável e preservado por snapshot”.
@@ -622,7 +667,13 @@ Convenção: tolerâncias da seção 4; proibido igualdade bit-a-bit/exato/diff-
 - Ramos: Tmax=0; degênero; flip-flop+warning; extremos: NaN/∞ inesperado ⇒ NUMERIC_FAILURE; underflow documentado ⇒ 0.
 - Bateman/estado: 50%@1T½; pico@Tmax; conservação; clamp; percentuais zerados; futuras fora do estado.
 - **Lookback/cutoff:** assert `CONTRIBUTION_CUTOFF_HALF_LIVES === 44`; `requiredPkLookback ≡ max cutoffAgeFor`; `effectiveTmaxMs = tmaxMs ?? 0` (**Tmax instantâneo ⇒ 0 ⇒ cutoff calculado corretamente**); janela de cálculo com T½ longa; **dose anterior à DisplayWindow altera o primeiro ponto exibido**; blend ⇒ máximo entre componentes.
+- **Cutoff agregado:** invariante `Σ contribuições descartadas < CUTOFF_TOLERANCE × Σ doses descartadas`; **equivalência prática** cutoff-normativo × referência estendida (central/depósito/eliminado/primeiros pontos/pontos críticos dentro de AMOUNT_RTOL) para: dose única; weekly longo; múltiplos weekdays; blend; fixture de máximo de ocorrências; ka>ke; ka<ke; ka≈ke; Tmax instantâneo.
 - **Dataset/cores legadas:** cada preset/componente da tabela da §9 possui exatamente o hex especificado; componentes do LANDERGOLD com cores corretas; `LEGACY_COLORS` derivável somente deste documento (golden test sem dependência externa).
+- **Dados personalizados:** perfil custom existe em um único store canônico (`customProfiles`); `CustomSubstance` sem `profiles[]`; owner `{official|custom}.substanceId` válido (owner inexistente rejeitado); exclusão bloqueia/oferece cascata confirmada; export/import round-trip sem duplicação.
+- **Limites de dose:** 0/negativo/NaN/Infinity rejeitados; limite máximo aceito; acima rejeitado (`INVALID_DOSE_AMOUNT` por dose, `PROTOCOL_TOTAL_DOSE_INVALID` no protocolo); import e migração obedecem caps.
+- **IDs do dataset:** rename preserva id; ID nunca reutilizado; `deprecated:true` permanece resolvível; alias/`idMigrations` resolve corretamente; snapshot antigo íntegro.
+- **Datetime do Comparador:** criação em TZ A ⇒ troca de dispositivo para TZ B mantém o `InstantIso`; display converte para o fuso vigente; edição sem mudança de valor preserva o instante; GAP/OVERLAP conforme política global; proibido `new Date(datetimeLocalString)`.
+- **Log (apresentação):** absolute floor = peak×`LOG_REL_EPSILON`; normalized floor = ε; série toda zero ⇒ sem domínio log válido; valor exatamente no epsilon e abaixo são clipados apenas visualmente; snapshots log preservam a ciência.
 - **Cutoff property:** ka>ke, ka<ke, ka≈ke ⇒ contribuição além do cutoff `< CUTOFF_TOLERANCE×dose`.
 - Análise: horizonte 10,5; invariantes dos marcos; 0,1% ∈ 9,9–10,1 T½; truncamento < AMOUNT_RTOL.
 - **Blend:** 3 componentes ⇒ 3 SimulationInputs; dose derivada; Σ proporções=1; snapshot pertence ao componente (reordenação não troca associação).
@@ -635,10 +686,10 @@ Convenção: tolerâncias da seção 4; proibido igualdade bit-a-bit/exato/diff-
 - Schemas×LIMITS fronteiras; boundsFromLimits sincronizado.
 
 ## Propriedade (fast-check)
-Monotonicidades da reconstituição; superposição comutativa; identidade do solver ampla (incl. vizinhança degênero, oráculo y-space); **cutoff: contribuição além do corte < CUTOFF_TOLERANCE×dose para ka>ke, ka<ke, ka≈ke (caso degênero explícito, com Tmax=1/k) e Tmax instantâneo**; marcos ordenados; contagem de ocorrências ∝ janela de cálculo.
+Monotonicidades da reconstituição; superposição comutativa; identidade do solver ampla (incl. vizinhança degênero, oráculo y-space); **cutoff: contribuição além do corte < CUTOFF_TOLERANCE×dose para ka>ke, ka<ke, ka≈ke (caso degênero explícito, com Tmax=1/k) e Tmax instantâneo**; **agregado: Σ descartadas < ε×Σ doses**; **equivalência cutoff × referência estendida dentro de AMOUNT_RTOL**; marcos ordenados; contagem de ocorrências ∝ janela de cálculo.
 
 ## Integração
-Formulário⇄zod⇄analyze; Registrar-dose; consent on/off (desligar=export opcional+confirmação+apagar, sem quarentena); export Config vs FullBackup; import sem consentimento restaurado; caps; IDB failure simulado; quarentena >5 poda notificando; SW prompt-banner; **história: snapshot antigo intacto; VISUALIZAR produz o mesmo gráfico SEM executar PK Engine (mesmo com engine removido/substituído); RECALCULAR cria novo registro**; **Comparador: salvar em modo normalizado + escala log + DisplayWindow específica ⇒ VISUALIZAR preserva janela, modo, escala e pontos sem executar engine**; FullBackup renderiza histórico sem dataset atual; migração: assumedTimeZone + colorRemaps registrados; blend refs íntegras; totalDose≤0 ⇒ quarentena/report.
+Formulário⇄zod⇄analyze; Registrar-dose; consent on/off (desligar=export opcional+confirmação+apagar, sem quarentena); export Config vs FullBackup; import sem consentimento restaurado; caps; IDB failure simulado; quarentena >5 poda notificando; SW prompt-banner; **história: snapshot antigo intacto; VISUALIZAR produz o mesmo gráfico SEM executar PK Engine e SEM chamar `sampleForDisplay` — renderiza os pontos persistidos (mesmo com engine removido/substituído ou algoritmo de sampling alterado); RECALCULAR cria novo registro**; **Comparador: salvar em modo normalizado + escala log + DisplayWindow específica ⇒ VISUALIZAR preserva janela, modo, escala, `valueKind` e pontos renderizando-os diretamente**; FullBackup renderiza histórico sem dataset atual; migração: assumedTimeZone + colorRemaps registrados; blend refs íntegras; totalDose≤0 ⇒ quarentena/report.
 
 ## E2E (Playwright, viewports 320–1440)
 Fluxos felizes/erro dos 3 módulos; mover por teclado e drag; Desfazer; foco-no-gráfico; Biblioteca→destinos c/ seleção de faixa; offline reload; update banner; console sem violações CSP no build produção.
@@ -661,6 +712,7 @@ Metas iniciais (calibrar em E13): materialização ano×200 protocolos ≤50 ms;
 - **Reconstituição:** âncora 250 mcg exata nas tolerâncias; 3000 mcg ⇒ 120/240 U c/ mensagem neutra; 6000 mcg ⇒ bloqueio; bordas de graduação 9/10 U; salvar-no-histórico explícito.
 - **Protocolos:** golden de datas; blend canônico 3 componentes; mover/rotacionar; Desfazer; chips c/ lookback e filtro <0,01 mg; geração ∝ CalculationWindow (instrumentação); fusos distintos no dia correto.
 - **Histórico:** Ver produz o mesmo gráfico **sem executar engine** (teste com engine removido/stubado); Reabrir traz inputs; Recalcular cria novo registro com aviso de versão; versões corretas por motor; recon só por botão; **Comparador restaura janela/escala/eixo do `chartViewSnapshot` sem engine**.
+- **Errata de consistência contratual:** dados custom com fonte canônica única e zero duplicação; doses PK com limites técnicos definidos e declarados como não clínicos; erro agregado do cutoff testado (44 mantido como normativo); histórico do Comparador renderiza pontos salvos diretamente, sem `sampleForDisplay`; absolute/normalized com semântica persistida inequívoca (`valueKind`); IDs oficiais estáveis, nunca reutilizados, com deprecated/alias/`idMigrations` definidos; datetime-local do Comparador via Temporal+`calendarTimeZone`, instante imutável após trocas de fuso; log com pisos distintos absoluto/normalizado e clipping apenas visual; §18 sem duplicatas e referências internas corretas.
 - **Persistência:** zero escrita de dados do usuário sem consentimento; corrupção⇒quarentena≤5; desligar sem quarentena oculta; FullBackup visualiza histórico sem dataset; import não liga persistência.
 - **Migração:** fixtures verdes; assumedTimeZone+colorRemaps no relatório; nenhum protocolo perdido por cor; idempotente; originais intactos.
 - **PWA/manifest:** artefato buildado contém base/scope/start_url derivados de app.config.ts; **nenhum segundo manifest**; instalável/offline; atualização via banner.
@@ -680,7 +732,7 @@ Metas iniciais (calibrar em E13): materialização ano×200 protocolos ≤50 ms;
 | E1 Scaffold + infraestrutura + gate CSP×Chart.js | app.config.ts único; CSP meta; PWA(prompt, manifest gerado); tokens/paleta; spike obrigatório; **criar `docs/DIARIO-DE-BORDO.md` com a 1ª entrada** (início greenfield, base inicial, estado do repo, scaffold, decisões, gate CSP, typecheck/test/build); reconhecer `.token-optimizer/` como tooling versionado e validar exclusão do build; **NÃO adicioná-lo ao `.gitignore`** | Zero violações CSP + diário iniciado + build sem tooling |
 | E2 Unidades/tempo/decimal | ms/mg; Temporal+DST(GAP/OVERLAP c/ fixtures); parseLocaleDecimal | Polyfill bundled |
 | E3 Motores | pk(+cutoff c/ effectiveTmaxMs), recurrence(janela), reconstitution, simulation(windows+assemble N-inputs+historyView) | NUMERIC_FAILURE |
-| E4 Gate de testes matemáticos | equação-solver; lookback=cutoff (assert `CONTRIBUTION_CUTOFF_HALF_LIVES===44` + caso degênero explícito); blend 3 inputs; marcos; cutoff property 4 casos (3 regiões + Tmax instantâneo); bordas seringa | Antes de qualquer UI |
+| E4 Gate de testes matemáticos | equação-solver; lookback=cutoff (assert `CONTRIBUTION_CUTOFF_HALF_LIVES===44` + caso degênero explícito); blend 3 inputs; marcos; cutoff property 4 casos + **bound agregado** + **equivalência vs referência estendida**; limites de dose PK; bordas seringa | Antes de qualquer UI |
 | E5 LIMITS+zod+i18n | LIMITS→zod/HTML; códigos+pt-BR; .test-d.ts (union de exports, provenance) | Contratos compiláveis |
 | E6 Persistência/exports | consent; idb+fallback; quarentena≤5; Config/FullBackup (snapshots de exibição, incl. `ChartViewSnapshot`) | Snapshot-first |
 | E7 Migrações | hormo(irmãos→canônico; dose derivada; cores; fuso assumido) + meiavida; fixtures | Relatórios completos |
@@ -738,16 +790,16 @@ E0 confirmações de deploy (não bloqueia) → E1 scaffold+spike CSP → E2 uni
 7. Blend ⇒ uma SimulationInput por componente (médias proibidas).
 8. Camadas ScientificProfile → SelectedPkParameters → SimulationInput; PK nunca consome perfil/dataset; `TmaxSpecification` union; DurationRange normaliza unidades.
 9. `SimulationOutput.metadata` registra somente `pkEngineVersion`; orquestração registra pk+recurrence.
-10. Histórico snapshot-first: VISUALIZAR não executa engine (protocol-analysis preserva DisplayWindow+displayPoints); RECALCULAR usa engine atual e cria novo registro; engines antigos executáveis fora da V1; gravação por ação explícita nos três módulos; registros imutáveis tipados; FullBackup autossuficiente.
-11. Export = discriminated union; consentimento nunca restaurado.
-12. Dataset oficial bundled; `componentOnly` (19 entidades/16 visíveis); blend com origin própria; **`ProfileOrigin` discriminada incluindo `user_defined`**; vias unknown; nenhuma fonte inventada; nenhuma dose sugerida; linguagem educacional.
+10. Histórico snapshot-first: **VISUALIZAR renderiza diretamente os pontos persistidos, sem executar PK Engine nem `sampleForDisplay`** (protocol-analysis preserva DisplayWindow+displayPoints; comparador preserva `chartViewSnapshot`); REABRIR usa inputs/snapshots; RECALCULAR usa engine e sampling atuais e cria novo registro; engines antigos executáveis fora da V1; gravação por ação explícita nos três módulos; registros imutáveis tipados; FullBackup autossuficiente.
+11. Export = discriminated union (`ExportBundleBase` + `ConfigExportBundle`/`FullBackupBundle`); consentimento nunca exportado/restaurado como autorização.
+12. Dataset oficial bundled; `componentOnly` para ésteres (19 entidades internas / 16 visíveis no seletor); blend com origin própria; **`ProfileOrigin` discriminada incluindo `user_defined`**; vias unknown; nenhuma fonte inventada; nenhuma dose sugerida; linguagem educacional.
 13. Tempo: tipos distintos; Temporal (polyfill V1); **GAP='later' (desloca o horário pela duração do gap, ex.: 02:30→03:30)**, **OVERLAP='earlier' (primeira ocorrência)**; `calendarTimeZone`; chips 20:00 = calendarTimeZone+lookback; drag Δ civil medido na exibição.
 14. Migração não destrutiva; fuso ausente perguntado (`migrationAssumedTimeZone`); cores fora da paleta preservam `legacyOriginalHex`+remapeamento determinístico; totalDose≤0 ⇒ inválido/quarentena.
 15. Arredondamento só na apresentação; unidades internas ms/mg e conversões centralizadas; tolerâncias oficiais incl. `CUTOFF_TOLERANCE=1e-12`; **cutoff = 44 meias-vidas terminais (`CONTRIBUTION_CUTOFF_HALF_LIVES=44`), dimensionado inclusive para o caso degênero ka≈ke (`k·t·e^(−k·t) ≈ 6,6×10⁻¹³ < 10⁻¹²` no pior caso `Tmax=1/k`) e validado por property tests nas três regiões + Tmax instantâneo; nunca reduzir a tolerância para preservar a constante**; oráculo y-space; NaN/∞ inesperado ⇒ NUMERIC_FAILURE.
-16. Dataset oficial bundled; `componentOnly` para ésteres (19 entidades/16 visíveis); blend com origin próprio; **`ProfileOrigin` discriminada incluindo `user_defined`**; vias unknown; nenhuma fonte inventada; nenhuma dose sugerida; linguagem educacional.
-17. Cores legadas integralmente embutidas nesta especificação (tabela da §9 / `LEGACY_COLORS`, validada contra o código em 25/08/2026); nenhum dado de implementação depende de auditoria, commits ou documentos anteriores.
-18. Histórico do Comparador preserva `ChartViewSnapshot` — política visual uniforme entre módulos (VISUALIZAR não executa engine).
-19. Export = discriminated union; consentimento nunca restaurado.
+16. Cores legadas integralmente embutidas nesta especificação (tabela da §9 / `LEGACY_COLORS`, validada contra o código em 25/08/2026); nenhum dado de implementação depende de auditoria, commits ou documentos anteriores.
+17. **Dados personalizados possuem UMA fonte canônica:** perfis custom vivem somente em `customProfiles` (`CustomProfile.id` = único ID canônico); `CustomSubstance` NÃO contém `profiles[]`; owner `{official|custom}.substanceId` validado; exclusão de substância com perfis vinculados é bloqueada/oferece cascata confirmada; a VIEW agregada Substance+profiles da Biblioteca é derivada em memória, jamais fonte persistida.
+18. **Limites técnicos de dose:** toda dose satisfaz finite>0≤`SIMULATION_DOSE_MG_MAX`; `Protocol.totalDoseMg` satisfaz finite>0≤`PROTOCOL_TOTAL_DOSE_MG_MAX` — limites de integridade numérica/validação, explicitamente NÃO clínicos.
+19. **Cutoff — garantia agregada:** `Σ contribuições descartadas < CUTOFF_TOLERANCE × Σ doses descartadas`; property tests de equivalência prática contra referência estendida dentro de AMOUNT_RTOL; **44 T½ permanece normativo até prova em contrário** (elevar a constante, jamais baixar a tolerância).
 20. Performance absoluta = BENCHMARK TARGETS calibrados em E13 antes de virarem hard gates; até lá CI usa regressão relativa/budgets estruturais; propriedades estruturais sempre obrigatórias.
 21. BASE_PATH via `app.config.ts` único (vite+PWA+runtime); **manifest PWA gerado pelo build (fonte única; sem arquivo manual)**; spike CSP×Chart.js gate E1; CSP meta efetiva; paleta fechada.
 22. LIMITS categorizados alimentando Zod e HTML; SAFETY/UX defaults ajustáveis pós-benchmark; caps próprios da Reconstituição.
@@ -756,6 +808,10 @@ E0 confirmações de deploy (não bloqueia) → E1 scaffold+spike CSP → E2 uni
 25. Renomear produto é cosmético; renomear conceitos de domínio exige atualização desta spec.
 26. **Hierarquia documental:** especificação (normativa) → `docs/DIARIO-DE-BORDO.md` (factual, append-only, criado na E1) → `.token-optimizer/` (tooling versionado) → `README.md` (público futuro). Divergências da especificação nunca são silenciosas: registrar no diário, justificar, medir impacto e marcar DECISÃO PENDENTE quando exigirem aprovação.
 27. **`.token-optimizer/` é TOOLING DE DESENVOLVIMENTO deliberadamente versionado** — proibido remover, gitignore, auto-limpar ou tratar como descartável; validação de build confirma sua ausência em `dist/`, em runtime e no precache do PWA.
+28. **IDs oficiais estáveis e imutáveis, nunca reutilizados:** renomear name/slug/aliases/tags não altera ID; descontinuação via `deprecated:true` permanecendo resolvível; substituição científica ⇒ novo profileId com antigo deprecated; mudança inevitável exige `DatasetIdMigration` em `DatasetMetadata.idMigrations`; resolução determinística em export/import/migração; nenhum agente altera IDs por preferência estética.
+29. **Datetime-local do Comparador vira `InstantIso` canônico** via `calendarTimeZone` + Temporal + política DST; trocas posteriores de fuso (dispositivo ou settings) não alteram o instante salvo; edição converte para o civil vigente e regenera na gravação.
+30. **Snapshot visual tem unidade inequívoca:** `ChartSnapshotPoint{timeMs, value, valueKind:'mg'|'normalized_ratio', clippedBelowLogEpsilon?}`; absolute ⇒ tudo 'mg'; normalized ⇒ tudo 'normalized_ratio' finito em [0,1] (razão ao pico da própria série); percentuais só na UI; precisão plena persistida; visualização histórica nunca recalcula normalização.
+31. **Log é relativo por série:** `LOG_REL_EPSILON=1e-12`; `absoluteLogFloorMg = seriesPeakMg×ε` (peak≤0 ⇒ sem domínio log válido), piso normalizado = ε; clipping apenas na geometria/apresentação — ciência persistida jamais substituída pelo epsilon.
 
 ---
 
@@ -769,11 +825,42 @@ E0 confirmações de deploy (não bloqueia) → E1 scaffold+spike CSP → E2 uni
 
 # 20. Checklist final
 
+**Errata final de consistência contratual:**
+[ ] §18 deduplicada — ✔ itens 1–31 sem repetição
+[ ] §18 renumerada — ✔ 1–31 sequenciais
+[ ] referências internas corrigidas — ✔ grep de §18.x verificado
+[ ] CustomProfile possui uma única fonte canônica — ✔ `customProfiles` (§6)
+[ ] CustomSubstance não duplica profiles — ✔ interface sem `profiles[]` (§6)
+[ ] ownership official/custom definido — ✔ `CustomProfileOwner` (§6)
+[ ] export/import de custom data é não ambíguo — ✔ ConfigPayload + invariantes (§6)
+[ ] SIMULATION_DOSE_MG_MAX definido — ✔ SAFETY_LIMITS (§6)
+[ ] PROTOCOL_TOTAL_DOSE_MG_MAX definido — ✔ SAFETY_LIMITS (§6)
+[ ] limites PK declarados como técnicos, não clínicos — ✔ comentário normativo (§6)
+[ ] cutoff continua 44 — ✔ §4/§6/§18.15
+[ ] bound agregado de cutoff definido — ✔ invariante Σ < ε×Σdoses (§4)
+[ ] equivalência com referência estendida prevista em property tests — ✔ §4/§13
+[ ] ChartViewSnapshot é renderizado diretamente — ✔ §10/§18.10
+[ ] VISUALIZAR não chama PK Engine — ✔ §10/§13/§18.10
+[ ] VISUALIZAR não chama sampleForDisplay — ✔ §10/§13/§18.10
+[ ] ChartSnapshotPoint possui semântica de unidade — ✔ `valueKind` (§6)
+[ ] normalizado usa ratio numérico inequívoco — ✔ [0,1], fórmula amountMg/peakMg (§6)
+[ ] IDs oficiais são imutáveis — ✔ §9/§18.28
+[ ] IDs nunca são reutilizados — ✔ §9/§18.28
+[ ] deprecated/alias/migrationMap definidos — ✔ `deprecated?`, `DatasetIdMigration`, `idMigrations?` (§6/§9)
+[ ] datetime-local do Comparador usa calendarTimeZone — ✔ §4
+[ ] datetime-local usa Temporal — ✔ §4 (proibido `new Date` civil)
+[ ] Dose.time persiste como InstantIso canônico — ✔ §4/§6
+[ ] log absolute possui floor definido — ✔ `absoluteLogFloorMg = peak×LOG_REL_EPSILON` (§4)
+[ ] log normalized possui floor definido — ✔ piso = LOG_REL_EPSILON (§4)
+[ ] clipping não altera ciência — ✔ §4/§6
+[ ] nenhuma nova arquitetura foi introduzida — ✔ apenas formalizações da v-vigente
+[ ] nenhuma implementação foi iniciada — ✔ somente edição documental
+
 **Ajuste documental final (tooling · diário · congelamento):**
 [ ] frase residual da §9 sobre auditoria de cores removida — ✔ §9
 [ ] tabela de cores continua autossuficiente — ✔ §9
-[ ] `.token-optimizer/` explicitamente reconhecido como tooling versionado — ✔ cabeçalho/§12.3/§18.27
-[ ] `.token-optimizer/` NÃO deve ser removido — ✔ §12.3/§18.27
+[ ] `.token-optimizer/` explicitamente reconhecido como tooling versionado — ✔ cabeçalho/§12.3/§18.31
+[ ] `.token-optimizer/` NÃO deve ser removido — ✔ §12.3/§18.31
 [ ] `.token-optimizer/` NÃO deve entrar no .gitignore — ✔ §12.3/§15(E1)
 [ ] `.token-optimizer/` não integra runtime — ✔ §12.3
 [ ] `.token-optimizer/` não integra dist/ — ✔ critério de aceite §12.3
@@ -787,7 +874,7 @@ E0 confirmações de deploy (não bloqueia) → E1 scaffold+spike CSP → E2 uni
 [ ] diário não contém secrets — ✔ §12.2 (proibições)
 [ ] hierarquia documental está definida — ✔ §12.1
 [ ] especificação permanece fonte normativa — ✔ cabeçalho/§12.1/§18.1
-[ ] desvios da spec não podem ser silenciosos — ✔ §12.1/§18.26
+[ ] desvios da spec não podem ser silenciosos — ✔ §12.1/§18.30
 [ ] README futuro documentará Token Optimizer — ✔ §14/E14
 [ ] README futuro documentará diário de bordo — ✔ §14/E14
 [ ] cutoff normativo continua em 44 — ✔ §4/§6/§18.15
@@ -838,7 +925,7 @@ E0 confirmações de deploy (não bloqueia) → E1 scaffold+spike CSP → E2 uni
 [ ] manifest possui uma única fonte — ✔ gerado pelo build
 [ ] app.config.ts controla base/scope/start_url — ✔ §5/§12
 [ ] README futuro aponta somente para a spec vigente — ✔ §14/§18.19
-[ ] pendência de deploy não bloqueia desenvolvimento — ✔ STATUS/§18.20
+[ ] pendência de deploy não bloqueia desenvolvimento — ✔ STATUS/§18.24
 [ ] nenhuma contradição conhecida permanece — ✔ varredura final executada
 
 ---
