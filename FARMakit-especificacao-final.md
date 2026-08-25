@@ -7,7 +7,7 @@
 
 **Regra normativa:** este documento, após esta micro-errata, **substitui integralmente** todas as versões anteriores (v1–v4) e é a **ÚNICA fonte normativa** para implementação da FARMakit. Versões anteriores podem existir no histórico Git exclusivamente como registro de auditoria; NÃO são fontes normativas e NÃO devem ser consultadas pelo agente implementador para preencher lacunas.
 
-**Contexto de workspace:** projeto **GREENFIELD** no repositório existente `Masselorc/farmacologico` (branch `main`), contendo este documento e um README placeholder. **Não existe código FARMakit.** As aplicações `Masselorc/tabela-farmacos`, `Masselorc/meiavida` e `Masselorc/calculadora-peptideos` são **referências externas** (comportamento, matemática, UX, formatos legados de migração) — nunca base de código local. Termos como "portar/preservar/paridade/migrar" significam *reproduzir futuramente comportamento/regra/UX/formato numa implementação limpa*. O futuro README referenciará somente esta especificação.
+**Contexto de workspace:** projeto **GREENFIELD** no repositório existente `Masselorc/farmacologico` (branch `main`), contendo este documento e um README placeholder. **Não existe código FARMakit.** As aplicações `Masselorc/tabela-farmacos`, `Masselorc/meiavida` e `Masselorc/calculadora-peptideos` são **referências externas** (comportamento, matemática, UX, formatos legados de migração) — nunca base de código local. Termos como "portar/preservar/paridade/migrar" significam *reproduzir futuramente comportamento/regra/UX/formato numa implementação limpa*. O futuro README referenciará somente esta especificação. O diretório `.token-optimizer/`, presente no repositório, é **tooling auxiliar deliberadamente versionado** — não é lixo nem corrupção; regras na §12.3.
 
 **Legenda de evidência:** [CÓD] confirmado no código legado · [CALC] cálculo independente · [TESTE] teste automatizado legado · [INF] inferência · [N/C] não confirmado.
 
@@ -22,7 +22,7 @@
 | 3 | Snapshot de protocol-analysis | Preserva `displayWindow`, `calculationWindow` e `displayPoints` por série + métricas/labels/cores ⇒ VISUALIZAR desenha sem executar engine |
 | 4 | Procedência de dados do usuário | `ProfileOrigin` discriminada: legacy/literature/user_defined, com reviewStatus coerentes (`not_applicable` p/ user) |
 | 5 | Cutoff e Tmax instantâneo | `effectiveTmaxMs = selected.tmaxMs ?? 0` explícito na fórmula |
-| 6 | Justificativa do cutoff 40 T½ | Deixa de citar 0,5⁴⁰ isoladamente; validade garantida por property tests (ka>ke, ka<ke, ka≈ke) contra `CUTOFF_TOLERANCE` |
+| 6 | Cutoff anterior de 40 T½ — **regra obsoleta**; vigente é 44 T½ (§4) | Deixa de citar 0,5⁴⁰ isoladamente; validade garantida por property tests (ka>ke, ka<ke, ka≈ke) contra `CUTOFF_TOLERANCE` |
 | 7 | Source discriminada no Scenario | Fim de campos opcionais independentes; library exige refs+snapshot; custom é autossuficiente |
 | 8 | Checklist factual | Passa a dizer que apenas documentação foi modificada/commitada; nunca “nenhum commit ocorreu” |
 | 9 | Performance | Metas absolutas viram BENCHMARK TARGETS calibrados em E13; CI usa regressão relativa/budgets estruturais até lá |
@@ -421,7 +421,7 @@ Entidades internas: **19** (15 singles selecionáveis + 3 ésteres `componentOnl
 
 `TmaxSpecification`: unknown (pedir valor) / instant (tmaxMs=null) / value (converter) / range (escolha explícita validada pós-normalização). Faixas exibem fonte e exigem seleção nos CTAs; doses jamais preenchidas automaticamente. `bioavailability` exibido como metadado (“não aplicado no modelo — F relativo = 1”).
 
-Tabela legada normalizada (dias; ver v-repositório de auditoria para cores hex legais que compõem `LEGACY_COLORS`):
+Tabela legada normalizada (unidades em dias; cores normativas definidas abaixo):
 
 | Seletor (16 visíveis) | kind | éster/formulação | T½ d | Tmax d |
 |---|---|---|---|---|
@@ -514,9 +514,14 @@ Histórico: FIFO 500; imutável; gravação só por ação explícita; budget de
 # 12. Estrutura final de pastas (ESPECIFICAÇÃO)
 
 ```
-farmacologico/
-├─ package.json
-├─ app.config.ts                  # FONTE ÚNICA {basePath, productName} → vite/PWA/runtime
+farmacologico/                     # raiz do repo Masselorc/farmacologico
+├─ .token-optimizer/               # EXISTE HOJE — tooling versionado; fora do runtime/bundle/dist/precache (§12.3)
+├─ FARMakit-especificacao-final.md # EXISTE HOJE — FONTE NORMATIVA
+├─ README.md                       # EXISTE HOJE (placeholder) — substituído na E14
+├─ docs/
+│  └─ DIARIO-DE-BORDO.md           # CRIAR NA E1 — histórico factual da implementação (regras na §12.2)
+├─ package.json                     # futuro
+├─ app.config.ts                    # futuro — FONTE ÚNICA {basePath, productName} → vite/PWA/runtime
 ├─ vite.config.ts                 # consome app.config.ts; VitePWA({manifest:{...}}) GERADO
 ├─ tsconfig.json / eslint.config.js
 ├─ index.html                     # CSP meta + root
@@ -559,6 +564,52 @@ farmacologico/
    ├─ styles/tokens.css
    └─ tests/{domain/**/*.test.ts,types/**/*.test-d.ts,e2e/*.spec.ts,perf/*.bench.ts}
 ```
+
+*Nota: a árvore mistura artefatos que **já existem** (`.token-optimizer/`, este documento, `README.md`) e os que serão criados durante a implementação (marcados "futuro"/"CRIAR NA E1").*
+
+## 12.1 Hierarquia documental e regra de divergência
+
+| Artefato | Papel |
+|---|---|
+| `FARMakit-especificacao-final.md` | **FONTE NORMATIVA** — contrato de arquitetura e comportamento |
+| `docs/DIARIO-DE-BORDO.md` | Histórico factual da implementação (o que foi feito, descoberto, testado ou alterado) |
+| `.token-optimizer/` | Tooling de desenvolvimento auxiliar — versionado |
+| `README.md` | Documentação pública/operacional futura |
+
+Em divergência entre código, diário e especificação, a **especificação prevalece**, salvo alteração formal aprovada. Divergir durante a implementação **nunca é silencioso**: (1) identificar a divergência; (2) registrar no diário; (3) explicar a razão; (4) explicar o impacto; (5) marcar **DECISÃO PENDENTE** quando exigir aprovação do proprietário; (6) nunca redefinir unilateralmente decisões congeladas (§18).
+
+## 12.2 Diário de bordo (`docs/DIARIO-DE-BORDO.md`)
+
+Criado na **E1**. Append-only durante o desenvolvimento; factual; cronológico; conciso; legível por humanos e agentes. **Não substitui a especificação.**
+
+Entrada obrigatória ao concluir cada etapa E1–E15 e sempre que ocorrer: decisão arquitetural relevante · desvio da especificação · bug importante · falha relevante de teste · alteração de schema/storage/migration · mudança de dependência ou de comportamento · decisão que afete compatibilidade · descoberta relevante.
+
+Template:
+```markdown
+## YYYY-MM-DD — E? — Título
+### Objetivo
+### Alterações realizadas
+### Arquivos principais
+### Decisões tomadas
+### Validações executadas
+- comando: PASS/FAIL
+### Problemas encontrados
+### Solução adotada
+### Pendências
+### Commit
+```
+
+Proibido registrar: chain of thought/raciocínio privado do modelo; dumps enormes de terminal; diffs completos; conteúdo integral de arquivos; tokens consumidos; credenciais/API keys/secrets/dados sensíveis.
+
+Primeira entrada (E1): início da implementação greenfield; commit/base inicial; estado inicial do repositório; criação do scaffold; decisões de E1; resultados do gate CSP×Chart.js; resultados de typecheck/test/build.
+
+## 12.3 `.token-optimizer/` — tooling versionado (FORA do produto)
+
+Deliberadamente mantido no repositório. Regras: **NÃO remover · NÃO adicionar ao `.gitignore` · NÃO limpar automaticamente · NÃO tratar como temporário descartável · NÃO interpretar sua presença como corrupção do projeto.**
+
+Classificação: **TOOLING DE DESENVOLVIMENTO** (usado por tooling/Codex/Token Optimizer; pode conter artefatos técnicos/telemetria da ferramenta). NÃO integra: runtime da FARMakit · bundle da aplicação · PWA · dataset · storage do usuário · código de domínio. Não contém dados funcionais do produto. Sua presença não deve interferir em npm, Vite, TypeScript, testes, CI ou deploy.
+
+Validação de build (critério de aceite): permanece no repositório; **não aparece em `dist/`**; nenhum arquivo seu é solicitado em runtime; nada entra no precache do PWA. Como fica fora de `src/` e `public/`, o Vite já o ignora naturalmente — adicionar apenas um assert/verificação de build equivalente, sem configuração especial.
 
 ---
 
@@ -617,7 +668,7 @@ Metas iniciais (calibrar em E13): materialização ano×200 protocolos ≤50 ms;
 - **Segurança/CSP:** spike E1 aprovado (zero violações); paleta fechada; zero requisições externas runtime.
 - **Build/config:** app.config.ts único alimenta Vite+manifest/SW+runtime (assert de artefatos).
 - **Performance:** benchmarks calibrados em E13 com ambiente registrado; CI usa regressão relativa até lá; propriedades estruturais (janela, sampling) sempre ativas.
-- **Release V1:** E10A + endurecimento + critérios obrigatórios + **README real substituindo o placeholder**, contendo visão geral, aviso educacional, arquitetura resumida, módulos, setup/comandos, testes, build/deploy, PWA, privacidade, persistência opt-in, estrutura do domínio, engineVersion/datasetVersion, política de dados científicos, migração das apps legadas, limitações científicas, status das ferramentas antigas e URL pública — **referenciando somente esta especificação como fonte arquitetural**.
+- **Release V1:** E10A + endurecimento + critérios obrigatórios + **README real substituindo o placeholder**, contendo visão geral, aviso educacional, arquitetura resumida, módulos, setup/comandos, testes, build/deploy, PWA, privacidade, persistência opt-in, estrutura do domínio, engineVersion/datasetVersion, política de dados científicos, migração das apps legadas, limitações científicas, status das ferramentas antigas e URL pública — **referenciando somente esta especificação como fonte arquitetural**; incluir ainda as seções **“Estrutura do projeto”** (`FARMakit-especificacao-final.md` = contrato normativo · `docs/DIARIO-DE-BORDO.md` = histórico da implementação · `.token-optimizer/` = tooling auxiliar versionado, fora do runtime/deploy · `src/` = aplicação · `dist/` = artefato de build) e **“Ferramentas de desenvolvimento”** (`.token-optimizer/` deliberadamente versionado, usado por tooling/Codex/Token Optimizer, sem dados funcionais do produto e sem entrar no bundle).
 
 ---
 
@@ -626,7 +677,7 @@ Metas iniciais (calibrar em E13): materialização ano×200 protocolos ≤50 ms;
 | Etapa | Objetivo | Notas |
 |---|---|---|
 | E0 Confirmações de deploy | slug/nome/Pages | Não bloqueia desenvolvimento |
-| E1 Scaffold + gate CSP×Chart.js | app.config.ts único; CSP meta; PWA(prompt, manifest gerado); tokens/paleta; spike obrigatório | Zero violações |
+| E1 Scaffold + infraestrutura + gate CSP×Chart.js | app.config.ts único; CSP meta; PWA(prompt, manifest gerado); tokens/paleta; spike obrigatório; **criar `docs/DIARIO-DE-BORDO.md` com a 1ª entrada** (início greenfield, base inicial, estado do repo, scaffold, decisões, gate CSP, typecheck/test/build); reconhecer `.token-optimizer/` como tooling versionado e validar exclusão do build; **NÃO adicioná-lo ao `.gitignore`** | Zero violações CSP + diário iniciado + build sem tooling |
 | E2 Unidades/tempo/decimal | ms/mg; Temporal+DST(GAP/OVERLAP c/ fixtures); parseLocaleDecimal | Polyfill bundled |
 | E3 Motores | pk(+cutoff c/ effectiveTmaxMs), recurrence(janela), reconstitution, simulation(windows+assemble N-inputs+historyView) | NUMERIC_FAILURE |
 | E4 Gate de testes matemáticos | equação-solver; lookback=cutoff (assert `CONTRIBUTION_CUTOFF_HALF_LIVES===44` + caso degênero explícito); blend 3 inputs; marcos; cutoff property 4 casos (3 regiões + Tmax instantâneo); bordas seringa | Antes de qualquer UI |
@@ -639,7 +690,7 @@ Metas iniciais (calibrar em E13): materialização ano×200 protocolos ≤50 ms;
 | E11 Protocolos | entidade canônica; calendário multi-fuso; chips lookback; drag/teclado; KineticChart; Desfazer | CalculationWindow |
 | E12 E10A Histórico+integrações | Ver/Reabrir/Recalcular; CTAs; export/import; versionamentos; restauração visual do Comparador | Bloqueia release |
 | E13 Endurecimento + **benchmark** | a11y real; **calibrar benchmarks (ambiente registrado) e congelar budgets**; PWA polish | Hard gates só pós-calibração |
-| E14 Release docs | **README real** (referencia somente esta spec) + changelog + URL pública | Após E0/E13 |
+| E14 Release docs | **README real** (referencia somente esta spec) + changelog + URL pública; incluir seções “Estrutura do projeto” (especificação=contrato · diário=histórico · `.token-optimizer/`=tooling auxiliar versionado, fora do runtime/deploy · `src/`=aplicação · `dist/`=artefato de build) e “Ferramentas de desenvolvimento” (.token-optimizer/Codex/Token Optimizer) | Após E0/E13 |
 | E15 E10B (pós-release) | share URL; favoritos avançados; tabela consolidada; zoom/pan; PNG; duplicação; filtros | Não bloqueia V1 |
 
 Transição das URLs antigas (fases): F1 publicar mantendo apps antigas → F2 banners “Esta ferramenta foi incorporada ao FARMakit.” + link por módulo → F3 coexistência/validação → F4 redirecionamento quando tecnicamente apropriado (GH Pages não tem redirect de servidor: página legada mínima com link/location.replace) ou página legada mínima.
@@ -676,6 +727,8 @@ E0 confirmações de deploy (não bloqueia) → E1 scaffold+spike CSP → E2 uni
 
 # 18. Decisões congeladas (vinculantes)
 
+**Declaração de congelamento:** NÃO devem ser feitas novas mudanças arquiteturais preventivas antes da implementação. As decisões desta seção só podem ser alteradas durante a implementação se houver: falha comprovada; contradição concreta; teste demonstrando problema; impossibilidade técnica real; ou decisão explícita do proprietário. Não reabrir arquitetura por preferência do agente.
+
 1. **Esta especificação é a ÚNICA fonte normativa; v2/v3/v4 anteriores são apenas histórico de auditoria** e não devem ser consultadas para preencher requisitos.
 2. Greenfield em `Masselorc/farmacologico`; apps antigas = referências externas/fontes de formato; stack React+TS+Vite; GitHub Pages V1; sem backend.
 3. Persistência de dados do usuário opt-in; “zero persistência” = dados do usuário; caches técnicos à parte; desativar não cria quarentena.
@@ -701,6 +754,8 @@ E0 confirmações de deploy (não bloqueia) → E1 scaffold+spike CSP → E2 uni
 23. Mobile-first; viewports fixos; WCAG 2.2 AA com verificação real; testes matemáticos antes de UI; E10B não bloqueia release; **README real referencia somente a especificação vigente**.
 24. Pendências de nome/slug/Pages NÃO bloqueiam desenvolvimento — apenas deploy/publicação.
 25. Renomear produto é cosmético; renomear conceitos de domínio exige atualização desta spec.
+26. **Hierarquia documental:** especificação (normativa) → `docs/DIARIO-DE-BORDO.md` (factual, append-only, criado na E1) → `.token-optimizer/` (tooling versionado) → `README.md` (público futuro). Divergências da especificação nunca são silenciosas: registrar no diário, justificar, medir impacto e marcar DECISÃO PENDENTE quando exigirem aprovação.
+27. **`.token-optimizer/` é TOOLING DE DESENVOLVIMENTO deliberadamente versionado** — proibido remover, gitignore, auto-limpar ou tratar como descartável; validação de build confirma sua ausência em `dist/`, em runtime e no precache do PWA.
 
 ---
 
@@ -713,6 +768,32 @@ E0 confirmações de deploy (não bloqueia) → E1 scaffold+spike CSP → E2 uni
 ---
 
 # 20. Checklist final
+
+**Ajuste documental final (tooling · diário · congelamento):**
+[ ] frase residual da §9 sobre auditoria de cores removida — ✔ §9
+[ ] tabela de cores continua autossuficiente — ✔ §9
+[ ] `.token-optimizer/` explicitamente reconhecido como tooling versionado — ✔ cabeçalho/§12.3/§18.27
+[ ] `.token-optimizer/` NÃO deve ser removido — ✔ §12.3/§18.27
+[ ] `.token-optimizer/` NÃO deve entrar no .gitignore — ✔ §12.3/§15(E1)
+[ ] `.token-optimizer/` não integra runtime — ✔ §12.3
+[ ] `.token-optimizer/` não integra dist/ — ✔ critério de aceite §12.3
+[ ] `.token-optimizer/` não integra precache PWA — ✔ critério de aceite §12.3
+[ ] `docs/DIARIO-DE-BORDO.md` previsto — ✔ §12.2/árvore §12
+[ ] diário criado na E1 — ✔ previsto §15(E1); execução futura
+[ ] diário é append-only — ✔ §12.2
+[ ] diário registra cada etapa E1–E15 — ✔ §12.2
+[ ] diário registra decisões/desvios relevantes — ✔ §12.2
+[ ] diário não contém chain of thought — ✔ §12.2 (proibições)
+[ ] diário não contém secrets — ✔ §12.2 (proibições)
+[ ] hierarquia documental está definida — ✔ §12.1
+[ ] especificação permanece fonte normativa — ✔ cabeçalho/§12.1/§18.1
+[ ] desvios da spec não podem ser silenciosos — ✔ §12.1/§18.26
+[ ] README futuro documentará Token Optimizer — ✔ §14/E14
+[ ] README futuro documentará diário de bordo — ✔ §14/E14
+[ ] cutoff normativo continua em 44 — ✔ §4/§6/§18.15
+[ ] menções históricas a 40 estão claramente marcadas como obsoletas — ✔ §1 linha 6 (“regra obsoleta; vigente é 44”)
+[ ] arquitetura está congelada para início da implementação — ✔ declaração §18
+[ ] nenhuma implementação foi iniciada nesta tarefa — ✔ somente edição documental
 
 **Microcorreção documental final:**
 [ ] CONTRIBUTION_CUTOFF_HALF_LIVES definido como 44 — ✔ §4/§6/§18.15
