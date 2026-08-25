@@ -30,6 +30,17 @@
 | 11 | README futuro | Referencia somente a especificação vigente (versões antigas = histórico) |
 | 12 | Declaração de status | “PRONTA PARA IMPLEMENTAÇÃO”; pendência restrita a deploy |
 
+## Adendo normativo — microcorreção documental final
+
+| # | Correção | Decisão |
+|---|---|---|
+| A1 | Cutoff farmacocinético | `CONTRIBUTION_CUTOFF_HALF_LIVES = 44` — 40 violava `CUTOFF_TOLERANCE` no caso degênero ka≈ke |
+| A2 | Cores legadas autossuficientes | Tabela completa de hexes embutida na §9 (validada contra o `commonDrugs` real); `LEGACY_COLORS` implementável somente com este documento |
+| A3 | Snapshot visual do Comparador | `ChartViewSnapshot` no registro `pharmacokinetics`; política visual uniforme entre módulos |
+| A4 | Testes/checklist | Casos cutoff/cores/histórico visual adicionados (§13/§14/§20) |
+
+Nota: as tabelas históricas acima são informativas; os requisitos normativos residem exclusivamente nas seções 2–20 desta versão.
+
 ---
 
 # 2. Visão final do produto
@@ -89,12 +100,13 @@ Convenção global: internamente **ms** e **mg**; IEEE-754 duplo; **arredondamen
 - Depósito `dose·e^(−ka·Δt)` (ka≠null); eliminado `max(0, adm−central−depósito)`; superposição linear; conservação ≤ CONSERVATION_RTOL.
 - **Cutoff/lookback — política ÚNICA:**
   ```
+  const CONTRIBUTION_CUTOFF_HALF_LIVES = 44;
   effectiveTmaxMs = selected.tmaxMs ?? 0          // null (instantânea) ⇒ 0, SEM coerção implícita
-  cutoffAgeFor(selected) = max(40·T½term + effectiveTmaxMs,
+  cutoffAgeFor(selected) = max(44·T½term + effectiveTmaxMs,
                                effectiveTmaxMs + 86_400_000)
   requiredPkLookback(params[]) = maxᵢ cutoffAgeFor(paramsᵢ)   // mesma função
   ```
-  **Justificativa (substitui a argumentação anterior por 0,5⁴⁰):** 40 meias-vidas terminais é um **cutoff numérico conservador inicial**. Sua adequação é garantida por **testes de propriedade no domínio suportado**, cobrindo ka>ke, ka<ke e ka≈ke (caso degênero possui fator temporal multiplicativo `k·t·e^(−kt)` e não é coberto por exponencial simples), verificando que a contribuição descartada permaneça abaixo de `CUTOFF_TOLERANCE`. O número 40 mantém-se apenas enquanto os testes confirmarem a condição; caso contrário, eleva-se a constante. Propriedade de aceite: ∀parâmetros suportados, `contributionBeyondCutoff < CUTOFF_TOLERANCE × dose`.
+  **Justificativa:** o valor 44 foi dimensionado para atender `CUTOFF_TOLERANCE=1e-12` **inclusive no caso numericamente crítico ka≈ke**, cuja curva degenerada é `A(t)/dose = k·t·e^(−k·t)` (fator temporal multiplicativo — a exponencial simples `0,5⁴⁴≈5,7×10⁻¹⁴` NÃO é usada como justificativa isolada). No pior caso válido (`Tmax=1/k`; idade no corte = `effectiveTmaxMs + 44·T½term`): `k·t = 1 + 44·ln2` ⇒ `A/dose ≈ 6,6×10⁻¹³ < 10⁻¹²` [CALC]. O valor anterior (40) produzia ≈9,6×10⁻¹² > 10⁻¹² e violava a própria propriedade — por isso a constante foi elevada. **Prioridade: manter a tolerância declarada e elevar o cutoff quando necessário; nunca reduzir a tolerância para preservar uma constante.** Propriedades obrigatórias (§13): ∀domínio suportado (ka>ke, ka<ke, ka≈ke com Tmax=1/k, Tmax instantâneo), `contributionBeyondCutoff < CUTOFF_TOLERANCE × dose`; se futuros property tests mostrarem 44 insuficiente em alguma região válida, eleva-se a constante.
 - **Janelas:** `DisplayWindow` (visível) e `CalculationWindow{start=displayStart−requiredPkLookback(...), end=displayEnd}`. Fluxo: DisplayWindow → lookback (blends = máximo entre componentes) → CalculationWindow → `generateOccurrences(schedule, calcStart, calcEnd)` → SimulationInput[] → PK Engine → recorte/apresentação na DisplayWindow.
 - Análise: taxa terminal `min(ke,ka)`; horizonte `lastDose+max(10,5·T½term, 2·Tmax, 2·T½)`; amostragem de análise default 1600 intervalos + pontos em cada dose e `dose+tmax`; pico (varredura+ternária 80); marcos `[50,25,12.5,10,5,1,0.1]%` (varredura reversa+bisseção 80; null⇒warning). Invariantes dos marcos: `targetMg≤peak.amountMg`; `timeMs ≥ peak.timeMs − MILESTONE_TIME_ABS_TOL`; tempos não decrescentes com % decrescentes; `targetMg=peak·pct/100` rtol 1e-12.
 - Ciência × pixels: resultados derivam de `analysisCurve`/pontos críticos; `sampleForDisplay(analysisCurve, constraints)→DisplayPoint[]` é **geometria pura** (roda sobre snapshots sem executar PK Engine) e apenas reamostra.
@@ -253,7 +265,7 @@ interface SimulationInput{ halfLifeMs:number; tmaxMs:number|null; doses:Simulati
 interface SimulationMetadata{ pkEngineVersion:string;
   kePerMs:number; kaPerMs:number|null; terminalHalfLifeMs:number;
   horizonEndMs:number; analysisCurveSteps:number;
-  contributionCutoffHalfLives:40; contributionCutoffAgeMs:number }
+  contributionCutoffHalfLives:44; contributionCutoffAgeMs:number }
 interface SimulationOutput{ currentState:{ administeredMg:number; centralMg:number; depotMg:number;
     eliminatedMg:number; administeredCount:number; plannedCount:number;
     centralPercent:number; depotPercent:number; eliminatedPercent:number };
@@ -301,6 +313,7 @@ type CalculationRecord = CalculationRecordBase & (
   | { type:'pharmacokinetics';
       versions:{pkEngineVersion:string; recurrenceEngineVersion?:string; datasetVersion:number};
       input:SimulationInput;
+      chartViewSnapshot:ChartViewSnapshot;   // estado visual salvo p/ VISUALIZAR sem executar engine
       resultSnapshot:Pick<SimulationOutput,'currentState'|'analysisCurve'|'peak'|'milestones'|'warnings'|'metadata'> }
   | { type:'reconstitution';
       versions:{reconstitutionEngineVersion:string; datasetVersion:number};
@@ -313,6 +326,13 @@ type CalculationRecord = CalculationRecordBase & (
       protocolsSnapshot:Protocol[] }                        // p/ REABRIR com contexto
 );
 interface ProtocolAnalysisVersions{ pkEngineVersion:string; recurrenceEngineVersion:string; datasetVersion:number }
+
+type ChartScaleMode='absolute'|'normalized';
+type ChartYAxisMode='linear'|'log';
+interface ChartViewSnapshot{ displayWindow:DisplayWindow; scaleMode:ChartScaleMode;
+  yAxisMode:ChartYAxisMode;
+  displayPointsByScenario:Array<{ scenarioId:string; label:string;
+    color:PaletteColorId; points:DisplayPoint[] }> }
 
 // ── Persistência (estado do USUÁRIO; sem dataset oficial; sem consentimento restaurável) ──
 interface AppSettings{ theme:'system'|'light'|'dark'; calendarTimeZone:TimeZoneId;
@@ -371,7 +391,7 @@ Nenhuma feature calcula lookback próprio.
 
 **Recurrence (`domain/recurrence`):** `generateOccurrences(scheduleShape, rangeStartMs, rangeEndMs)`; `shiftSchedule(schedule, deltaDays)`; `validateRecurrence(r)`.
 
-**Cola (`domain/simulation`):** `assembleScenarioInputs(scenario, nowMs)`; `assembleProtocolInputs(protocol, occurrences): SimulationInput[]` (UM POR COMPONENTE; deriva dose por proporção; proibidas médias); `derivePhaseHint(...)` heurística; orquestração de análise de protocolos monta `ProtocolAnalysisSnapshot` (usa `sampleForDisplay`) e registra `ProtocolAnalysisVersions`.
+**Cola (`domain/simulation`):** `assembleScenarioInputs(scenario, nowMs)`; `assembleProtocolInputs(protocol, occurrences): SimulationInput[]` (UM POR COMPONENTE; deriva dose por proporção; proibidas médias); `derivePhaseHint(...)` heurística; orquestração de análise de protocolos monta `ProtocolAnalysisSnapshot` (usa `sampleForDisplay`) e registra `ProtocolAnalysisVersions`; a análise do Comparador monta analogicamente o `ChartViewSnapshot` (janela, modos e pontos da visualização salva) no registro histórico.
 
 Casos explícitos: ka>ke; ka<ke (flip-flop+warning); ka≈ke (degênero+warning); Tmax=0; extremos (`EXTREME_PARAMETERS`/`NUMERIC_FAILURE`). Invariantes: conservação; superposição; clamp finito; marcos (§4); horizonte 10,5; cutoff validado por propriedade nas três regiões; determinismo intra-plataforma.
 
@@ -425,7 +445,31 @@ Tabela legada normalizada (dias; ver v-repositório de auditoria para cores hex 
 | Dianabol | single | oral | 0,2 | 0,1 |
 | Clembuterol | single | — | 1,5 | 0,15 |
 
-*(Nota: a lista completa dos 16 hexes legados está definida no dataset `legacy.dataset.ts` a ser criado na implementação, copiada literalmente do `commonDrugs` auditado — valores registrados na auditoria original; nenhuma cor nova é inventada aqui.)*
+**Cores legadas — valores NORMATIVOS (copiados literalmente do `commonDrugs` do HormoTracker; validados contra o código em 25/08/2026; nenhuma cor inventada):**
+
+| Entidade legada | Hex |
+|---|---|
+| Retatrutida | #9b59b6 |
+| Durateston LANDERGOLD (Blend) | #27ae60 |
+| LANDERGOLD — Propionato (0,2) | #1abc9c |
+| LANDERGOLD — Fenilpropionato (0,4) | #2ecc71 |
+| LANDERGOLD — Isocaproato (0,4) | #27ae60 |
+| Enantato de Testosterona | #2ecc71 |
+| Enantato de Trembolona | #e74c3c |
+| Enantato de Masteron | #3498db |
+| Cipionato de Testosterona | #27ae60 |
+| Propionato de Testosterona | #1abc9c |
+| Decanoato de Nandrolona (Deca) | #f1c40f |
+| Acetato de Trembolona | #c0392b |
+| Undecanoato de Testosterona | #2c3e50 |
+| Primobolan (Enantato) | #8e44ad |
+| Boldenona (Undecilenato) | #e67e22 |
+| Oxandrolona (Oral) | #d35400 |
+| Hemogenin (Oral) | #ff7979 |
+| Dianabol (Oral) | #f39c12 |
+| Clembuterol | #ff9f43 |
+
+`LEGACY_COLORS` = conjunto distinto desses hexes: {#9b59b6, #27ae60, #1abc9c, #2ecc71, #e74c3c, #3498db, #f1c40f, #c0392b, #2c3e50, #8e44ad, #e67e22, #d35400, #ff7979, #f39c12, #ff9f43} — 15 cores (repetições contam uma vez). O fallback padrão do legado (`#3498db`) já pertence ao conjunto. `PALETTE_ALLOWED = PALETTE_MODERN ∪ LEGACY_COLORS` permanece a definição vigente; cores legadas servem à compatibilidade/migração e não precisam aparecer como recomendações da UI moderna. **Esta tabela esgota o necessário para implementar cores: nenhum valor depende de auditoria, commit ou documento anterior.**
 
 ---
 
@@ -434,7 +478,7 @@ Tabela legada normalizada (dias; ver v-repositório de auditoria para cores hex 
 Abas fixas; transições pré-preenchem parâmetros/datas, nunca doses; faixas exigem seleção explícita.
 
 **Histórico — três ações (todos os módulos):**
-- **VISUALIZAR:** renderiza do snapshot preservado — comparador usa `resultSnapshot.analysisCurve` + `sampleForDisplay` (geometria pura); protocol-analysis usa `snapshot.series[].displayPoints` — **em ambos os casos NÃO executa PK Engine, não depende do dataset atual nem de engine antigo**.
+- **VISUALIZAR:** renderiza do snapshot preservado — Comparador usa `resultSnapshot.analysisCurve` **+ `chartViewSnapshot` (janela, escala e eixo salvos)** via `sampleForDisplay` (geometria pura); Protocolos usa `snapshot.series[].displayPoints` — **em ambos os casos reproduz fielmente a apresentação salva, NÃO executa PK Engine, não depende do dataset atual nem de engine antigo**.
 - **REABRIR:** carrega `input`s/snapshots para inspeção/edição (rascunho; não cria registro).
 - **RECALCULAR:** engine atual ⇒ NOVO registro; original intacto. Divergência: “Este resultado foi calculado com pk@X. Recalcular utilizará pk@Y e criará um novo registro.”
 - Engines antigos executáveis FORA DA V1. Frase oficial: “histórico rastreável e preservado por snapshot”.
@@ -526,7 +570,8 @@ Convenção: tolerâncias da seção 4; proibido igualdade bit-a-bit/exato/diff-
 - **Solver pela equação:** recomposição com TMAX_RECOMPOSITION_RTOL ∀(T½,Tmax) válidos; **oráculo estável perto de ka≈ke avaliado em espaço-y (`y/expm1(y)`+Taylor), nunca ln(ka/ke)/(ka−ke) cru**; âncoras rtol 1e-4 (6d/2d⇒1,34159; ka=0,36 dia⁻¹⇒4,649224 d); paridade meiavida 24 h/4 h.
 - Ramos: Tmax=0; degênero; flip-flop+warning; extremos: NaN/∞ inesperado ⇒ NUMERIC_FAILURE; underflow documentado ⇒ 0.
 - Bateman/estado: 50%@1T½; pico@Tmax; conservação; clamp; percentuais zerados; futuras fora do estado.
-- **Lookback/cutoff:** `requiredPkLookback ≡ max cutoffAgeFor`; `effectiveTmaxMs = tmaxMs ?? 0` (**Tmax instantâneo ⇒ 0 ⇒ cutoff calculado corretamente**); janela de cálculo com T½ longa; **dose anterior à DisplayWindow altera o primeiro ponto exibido**; blend ⇒ máximo entre componentes.
+- **Lookback/cutoff:** assert `CONTRIBUTION_CUTOFF_HALF_LIVES === 44`; `requiredPkLookback ≡ max cutoffAgeFor`; `effectiveTmaxMs = tmaxMs ?? 0` (**Tmax instantâneo ⇒ 0 ⇒ cutoff calculado corretamente**); janela de cálculo com T½ longa; **dose anterior à DisplayWindow altera o primeiro ponto exibido**; blend ⇒ máximo entre componentes.
+- **Dataset/cores legadas:** cada preset/componente da tabela da §9 possui exatamente o hex especificado; componentes do LANDERGOLD com cores corretas; `LEGACY_COLORS` derivável somente deste documento (golden test sem dependência externa).
 - **Cutoff property:** ka>ke, ka<ke, ka≈ke ⇒ contribuição além do cutoff `< CUTOFF_TOLERANCE×dose`.
 - Análise: horizonte 10,5; invariantes dos marcos; 0,1% ∈ 9,9–10,1 T½; truncamento < AMOUNT_RTOL.
 - **Blend:** 3 componentes ⇒ 3 SimulationInputs; dose derivada; Σ proporções=1; snapshot pertence ao componente (reordenação não troca associação).
@@ -539,10 +584,10 @@ Convenção: tolerâncias da seção 4; proibido igualdade bit-a-bit/exato/diff-
 - Schemas×LIMITS fronteiras; boundsFromLimits sincronizado.
 
 ## Propriedade (fast-check)
-Monotonicidades da reconstituição; superposição comutativa; identidade do solver ampla (incl. vizinhança degênero, oráculo y-space); **cutoff: contribuição além do corte < CUTOFF_TOLERANCE nas três regiões cinéticas**; marcos ordenados; contagem de ocorrências ∝ janela de cálculo.
+Monotonicidades da reconstituição; superposição comutativa; identidade do solver ampla (incl. vizinhança degênero, oráculo y-space); **cutoff: contribuição além do corte < CUTOFF_TOLERANCE×dose para ka>ke, ka<ke, ka≈ke (caso degênero explícito, com Tmax=1/k) e Tmax instantâneo**; marcos ordenados; contagem de ocorrências ∝ janela de cálculo.
 
 ## Integração
-Formulário⇄zod⇄analyze; Registrar-dose; consent on/off (desligar=export opcional+confirmação+apagar, sem quarentena); export Config vs FullBackup; import sem consentimento restaurado; caps; IDB failure simulado; quarentena >5 poda notificando; SW prompt-banner; **história: snapshot antigo intacto; VISUALIZAR produz o mesmo gráfico SEM executar PK Engine (mesmo com engine removido/substituído); RECALCULAR cria novo registro**; FullBackup renderiza histórico sem dataset atual; migração: assumedTimeZone + colorRemaps registrados; blend refs íntegras; totalDose≤0 ⇒ quarentena/report.
+Formulário⇄zod⇄analyze; Registrar-dose; consent on/off (desligar=export opcional+confirmação+apagar, sem quarentena); export Config vs FullBackup; import sem consentimento restaurado; caps; IDB failure simulado; quarentena >5 poda notificando; SW prompt-banner; **história: snapshot antigo intacto; VISUALIZAR produz o mesmo gráfico SEM executar PK Engine (mesmo com engine removido/substituído); RECALCULAR cria novo registro**; **Comparador: salvar em modo normalizado + escala log + DisplayWindow específica ⇒ VISUALIZAR preserva janela, modo, escala e pontos sem executar engine**; FullBackup renderiza histórico sem dataset atual; migração: assumedTimeZone + colorRemaps registrados; blend refs íntegras; totalDose≤0 ⇒ quarentena/report.
 
 ## E2E (Playwright, viewports 320–1440)
 Fluxos felizes/erro dos 3 módulos; mover por teclado e drag; Desfazer; foco-no-gráfico; Biblioteca→destinos c/ seleção de faixa; offline reload; update banner; console sem violações CSP no build produção.
@@ -560,11 +605,11 @@ Metas iniciais (calibrar em E13): materialização ano×200 protocolos ≤50 ms;
 
 # 14. Critérios de aceite
 
-- **Biblioteca:** 19 entidades internas/16 visíveis; badges por origem honestos (inclui “criado por você”); faixas exigem seleção; CTAs não preenchem doses.
+- **Biblioteca:** 19 entidades internas/16 visíveis; badges por origem honestos (inclui “criado por você”); faixas exigem seleção; CTAs não preenchem doses; **cores legadas conforme tabela da §9, sem dependência de documento externo**.
 - **Meia-vida:** 6d/2d aceito (ka≈1,3416/d rtol 1e-3); flip-flop avisado; eixo-X datado; marcos paridade dentro de MILESTONE_TIME_ABS_TOL; log c/ clipping informado.
 - **Reconstituição:** âncora 250 mcg exata nas tolerâncias; 3000 mcg ⇒ 120/240 U c/ mensagem neutra; 6000 mcg ⇒ bloqueio; bordas de graduação 9/10 U; salvar-no-histórico explícito.
 - **Protocolos:** golden de datas; blend canônico 3 componentes; mover/rotacionar; Desfazer; chips c/ lookback e filtro <0,01 mg; geração ∝ CalculationWindow (instrumentação); fusos distintos no dia correto.
-- **Histórico:** Ver produz o mesmo gráfico **sem executar engine** (teste com engine removido/stubado); Reabrir traz inputs; Recalcular cria novo registro com aviso de versão; versões corretas por motor; recon só por botão.
+- **Histórico:** Ver produz o mesmo gráfico **sem executar engine** (teste com engine removido/stubado); Reabrir traz inputs; Recalcular cria novo registro com aviso de versão; versões corretas por motor; recon só por botão; **Comparador restaura janela/escala/eixo do `chartViewSnapshot` sem engine**.
 - **Persistência:** zero escrita de dados do usuário sem consentimento; corrupção⇒quarentena≤5; desligar sem quarentena oculta; FullBackup visualiza histórico sem dataset; import não liga persistência.
 - **Migração:** fixtures verdes; assumedTimeZone+colorRemaps no relatório; nenhum protocolo perdido por cor; idempotente; originais intactos.
 - **PWA/manifest:** artefato buildado contém base/scope/start_url derivados de app.config.ts; **nenhum segundo manifest**; instalável/offline; atualização via banner.
@@ -584,15 +629,15 @@ Metas iniciais (calibrar em E13): materialização ano×200 protocolos ≤50 ms;
 | E1 Scaffold + gate CSP×Chart.js | app.config.ts único; CSP meta; PWA(prompt, manifest gerado); tokens/paleta; spike obrigatório | Zero violações |
 | E2 Unidades/tempo/decimal | ms/mg; Temporal+DST(GAP/OVERLAP c/ fixtures); parseLocaleDecimal | Polyfill bundled |
 | E3 Motores | pk(+cutoff c/ effectiveTmaxMs), recurrence(janela), reconstitution, simulation(windows+assemble N-inputs+historyView) | NUMERIC_FAILURE |
-| E4 Gate de testes matemáticos | equação-solver; lookback=cutoff; blend 3 inputs; marcos; cutoff property 3 regiões; bordas seringa | Antes de qualquer UI |
+| E4 Gate de testes matemáticos | equação-solver; lookback=cutoff (assert `CONTRIBUTION_CUTOFF_HALF_LIVES===44` + caso degênero explícito); blend 3 inputs; marcos; cutoff property 4 casos (3 regiões + Tmax instantâneo); bordas seringa | Antes de qualquer UI |
 | E5 LIMITS+zod+i18n | LIMITS→zod/HTML; códigos+pt-BR; .test-d.ts (union de exports, provenance) | Contratos compiláveis |
-| E6 Persistência/exports | consent; idb+fallback; quarentena≤5; Config/FullBackup (snapshots de exibição) | Snapshot-first |
+| E6 Persistência/exports | consent; idb+fallback; quarentena≤5; Config/FullBackup (snapshots de exibição, incl. `ChartViewSnapshot`) | Snapshot-first |
 | E7 Migrações | hormo(irmãos→canônico; dose derivada; cores; fuso assumido) + meiavida; fixtures | Relatórios completos |
 | E8 Reconstituição | tela completa; âncoras 120/240 U; DOSE_EXCEEDS_VIAL_CONTENT; salvar explícito | Mensagens neutras |
 | E9 Comparador | forms/análise/dashboard/CompareChart; salvar análise | phaseHint heurística |
 | E10 Biblioteca | dataset v1 (componentOnly; origins); fichas/faixas/CTAs | — |
 | E11 Protocolos | entidade canônica; calendário multi-fuso; chips lookback; drag/teclado; KineticChart; Desfazer | CalculationWindow |
-| E12 E10A Histórico+integrações | Ver/Reabrir/Recalcular; CTAs; export/import; versionamentos | Bloqueia release |
+| E12 E10A Histórico+integrações | Ver/Reabrir/Recalcular; CTAs; export/import; versionamentos; restauração visual do Comparador | Bloqueia release |
 | E13 Endurecimento + **benchmark** | a11y real; **calibrar benchmarks (ambiente registrado) e congelar budgets**; PWA polish | Hard gates só pós-calibração |
 | E14 Release docs | **README real** (referencia somente esta spec) + changelog + URL pública | Após E0/E13 |
 | E15 E10B (pós-release) | share URL; favoritos avançados; tabela consolidada; zoom/pan; PNG; duplicação; filtros | Não bloqueia V1 |
@@ -643,15 +688,19 @@ E0 confirmações de deploy (não bloqueia) → E1 scaffold+spike CSP → E2 uni
 10. Histórico snapshot-first: VISUALIZAR não executa engine (protocol-analysis preserva DisplayWindow+displayPoints); RECALCULAR usa engine atual e cria novo registro; engines antigos executáveis fora da V1; gravação por ação explícita nos três módulos; registros imutáveis tipados; FullBackup autossuficiente.
 11. Export = discriminated union; consentimento nunca restaurado.
 12. Dataset oficial bundled; `componentOnly` (19 entidades/16 visíveis); blend com origin própria; **`ProfileOrigin` discriminada incluindo `user_defined`**; vias unknown; nenhuma fonte inventada; nenhuma dose sugerida; linguagem educacional.
-13. Tempo: tipos distintos; Temporal (polyfill V1); **GAP='later' (desloca pela duração do gap)**, **OVERLAP='earlier' (primeira ocorrência)**; `calendarTimeZone`; chips 20:00 = calendarTimeZone+lookback; drag Δ civil medido na exibição.
-14. Migração não destrutiva; fuso ausente perguntado (`migrationAssumedTimeZone`); cores fora da paleta preservam `legacyOriginalHex`+remapeamento determinístico; totalDose≤0 ⇒ inválido.
-15. Arredondamento só na apresentação; tolerâncias oficiais incl. `CUTOFF_TOLERANCE=1e-12`; **cutoff 40 T½ validado por property tests (3 regiões), não justificado apenas por 0,5⁴⁰**; oráculo y-space; NaN/∞ inesperado ⇒ NUMERIC_FAILURE.
-16. LIMITS categorizados alimentando Zod e HTML; SAFETY/UX defaults ajustáveis pós-benchmark; caps próprios da Reconstituição.
-17. BASE_PATH via `app.config.ts` único (vite+PWA+runtime); **manifest PWA gerado pelo build (fonte única; sem arquivo manual)**; spike CSP×Chart.js gate E1; CSP meta efetiva; paleta fechada.
-18. **Performance absoluta = BENCHMARK TARGETS calibrados em E13 antes de virarem hard gates**; até lá CI usa regressão relativa/budgets estruturais; propriedades estruturais sempre obrigatórias.
-19. Mobile-first; viewports fixos; WCAG 2.2 AA com verificação real; testes matemáticos antes de UI; E10B não bloqueia release; **README real referencia somente a especificação vigente**.
-20. Pendências de nome/slug/Pages NÃO bloqueiam desenvolvimento — apenas deploy/publicação.
-21. Renomear produto é cosmético; renomear conceitos de domínio exige atualização desta spec.
+13. Tempo: tipos distintos; Temporal (polyfill V1); **GAP='later' (desloca o horário pela duração do gap, ex.: 02:30→03:30)**, **OVERLAP='earlier' (primeira ocorrência)**; `calendarTimeZone`; chips 20:00 = calendarTimeZone+lookback; drag Δ civil medido na exibição.
+14. Migração não destrutiva; fuso ausente perguntado (`migrationAssumedTimeZone`); cores fora da paleta preservam `legacyOriginalHex`+remapeamento determinístico; totalDose≤0 ⇒ inválido/quarentena.
+15. Arredondamento só na apresentação; unidades internas ms/mg e conversões centralizadas; tolerâncias oficiais incl. `CUTOFF_TOLERANCE=1e-12`; **cutoff = 44 meias-vidas terminais (`CONTRIBUTION_CUTOFF_HALF_LIVES=44`), dimensionado inclusive para o caso degênero ka≈ke (`k·t·e^(−k·t) ≈ 6,6×10⁻¹³ < 10⁻¹²` no pior caso `Tmax=1/k`) e validado por property tests nas três regiões + Tmax instantâneo; nunca reduzir a tolerância para preservar a constante**; oráculo y-space; NaN/∞ inesperado ⇒ NUMERIC_FAILURE.
+16. Dataset oficial bundled; `componentOnly` para ésteres (19 entidades/16 visíveis); blend com origin próprio; **`ProfileOrigin` discriminada incluindo `user_defined`**; vias unknown; nenhuma fonte inventada; nenhuma dose sugerida; linguagem educacional.
+17. Cores legadas integralmente embutidas nesta especificação (tabela da §9 / `LEGACY_COLORS`, validada contra o código em 25/08/2026); nenhum dado de implementação depende de auditoria, commits ou documentos anteriores.
+18. Histórico do Comparador preserva `ChartViewSnapshot` — política visual uniforme entre módulos (VISUALIZAR não executa engine).
+19. Export = discriminated union; consentimento nunca restaurado.
+20. Performance absoluta = BENCHMARK TARGETS calibrados em E13 antes de virarem hard gates; até lá CI usa regressão relativa/budgets estruturais; propriedades estruturais sempre obrigatórias.
+21. BASE_PATH via `app.config.ts` único (vite+PWA+runtime); **manifest PWA gerado pelo build (fonte única; sem arquivo manual)**; spike CSP×Chart.js gate E1; CSP meta efetiva; paleta fechada.
+22. LIMITS categorizados alimentando Zod e HTML; SAFETY/UX defaults ajustáveis pós-benchmark; caps próprios da Reconstituição.
+23. Mobile-first; viewports fixos; WCAG 2.2 AA com verificação real; testes matemáticos antes de UI; E10B não bloqueia release; **README real referencia somente a especificação vigente**.
+24. Pendências de nome/slug/Pages NÃO bloqueiam desenvolvimento — apenas deploy/publicação.
+25. Renomear produto é cosmético; renomear conceitos de domínio exige atualização desta spec.
 
 ---
 
@@ -665,6 +714,24 @@ E0 confirmações de deploy (não bloqueia) → E1 scaffold+spike CSP → E2 uni
 
 # 20. Checklist final
 
+**Microcorreção documental final:**
+[ ] CONTRIBUTION_CUTOFF_HALF_LIVES definido como 44 — ✔ §4/§6/§18.15
+[ ] nenhuma referência normativa residual a cutoff 40 — ✔ varredura concluída (grep)
+[ ] cutoff degenerado ka≈ke fica abaixo de CUTOFF_TOLERANCE — ✔ 6,587×10⁻¹³ < 10⁻¹² [CALC]
+[ ] property tests cobrem ka>ke — ✔ §13
+[ ] property tests cobrem ka<ke — ✔ §13
+[ ] property tests cobrem ka≈ke — ✔ §13 (caso degênero explícito, Tmax=1/k)
+[ ] property tests cobrem Tmax instantâneo — ✔ §13
+[ ] effectiveTmaxMs continua explícito — ✔ §4/§6
+[ ] todas as cores legadas estão dentro da especificação — ✔ tabela da §9
+[ ] nenhum hex necessário depende da auditoria antiga — ✔ §9 (tabela validada contra o código)
+[ ] LANDERGOLD e componentes possuem cores explícitas — ✔ §9 (#27ae60 / #1abc9c / #2ecc71 / #27ae60)
+[ ] PALETTE_ALLOWED permanece definida de forma inequívoca — ✔ §5/§9
+[ ] histórico do Comparador possui política visual explícita — ✔ `ChartViewSnapshot` §6/§7/§10
+[ ] VISUALIZAR não depende de engine antigo — ✔ §10/§13/§14
+[ ] especificação continua sendo única fonte normativa — ✔ cabeçalho/§18.1
+
+**Consolidação anterior:**
 [ ] v4 corrigida é a única fonte normativa — ✔ cabeçalho/§18.1
 [ ] v2/v3 (e v4 anterior) são somente histórico — ✔ cabeçalho/§18.1
 [ ] nenhum requisito depende implicitamente de versão removida — ✔ varredura concluída (mensagens pt-BR, formatos, limiares de interação e campos legados foram trazidos para cá)
