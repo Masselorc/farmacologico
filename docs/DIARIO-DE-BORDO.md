@@ -59,3 +59,69 @@ Corrigir nove lacunas contratuais identificadas na revisão profunda do document
 ### Commit
 
 - Não criado nesta revisão.
+
+## 2026-08-26 — E1 — Scaffold e infraestrutura
+
+### Objetivo
+
+Iniciar a implementação greenfield da FARMakit executando somente a E1: scaffold React 19 + TypeScript strict + Vite, infraestrutura de build/PWA e o gate CSP×Chart.js/referrer, sem iniciar qualquer etapa posterior.
+
+### Alterações realizadas
+
+- Scaffold npm criado diretamente na raiz (sem projeto aninhado): `package.json`/`package-lock.json`, `vite.config.ts`, `tsconfig.app.json`/`tsconfig.node.json`, `eslint.config.js`.
+- `app.config.ts` na raiz como FONTE ÚNICA `{productName, basePath}`; consumido por `vite.config.ts` (base + `VitePWA({manifest})`) e reexportado ao runtime por `src/app/config/basePath.ts`.
+- Shell mínimo com React Router Hash (`createHashRouter`) e as seis rotas estruturais placeholders: `/biblioteca`, `/meia-vida`, `/reconstituir`, `/protocolos`, `/historico`, `/ajustes`; redirect raiz→`/biblioteca`; página 404 mínima.
+- CSP meta normativa + meta referrer `no-referrer` separadas em `index.html`; constante compartilhada em `src/app/config/csp.ts`.
+- PWA com `vite-plugin-pwa` (`registerType: 'prompt'`), manifest GERADO no build a partir de `app.config.ts`; nenhum `public/manifest.webmanifest` manual; ícones PNG 192/512 determinísticos gerados por `scripts/generate-icons.mjs`.
+- Spike CSP×Chart.js: rota `#/dev/spike-csp` (`src/tools/spike-csp/SpikeCspPage.tsx`) com Chart.js 4 bundled, responsivo, dados fictícios; documentação em `tools/spike-csp/README.md`.
+- Fundação visual mínima em `src/styles/tokens.css` (reset, tokens, paleta inicial provisória, shell responsivo).
+- Testes baseline Vitest (config/basePath, rotas/shell, meta CSP/referrer, fonte única do manifest) e smoke Playwright contra `vite preview` do build de produção.
+- Gate de artefatos `scripts/check-build-boundaries.mjs` (`.token-optimizer/` fora de dist/precache/runtime, manifest único coerente, CSP/referrer preservados, zero referência externa no HTML final).
+- CI baseline `.github/workflows/ci.yml` (lint → typecheck → test → build → boundary → smoke Playwright; sem Pages/deploy).
+
+### Arquivos principais
+
+- `app.config.ts`, `vite.config.ts`, `index.html`, `package.json`
+- `src/main.tsx`, `src/app/{AppRoot,AppShell,router,providers}.tsx`, `src/app/config/{basePath,csp}.ts`, `src/app/i18n/pt-BR.messages.ts`
+- `src/features/*/pages/*Page.tsx` (seis placeholders), `src/tools/spike-csp/SpikeCspPage.tsx`
+- `src/styles/tokens.css`, `public/icons/`
+- `src/tests/infra/*.test.{ts,tsx}`, `src/tests/e2e/smoke-e1.spec.ts`
+- `scripts/{check-build-boundaries,generate-icons}.mjs`, `.github/workflows/ci.yml`
+
+### Decisões tomadas
+
+- Valores provisionais mantidos centralizados: `productName='FARMakit'`, `basePath='/farmacologico/'` até fechamento da E0.
+- Manifest derivado dentro de `vite.config.ts` a partir dos campos de `appConfig` (literal da §7), com coerência garantida pós-build pelo script de boundary.
+- Constantes CSP/referrer extraídas para `src/app/config/csp.ts` para teste unitário e assert de artefato sem duplicação de string nos testes.
+- Banner de atualização fica na UX final (E13); nesta etapa apenas `registerSW({onNeedRefresh})` dispara evento interno, provando a integração prompt-update.
+- Componente do spike colocado em `src/tools/spike-csp/` (para bundling pela rota) com documentação espelho em `tools/spike-csp/` da árvore da §12.
+- Modo dev pode registrar avisos de CSP (HMR inline do Vite); o gate normativo é o build de produção via `vite preview`.
+
+### Validações executadas
+
+- `npm run lint`: PASS
+- `npm run typecheck`: PASS (TS strict)
+- `npm test`: PASS (13 testes / 4 arquivos)
+- `npm run build`: PASS (PWA generateSW, 10 entradas de precache)
+- `npm run check:build-boundaries`: PASS (zero `.token-optimizer` em dist/precache/texto; manifest único; CSP+referrer preservados; zero URL externa)
+- `npm run test:e1`: PASS (2 smoke contra preview Chromium: shell+CSP+navegação+SW sem violações/diretivas desconhecidas/requisições externas; Chart.js renderiza canvas pintado sob CSP)
+
+### Problemas encontrados
+
+- Ícones iniciais gerados em local errado (bug de base de URL no gerador); corrigido e regenerado em `public/icons/`.
+- Teste de pixel do spike com limiar/amostragem inadequados para curvas finas sobre canvas transparente; amostragem densificada antes de aprovar.
+
+### Solução adotada
+
+- Correções pontuais nos próprios artefatos da E1 e repetição integral dos gates até PASS.
+
+### Pendências
+
+- Deploy/GitHub Pages permanecem bloqueados até E0 (CI não publica).
+- Congelamento de paleta definitiva ocorre nas etapas de dataset/paleta; `tokens.css` é fundação provisória.
+- Remoção futura do spike após janela de validação (temporário).
+
+### Commit
+
+- Criado após aprovação integral dos gates desta etapa (scaffold E1).
+

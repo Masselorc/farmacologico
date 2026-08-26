@@ -1,0 +1,154 @@
+/* FARMakit — fundação visual mínima da E1.
+   Paleta inicial provisória; o congelamento de PALETTE_ALLOWED (§8) ocorre
+   nas etapas de dataset/paleta. Nenhum estilo inline dinâmico é permitido. */
+
+:root {
+  --color-bg: #0b1220;
+  --color-surface: #111a2c;
+  --color-surface-raised: #17233a;
+  --color-border: #24314b;
+  --color-text: #e6edf7;
+  --color-text-muted: #94a3b8;
+  --color-accent: #14b8a6;
+  --color-accent-strong: #0f766e;
+  --color-danger: #e74c3c;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+
+  --font-sans:
+    system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
+    sans-serif;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  min-height: 100vh;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+/* Shell responsivo básico */
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.app-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3) var(--space-5);
+  padding: var(--space-3) var(--space-5);
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.app-brand {
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--color-accent);
+}
+
+.app-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+}
+
+.nav-link {
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  text-decoration: none;
+}
+
+.nav-link:hover {
+  color: var(--color-text);
+  background: var(--color-surface-raised);
+}
+
+.nav-link--active {
+  color: var(--color-accent);
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
+.app-main {
+  flex: 1;
+  width: 100%;
+}
+
+.page {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: var(--space-5);
+}
+
+.page-title {
+  margin: 0 0 var(--space-3);
+  font-size: 1.5rem;
+}
+
+.page-placeholder {
+  margin: 0 0 var(--space-5);
+  color: var(--color-text-muted);
+}
+
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+}
+
+.chart-frame {
+  position: relative;
+  height: 320px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+}
+
+@media (max-width: 600px) {
+  .app-header,
+  .page {
+    padding-left: var(--space-3);
+    padding-right: var(--space-3);
+  }
+
+  .chart-frame {
+    height: 240px;
+  }
+}

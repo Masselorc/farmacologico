@@ -1,0 +1,7 @@
+node_modules/
+dist/
+coverage/
+playwright-report/
+test-results/
+
+# .token-optimizer/ é tooling deliberadamente versionado (§12.3) — NUNCA ignorar.
