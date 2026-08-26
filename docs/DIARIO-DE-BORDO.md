@@ -569,4 +569,64 @@ Corrigir divergências pontuais de conformidade entre tipos/schemas da E5 e a es
 - E5.1 concluída integralmente.
 - E6+ (Persistência / IndexedDB / Quarentena / Migração) NÃO iniciada.
 
+## 2026-08-26 — E5.2 — Fechamento contratual final da E5
 
+### Objetivo
+
+Fechar as pendências contratuais residuais da E5 identificadas em revisão independente (regra indevida de proporção individual <= 1, consolidação física de pt-BR em arquivo único, contratos de tipo de provenance e union de export com type-tests), sem iniciar E6.
+
+### Pendências residuais encontradas
+
+- `ProtocolComponent.proportion`: validação individual estava restringindo indevidamente `p <= 1`, quando o contrato normativo exige apenas `finite > 0` individualmente e reserva a validação da soma para `proportionSumClose` (com `PROPORTION_SUM_ATOL = 1e-12`).
+- Arquitetura i18n pt-BR: a especificação determina "pt-BR só em `src/app/i18n/pt-BR.messages.ts`", mas haviam sido criados arquivos secundários `pt-BR.errors.ts` e `pt-BR.validation.ts`.
+- Contratos de tipo E5: roadmap normativo da E5 atribui contratos de tipo e `.test-d.ts` para union de export e provenance (`ProfileOrigin`), ainda não formalizados em type-tests.
+- Documentação: a entrada E5.1 omitiu a subseção `### Commit` com o SHA e mensagem correspondentes.
+
+### Correções realizadas
+
+- **Proporção Individual (`src/validation/schemas/protocol.ts`)**:
+  - Removida a restrição `p <= 1` de `protocolComponentSchema`. Proporções individuais exigem exclusivamente `Number.isFinite(p) && p > 0`.
+  - A autoridade sobre a soma das proporções permanece unicamente em `proportionSumClose(components.map(c => c.proportion))` com `PROPORTION_SUM_ATOL = 1e-12`.
+  - Testes unitários atualizados: componente único com proporção `1 + 5e-13` é aceito pelo `protocolSchema`; `1 + 2e-12` é aceito no componente individual mas rejeitado no protocolo pela soma; proporções `<= 0`, `NaN` e `Infinity` continuam rejeitadas.
+- **Consolidação em Arquivo Único pt-BR (`src/app/i18n/pt-BR.messages.ts`)**:
+  - Consolidados fisicamente todos os textos humanos, catálogos de erro/warning de domínio/gerenciamento de dados/PK/reconstituição/recorrência, validações estruturais e formatadores no arquivo normativo `src/app/i18n/pt-BR.messages.ts`.
+  - Removidos os arquivos secundários `src/app/i18n/pt-BR.errors.ts` e `src/app/i18n/pt-BR.validation.ts`.
+  - Atualizados todos os imports do projeto para `pt-BR.messages`.
+- **Contratos de Provenance e Export Union (`src/domain/types.ts`, `src/domain/data-management/types.ts`)**:
+  - Implementado tipo canônico discriminado `ProfileOrigin` (`legacy_unattributed`, `literature`, `user_defined`) com invariantes de `reviewStatus` e `sourceIds` conforme §6 da especificação.
+  - Criado `src/domain/data-management/types.ts` com os contratos de tipo de exportação (`ExportBundleBase`, `EngineVersions`, `BackupCounts`, `ConfigPayload`, `ConfigExportBundle`, `FullBackupBundle`, `ExportBundle`) e tipos de persistência de apoio (`AppSettings`, `Favorites`, `CustomSubstance`, `CustomProfile`, `ReconstitutionRecipe`, `CalculationRecord`).
+  - Nenhuma lógica funcional de persistência, IndexedDB, serialização, import/export ou quarentena foi implementada (escopo preservado para E6).
+- **Type-Tests Fortalecidos (`src/tests/types/types.test-d.ts`)**:
+  - Adicionados testes positivos e narrowing para todas as variantes válidas de `ProfileOrigin` e `ExportBundle`.
+  - Adicionados testes negativos em tempo de compilação via `@ts-expect-error` para combinações impossíveis de `ProfileOrigin` (`user_defined` com status `reviewed`, `legacy_unattributed` com `not_applicable`, `literature` sem `sourceIds` ou com `not_applicable`, kind desconhecido) e de `ExportBundle` (`bundleKind` desconhecido, `ConfigExportBundle` contendo `history`, etc.).
+- **Suíte de Testes Expandida (`src/tests/validation/`)**:
+  - `protocol.schemas.test.ts`: 19 testes unitários cobrindo fronteiras numéricas exatas de tolerância e componentes.
+  - `i18n.test.ts`: 11 testes unitários cobrindo todos os catálogos, formatadores, `validationMessages` e mensagens de navegação do App Shell.
+  - Total da suíte E5 (`test:e5`): 99 testes (todos PASS). Total geral: 370 testes em 37 arquivos (todos PASS).
+
+### Validações executadas
+
+- `npm run lint`: PASS
+- `npm run typecheck`: PASS
+- `npm run type-tests`: PASS
+- `npm test`: PASS (37 arquivos, 370 testes)
+- `npm run test:e5`: PASS (9 arquivos, 99 testes)
+- `npm run test:e4`: PASS (11 arquivos, 81 testes)
+- `npm run build`: PASS
+- `npm run check:build-boundaries`: PASS
+- `npm run test:e1`: PASS
+
+### Retificação documental E5.1
+
+- A etapa E5.1 foi formalizada e enviada no commit `b8981705f6f4e83f5502caedf3d1271b729d0f4a` com a mensagem `fix(farmakit): alinhar contratos e schemas da E5`, tendo obtido CI remoto verde (Run ID: `32995715282`, status: `completed`, conclusion: `success`).
+
+### Pendências
+
+- Nenhuma pendência técnica conhecida da E5.
+- E5 concluída e fechada com conformidade contratual estrita.
+- Próxima etapa: E6 (Persistência + Exports + Budgets + Quarantine).
+- E0 continua não bloqueante.
+
+### Commit
+
+- Mensagem: `fix(farmakit): fechar contratos residuais da E5`

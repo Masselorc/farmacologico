@@ -12,6 +12,13 @@ export interface DisplayColor {
   legacyOriginalHex?: string
 }
 
+// ── Origem/revisão (discriminada — combinações impossíveis são inválidas) (§6) ──
+export type ProfileOrigin =
+  | { kind: 'legacy_unattributed'; reviewStatus: 'legacy_unreviewed' | 'needs_review' | 'reviewed' }
+  | { kind: 'literature'; reviewStatus: 'needs_review' | 'reviewed'; sourceIds: string[] }
+  | { kind: 'user_defined'; reviewStatus: 'not_applicable' }
+
+
 export interface SelectedPkParameters {
   halfLifeMs: number
   /** null = absorção instantânea. */
@@ -209,5 +216,14 @@ export interface ReconstitutionResult {
   metadata: { reconstitutionEngineVersion: string }
 }
 
-// Reexportações de conveniência para consumidores dos motores.
+// Reexportações de conveniência para consumidores dos motores e da persistência.
 export type { Duration, DurationRange, DurationValue, InstantIso, LocalDate, LocalTime, MassUnit, TimeUnit, TimeZoneId }
+export type {
+  BackupCounts,
+  ConfigExportBundle,
+  ConfigPayload,
+  EngineVersions,
+  ExportBundle,
+  ExportBundleBase,
+  FullBackupBundle,
+} from './data-management/types'

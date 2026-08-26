@@ -7,10 +7,12 @@ import {
   formatPkWarning,
   formatReconstitutionWarning,
   formatRecurrenceReason,
+  messages,
   pkWarningMessages,
   reconstitutionWarningMessages,
   recurrenceReasonMessages,
-} from '../../app/i18n/pt-BR.errors'
+  validationMessages,
+} from '../../app/i18n/pt-BR.messages'
 import type { RecurrenceInvalidReason } from '../../domain/recurrence/validate'
 import { dataManagementError, type DataManagementErrorCode, domainError, type DomainErrorCode } from '../../domain/shared/errors'
 import type { PkWarningCode, ReconstitutionWarningCode } from '../../domain/types'
@@ -163,6 +165,26 @@ describe('E5 i18n — Catálogo e formatadores pt-BR de erros e warnings (§6, �
         expect(typeof formatted).toBe('string')
         expect(formatted.length).toBeGreaterThan(0)
       }
+    })
+  })
+
+  describe('Validation messages e App Shell messages em pt-BR.messages (§6, §13)', () => {
+    it('exporta validationMessages com mensagens puras de validação estrutural', () => {
+      expect(validationMessages.finiteNumber).toBe('Deve ser um número finito')
+      expect(validationMessages.positiveFiniteNumber).toBe('Deve ser um número positivo maior que zero')
+      expect(validationMessages.protocolComponentProportionInvalid).toBe(
+        'Cada componente deve ter uma proporção numérica maior que zero.',
+      )
+      expect(validationMessages.protocolComponentProportionsSumOne).toBe(
+        'A soma das proporções dos componentes deve ser 1.',
+      )
+    })
+
+    it('exporta mensagens de navegação e shell do aplicativo', () => {
+      expect(messages.appName).toBe('FARMakit')
+      expect(messages.nav.biblioteca).toBe('Biblioteca')
+      expect(messages.nav.meiaVida).toBe('Meia-vida')
+      expect(messages.nav.protocolos).toBe('Protocolos')
     })
   })
 })

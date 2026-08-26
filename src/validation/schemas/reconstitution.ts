@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { validationMessages } from '../../app/i18n/pt-BR.validation'
+import { validationMessages } from '../../app/i18n/pt-BR.messages'
 import type { ReconstitutionInput, Syringe } from '../../domain/types'
 import { SAFETY_LIMITS } from '../limits'
 import { positiveFiniteNumberSchema } from './primitives'

@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { validationMessages } from '../../app/i18n/pt-BR.validation'
+import { validationMessages } from '../../app/i18n/pt-BR.messages'
 import { isValidInstantIso, isValidLocalDate, isValidLocalTime, isValidTimeZoneId } from '../../domain/shared/datetime'
 import type {
   DisplayColor,

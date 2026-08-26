@@ -42,6 +42,13 @@ describe('E5 Protocol Schemas (§6)', () => {
       expect(protocolComponentSchema.safeParse(comp).success).toBe(true)
     })
 
+    it('aceita proporção finite > 0 sem teto artificial individual p <= 1', () => {
+      expect(protocolComponentSchema.safeParse(makeComponent('c1', 'C1', 1.0)).success).toBe(true)
+      expect(protocolComponentSchema.safeParse(makeComponent('c1', 'C1', 1 + 5e-13)).success).toBe(true)
+      expect(protocolComponentSchema.safeParse(makeComponent('c1', 'C1', 1 + 2e-12)).success).toBe(true)
+      expect(protocolComponentSchema.safeParse(makeComponent('c1', 'C1', 1.5)).success).toBe(true)
+    })
+
     it('rejeita componente sem source (obrigatório)', () => {
       const comp = makeComponent('c1', 'C1', 0.6) as Record<string, unknown>
       delete comp.source
@@ -65,11 +72,11 @@ describe('E5 Protocol Schemas (§6)', () => {
       expect(protocolComponentSchema.safeParse(invalidColor).success).toBe(false)
     })
 
-    it('rejeita proporção <= 0, > 1, NaN ou Infinity', () => {
+    it('rejeita proporção individual não positiva (<= 0, NaN ou Infinity)', () => {
       expect(protocolComponentSchema.safeParse({ ...makeComponent('c1', 'C1', 0), proportion: 0 }).success).toBe(false)
       expect(protocolComponentSchema.safeParse({ ...makeComponent('c1', 'C1', -0.5), proportion: -0.5 }).success).toBe(false)
-      expect(protocolComponentSchema.safeParse({ ...makeComponent('c1', 'C1', 1.1), proportion: 1.1 }).success).toBe(false)
       expect(protocolComponentSchema.safeParse({ ...makeComponent('c1', 'C1', NaN), proportion: NaN }).success).toBe(false)
+      expect(protocolComponentSchema.safeParse({ ...makeComponent('c1', 'C1', Infinity), proportion: Infinity }).success).toBe(false)
     })
 
     it('rejeita unknown keys em protocolComponentSchema', () => {
@@ -90,6 +97,62 @@ describe('E5 Protocol Schemas (§6)', () => {
         updatedAt: '2026-08-26T12:00:00Z',
       }
       expect(protocolSchema.safeParse(proto).success).toBe(true)
+    })
+
+    it('fronteira de tolerância (1 componente): aceita 1 + 5e-13 (<= 1e-12) e rejeita 1 + 2e-12 (> 1e-12)', () => {
+      const base = {
+        id: 'p1',
+        name: 'Monoterapia Tolerância',
+        totalDoseMg: 100,
+        schedule: validSchedule,
+        createdAt: '2026-08-26T12:00:00Z',
+        updatedAt: '2026-08-26T12:00:00Z',
+      }
+
+      // 1 + 5e-13 -> dentro da tolerância PROPORTION_SUM_ATOL = 1e-12 -> PASS
+      const withinTolerance = {
+        ...base,
+        components: [makeComponent('c1', 'Comp', 1 + 5e-13)],
+      }
+      expect(protocolSchema.safeParse(withinTolerance).success).toBe(true)
+
+      // 1 + 2e-12 -> fora da tolerância PROPORTION_SUM_ATOL = 1e-12 -> FAIL por proportionSumClose
+      const outsideTolerance = {
+        ...base,
+        components: [makeComponent('c1', 'Comp', 1 + 2e-12)],
+      }
+      expect(protocolSchema.safeParse(outsideTolerance).success).toBe(false)
+    })
+
+    it('fronteira de tolerância (múltiplos componentes): aceita soma dentro de 1e-12 e rejeita fora', () => {
+      const base = {
+        id: 'p2',
+        name: 'Blend Tolerância',
+        totalDoseMg: 100,
+        schedule: validSchedule,
+        createdAt: '2026-08-26T12:00:00Z',
+        updatedAt: '2026-08-26T12:00:00Z',
+      }
+
+      // [0.5, 0.5 + 5e-13] -> soma = 1 + 5e-13 -> PASS
+      const withinTol = {
+        ...base,
+        components: [
+          makeComponent('c1', 'A', 0.5),
+          makeComponent('c2', 'B', 0.5 + 5e-13),
+        ],
+      }
+      expect(protocolSchema.safeParse(withinTol).success).toBe(true)
+
+      // [0.5, 0.5 + 2e-12] -> soma = 1 + 2e-12 -> FAIL
+      const outsideTol = {
+        ...base,
+        components: [
+          makeComponent('c1', 'A', 0.5),
+          makeComponent('c2', 'B', 0.5 + 2e-12),
+        ],
+      }
+      expect(protocolSchema.safeParse(outsideTol).success).toBe(false)
     })
 
     it('rejeita protocolo sem createdAt ou sem updatedAt', () => {

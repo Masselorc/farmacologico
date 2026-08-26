@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { validationMessages } from '../../app/i18n/pt-BR.validation'
+import { validationMessages } from '../../app/i18n/pt-BR.messages'
 import type { PkParametersSnapshot, SelectedPkParameters } from '../../domain/types'
 import { DOMAIN_LIMITS, HALF_LIFE_MS_MAX, SAFETY_LIMITS, TMAX_MS_MAX } from '../limits'
 import { durationRangeSchema, durationValueSchema } from './primitives'

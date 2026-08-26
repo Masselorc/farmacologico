@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { validationMessages } from '../../app/i18n/pt-BR.validation'
+import { validationMessages } from '../../app/i18n/pt-BR.messages'
 import { proportionSumClose } from '../../domain/shared/tolerances'
 import type { Protocol, ProtocolComponent, ProtocolComponentSource } from '../../domain/types'
 import { SAFETY_LIMITS } from '../limits'
@@ -28,8 +28,8 @@ export const protocolComponentSourceSchema: z.ZodType<ProtocolComponentSource> =
 export const protocolComponentSchema: z.ZodType<ProtocolComponent> = z.strictObject({
   id: nonEmptyStringSchema,
   label: nonEmptyStringSchema,
-  proportion: z.number().refine((p) => Number.isFinite(p) && p > 0 && p <= 1, {
-    message: validationMessages.proportionRange,
+  proportion: z.number().refine((p) => Number.isFinite(p) && p > 0, {
+    message: validationMessages.protocolComponentProportionInvalid,
   }),
   source: protocolComponentSourceSchema,
   selectedPkParameters: selectedPkParametersSchema,

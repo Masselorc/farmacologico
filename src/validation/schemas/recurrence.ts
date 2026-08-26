@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { validationMessages } from '../../app/i18n/pt-BR.validation'
+import { validationMessages } from '../../app/i18n/pt-BR.messages'
 import type { Recurrence, Schedule } from '../../domain/types'
 import { SAFETY_LIMITS } from '../limits'
 import { isoWeekdaySchema, localDateSchema, localTimeSchema, timeZoneIdSchema } from './primitives'

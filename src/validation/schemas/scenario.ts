@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { validationMessages } from '../../app/i18n/pt-BR.validation'
+import { validationMessages } from '../../app/i18n/pt-BR.messages'
 import type { Dose, DoseDraft, Scenario, ScenarioSource } from '../../domain/types'
 import { SAFETY_LIMITS } from '../limits'
 import { pkParametersSnapshotSchema, selectedPkParametersSchema } from './pk'
