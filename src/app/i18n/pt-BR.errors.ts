@@ -30,7 +30,7 @@ export const domainErrorMessages: Record<DomainErrorCode, ErrorMessageTemplate> 
   COMPONENT_PROPORTIONS_MUST_SUM_ONE: 'A soma das proporções dos componentes deve ser 1.',
   PROTOCOL_COMPONENT_LIMIT_EXCEEDED: 'Um protocolo pode ter no máximo 20 componentes.',
   NUMERIC_FAILURE: 'Ocorreu uma falha numérica inesperada durante o cálculo.',
-  PROTOCOL_TOTAL_DOSE_INVALID: 'A dose total do protocolo deve ser maior que zero e dentro do limite seguro.',
+  PROTOCOL_TOTAL_DOSE_INVALID: 'A dose total do protocolo deve ser maior que zero e estar dentro do limite técnico permitido.',
 }
 
 export const dataManagementErrorMessages: Record<DataManagementErrorCode, ErrorMessageTemplate> = {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  displayColorSchema,
   durationRangeSchema,
   durationValueSchema,
   finiteNumberSchema,
@@ -11,6 +12,7 @@ import {
   nameSchema,
   nonEmptyStringSchema,
   nonNegativeFiniteNumberSchema,
+  paletteColorIdSchema,
   positiveFiniteNumberSchema,
   positiveIntegerSchema,
   timeUnitSchema,
@@ -153,13 +155,94 @@ describe('E5 Primitives Schemas — validações elementares (§6)', () => {
       expect(timeUnitSchema.safeParse('seconds').success).toBe(false)
     })
 
-    it('durationValueSchema e durationRangeSchema validam estruturas de duração', () => {
-      const val = { value: 7, unit: 'days' }
+    it('durationValueSchema valida e rejeita unknown keys', () => {
+      const val = { value: 7, unit: 'days' as const }
       expect(durationValueSchema.safeParse(val).success).toBe(true)
       expect(durationValueSchema.safeParse({ value: 0, unit: 'days' }).success).toBe(false)
+      expect(durationValueSchema.safeParse({ ...val, extraField: 'proibido' }).success).toBe(false)
+    })
 
-      const range = { min: { value: 5, unit: 'days' }, max: { value: 8, unit: 'days' } }
-      expect(durationRangeSchema.safeParse(range).success).toBe(true)
+    it('durationRangeSchema aceita intervalos onde min <= max após conversão de unidades', () => {
+      // 1d .. 2d
+      expect(
+        durationRangeSchema.safeParse({
+          min: { value: 1, unit: 'days' },
+          max: { value: 2, unit: 'days' },
+        }).success,
+      ).toBe(true)
+
+      // 24h .. 2d (86400000 <= 172800000)
+      expect(
+        durationRangeSchema.safeParse({
+          min: { value: 24, unit: 'hours' },
+          max: { value: 2, unit: 'days' },
+        }).success,
+      ).toBe(true)
+
+      // 24h .. 1d (86400000 <= 86400000)
+      expect(
+        durationRangeSchema.safeParse({
+          min: { value: 24, unit: 'hours' },
+          max: { value: 1, unit: 'days' },
+        }).success,
+      ).toBe(true)
+
+      // 1440min .. 1d (86400000 <= 86400000)
+      expect(
+        durationRangeSchema.safeParse({
+          min: { value: 1440, unit: 'minutes' },
+          max: { value: 1, unit: 'days' },
+        }).success,
+      ).toBe(true)
+    })
+
+    it('durationRangeSchema rejeita intervalos onde min > max após conversão de unidades', () => {
+      // 3d .. 48h (259200000 > 172800000)
+      expect(
+        durationRangeSchema.safeParse({
+          min: { value: 3, unit: 'days' },
+          max: { value: 48, unit: 'hours' },
+        }).success,
+      ).toBe(false)
+
+      // 49h .. 2d (176400000 > 172800000)
+      expect(
+        durationRangeSchema.safeParse({
+          min: { value: 49, unit: 'hours' },
+          max: { value: 2, unit: 'days' },
+        }).success,
+      ).toBe(false)
+
+      // 2d .. 1439min (172800000 > 86340000)
+      expect(
+        durationRangeSchema.safeParse({
+          min: { value: 2, unit: 'days' },
+          max: { value: 1439, unit: 'minutes' },
+        }).success,
+      ).toBe(false)
+    })
+
+    it('durationRangeSchema rejeita unknown keys', () => {
+      expect(
+        durationRangeSchema.safeParse({
+          min: { value: 1, unit: 'days' },
+          max: { value: 2, unit: 'days' },
+          unexpected: true,
+        }).success,
+      ).toBe(false)
+    })
+
+    it('displayColorSchema valida paletteColor e legacyOriginalHex opcional, rejeitando unknown keys', () => {
+      expect(paletteColorIdSchema.safeParse('blue-500').success).toBe(true)
+      expect(paletteColorIdSchema.safeParse('').success).toBe(false)
+      expect(displayColorSchema.safeParse({ paletteColor: 'blue-500' }).success).toBe(true)
+      expect(
+        displayColorSchema.safeParse({ paletteColor: 'blue-500', legacyOriginalHex: '#0055ff' }).success,
+      ).toBe(true)
+      expect(displayColorSchema.safeParse({ paletteColor: '' }).success).toBe(false)
+      expect(
+        displayColorSchema.safeParse({ paletteColor: 'blue-500', extra: 123 }).success,
+      ).toBe(false)
     })
   })
 })

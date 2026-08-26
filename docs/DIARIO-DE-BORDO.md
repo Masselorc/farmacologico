@@ -505,6 +505,68 @@ Implementar a camada centralizada e tipada de validação estrutural (Zod), limi
 
 ### Pendências
 
-- E5 concluída integralmente.
+- E5 concluída integralmente (retificação factual: a suíte `test:e5` continha 75 testes e não 74).
 - E6+ (Persistência / IndexedDB / Quarentena / Migração) NÃO iniciada.
+
+### Commit
+
+- `daa1bd066eb000e526c6deff8fdd508a56af099a`
+
+## 2026-08-26 — E5.1 — Correções de aderência contratual
+
+### Objetivo
+
+Corrigir divergências pontuais de conformidade entre tipos/schemas da E5 e a especificação normativa da FARMakit (§6): restaurar obrigatoriedade de campos em entidades persistíveis (`Scenario`, `ProtocolComponent`, `Protocol`), adicionar `selectionNote` em `SelectedPkParameters`, tornar schemas Zod estritos (rejeição de chaves desconhecidas), validar semântica de unidades em `DurationRange`, remover limite inventado de `syringeCapacityUnits`, eliminar duplicação de `MS_PER_DAY`, centralizar mensagens pt-BR de validação e fortalecer os type-tests com testes negativos.
+
+### Alterações realizadas
+
+- **Entidades e Tipos de Domínio (`src/domain/types.ts`)**:
+  - `SelectedPkParameters`: restaurado campo `selectionNote?: { range: { halfLife?: DurationRange; tmaxRange?: DurationRange }; chosenBy: 'user' }`.
+  - `PaletteColorId`: adicionado tipo canônico `export type PaletteColorId = string`.
+  - `DisplayColor`: adicionada interface `export interface DisplayColor { paletteColor: PaletteColorId; legacyOriginalHex?: string }`.
+  - `Scenario`: `source: ScenarioSource` e `color: PaletteColorId` tornados obrigatórios.
+  - `ProtocolComponent`: `source: ProtocolComponentSource`, `pkParametersSnapshot: PkParametersSnapshot` e `displayColor: DisplayColor` tornados obrigatórios.
+  - `Protocol`: `createdAt: InstantIso` e `updatedAt: InstantIso` tornados obrigatórios.
+- **LIMITS (`src/validation/limits.ts`)**:
+  - Importado `MS_PER_DAY` de `src/domain/units/convert.ts` e reexportado, eliminando redeclaração de literal numérico.
+- **Bounds HTML (`src/validation/bounds.ts`)**:
+  - `HtmlNumberBounds`: `min` e `max` tornados opcionais (`min?: number; max?: number`).
+  - `syringeCapacityUnits`: removido `max: 1000` (sem limite superior inventado na especificação).
+- **Centralização pt-BR de Validação (`src/app/i18n/pt-BR.validation.ts`, `pt-BR.messages.ts`, `pt-BR.errors.ts`)**:
+  - Criado `src/app/i18n/pt-BR.validation.ts` com o catálogo `validationMessages` e reexportado em `src/app/i18n/pt-BR.messages.ts`.
+  - Eliminadas todas as mensagens literais pt-BR hardcoded nos arquivos de `src/validation/schemas/`.
+  - Substituída a expressão "limite seguro" por "limite técnico permitido" na mensagem de `PROTOCOL_TOTAL_DOSE_INVALID`.
+- **Schemas Zod Estritos e Semântica (`src/validation/schemas/`)**:
+  - `primitives.ts`: `durationValueSchema`, `durationRangeSchema`, `displayColorSchema` definidos com `z.strictObject(...)`.
+  - `durationRangeSchema`: validação semântica com conversão de unidades via `compareDurationValues(range.min, range.max) <= 0`.
+  - `pk.ts`: `selectedPkParametersSchema` e `pkParametersSnapshotSchema` definidos com `z.strictObject(...)`.
+  - `recurrence.ts`: `recurrenceSchema` (variantes single e weekly) e `scheduleSchema` definidos com `z.strictObject(...)`.
+  - `scenario.ts`: `doseSchema`, `doseDraftSchema`, `scenarioSourceSchema` e `scenarioSchema` com `source: scenarioSourceSchema` obrigatório e `z.strictObject(...)`.
+  - `protocol.ts`: `protocolComponentSourceSchema`, `protocolComponentSchema` (campos obrigatórios) e `protocolSchema` (`createdAt` e `updatedAt` obrigatórios) com `z.strictObject(...)`.
+  - `reconstitution.ts`: `syringeSchema` (capacityUnits sem teto 1000) e `reconstitutionInputSchema` com `z.strictObject(...)`.
+- **Type-Tests Fortalecidos (`src/tests/types/types.test-d.ts`)**:
+  - Validada igualdade exata (`Equal`) de `Scenario`, `ProtocolComponent`, `Protocol`, `DisplayColor`, `ScenarioSource`, `ProtocolComponentSource`, `SelectedPkParameters`, `Recurrence`, `Schedule`, `Dose`, `DoseDraft`, `Syringe`, `ReconstitutionInput`.
+  - Adicionados testes negativos em tempo de compilação via `@ts-expect-error` para entidades incompletas ou tipos inválidos (Scenario sem source, ProtocolComponent sem source / snapshot / displayColor, DisplayColor como string, Protocol sem createdAt / updatedAt).
+- **Testes e Fixtures Atualizados (`src/tests/validation/`, `src/tests/domain/`)**:
+  - Fixtures de teste de simulação atualizadas para preencher todos os campos obrigatórios.
+  - Novos testes unitários para: `DurationRange` com conversão de unidades cruzadas (ex: 24h..2d válido, 3d..48h inválido), rejeição de unknown keys em todos os schemas estruturados, `capacityUnits = 1500` sem teto artificial, rejeição isolada de cada campo obrigatório faltante.
+  - Total de testes da suíte E5 (`test:e5`) expandido de 75 para 94 testes. Total geral do projeto: 365 testes unitários e de propriedade.
+
+### Validações executadas
+
+- `npm run lint`: PASS
+- `npm run typecheck`: PASS
+- `npm run type-tests`: PASS
+- `npm test`: PASS (37 arquivos, 365 testes)
+- `npm run test:e5`: PASS (9 arquivos, 94 testes)
+- `npm run test:e4`: PASS (11 arquivos, 81 testes)
+- `npm run build`: PASS
+- `npm run check:build-boundaries`: PASS
+- `npm run test:e1`: PASS
+
+### Pendências
+
+- E5.1 concluída integralmente.
+- E6+ (Persistência / IndexedDB / Quarentena / Migração) NÃO iniciada.
+
 

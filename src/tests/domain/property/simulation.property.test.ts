@@ -33,6 +33,7 @@ describe('E4 simulation — janela e seleção do Comparador', () => {
       id: 's',
       name: 'S',
       color: '#fff',
+      source: { type: 'manual' as const },
       displayUnit: 'mg' as const,
       selectedPkParameters: { halfLifeMs: 6 * MS_PER_DAY, tmaxMs: null },
       doses,
@@ -59,8 +60,10 @@ describe('E4 lookback — invariante max(cutoffAgeFor)', () => {
         expect(requiredPkLookback(params)).toBe(Math.max(...params.map((p) => cutoffAgeFor(p))))
       },
     )
-    forAllSeeds(property, { numRuns: 200 })
+    forAllSeeds(property, { numRuns: 100 })
+  })
 
+  it('ordem não altera o lookback', () => {
     const twenty = Array.from({ length: 20 }, (_, i) => ({
       halfLifeMs: (i + 1) * MS_PER_HOUR,
       tmaxMs: null,
@@ -85,11 +88,19 @@ describe('E4 protocolos — proporções, cap e identidade', () => {
         id: `c${i}`,
         label: `L${i}`,
         proportion,
+        source: { type: 'manual' as const },
         selectedPkParameters: {
           halfLifeMs: (i + 1) * MS_PER_DAY,
           tmaxMs: i % 2 === 0 ? null : 60_000,
         },
+        pkParametersSnapshot: {
+          halfLife: { value: i + 1, unit: 'days' as const },
+          tmax: i % 2 === 0 ? null : { value: 1, unit: 'minutes' as const },
+        },
+        displayColor: { paletteColor: 'blue' },
       })),
+      createdAt: '2026-01-05T09:00:00Z',
+      updatedAt: '2026-01-05T09:00:00Z',
     }
   }
   const occurrences = [

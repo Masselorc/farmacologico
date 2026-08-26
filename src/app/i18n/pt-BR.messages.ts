@@ -24,4 +24,6 @@ export const messages = {
 export type Messages = typeof messages
 
 export * from './pt-BR.errors'
+export * from './pt-BR.validation'
+
 

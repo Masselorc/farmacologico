@@ -1,58 +1,59 @@
 import { z } from 'zod'
+import { validationMessages } from '../../app/i18n/pt-BR.validation'
 import { proportionSumClose } from '../../domain/shared/tolerances'
 import type { Protocol, ProtocolComponent, ProtocolComponentSource } from '../../domain/types'
 import { SAFETY_LIMITS } from '../limits'
 import { pkParametersSnapshotSchema, selectedPkParametersSchema } from './pk'
-import { instantIsoSchema, nameSchema, nonEmptyStringSchema } from './primitives'
+import { displayColorSchema, instantIsoSchema, nameSchema, nonEmptyStringSchema } from './primitives'
 import { scheduleSchema } from './recurrence'
 
 // Schemas de protocolos de administração e componentes (§6, "Protocolos").
 
 export const protocolComponentSourceSchema: z.ZodType<ProtocolComponentSource> = z.discriminatedUnion('type', [
-  z.object({
+  z.strictObject({
     type: z.literal('library'),
     substanceId: nonEmptyStringSchema,
     profileId: nonEmptyStringSchema,
     datasetVersion: z.number().int().nonnegative(),
   }),
-  z.object({
+  z.strictObject({
     type: z.literal('custom_profile'),
     customProfileId: nonEmptyStringSchema,
   }),
-  z.object({
+  z.strictObject({
     type: z.literal('manual'),
   }),
 ])
 
-export const protocolComponentSchema: z.ZodType<ProtocolComponent> = z.object({
+export const protocolComponentSchema: z.ZodType<ProtocolComponent> = z.strictObject({
   id: nonEmptyStringSchema,
   label: nonEmptyStringSchema,
   proportion: z.number().refine((p) => Number.isFinite(p) && p > 0 && p <= 1, {
-    message: 'Proporção deve ser maior que zero e menor ou igual a 1',
+    message: validationMessages.proportionRange,
   }),
-  source: protocolComponentSourceSchema.optional(),
+  source: protocolComponentSourceSchema,
   selectedPkParameters: selectedPkParametersSchema,
-  pkParametersSnapshot: pkParametersSnapshotSchema.optional(),
-  displayColor: z.string().optional(),
+  pkParametersSnapshot: pkParametersSnapshotSchema,
+  displayColor: displayColorSchema,
 })
 
 export const protocolSchema: z.ZodType<Protocol> = z
-  .object({
+  .strictObject({
     id: nonEmptyStringSchema,
     name: nameSchema,
     totalDoseMg: z.number().refine(
       (v) => Number.isFinite(v) && v > 0 && v <= SAFETY_LIMITS.PROTOCOL_TOTAL_DOSE_MG_MAX,
-      { message: `Dose total do protocolo deve ser maior que zero e até ${SAFETY_LIMITS.PROTOCOL_TOTAL_DOSE_MG_MAX} mg` },
+      { message: validationMessages.protocolTotalDoseRange(SAFETY_LIMITS.PROTOCOL_TOTAL_DOSE_MG_MAX) },
     ),
     schedule: scheduleSchema,
     components: z
       .array(protocolComponentSchema)
-      .min(1, { message: 'Protocolo deve ter ao menos 1 componente' })
+      .min(1, { message: validationMessages.protocolComponentsMin })
       .max(SAFETY_LIMITS.PROTOCOL_COMPONENTS_MAX, {
-        message: `Um protocolo pode ter no máximo ${SAFETY_LIMITS.PROTOCOL_COMPONENTS_MAX} componentes.`,
+        message: validationMessages.protocolComponentsMax(SAFETY_LIMITS.PROTOCOL_COMPONENTS_MAX),
       }),
-    createdAt: instantIsoSchema.optional(),
-    updatedAt: instantIsoSchema.optional(),
+    createdAt: instantIsoSchema,
+    updatedAt: instantIsoSchema,
   })
   .superRefine((data, ctx) => {
     // 1. Unicidade de ID de componente dentro do Protocol
@@ -62,7 +63,7 @@ export const protocolSchema: z.ZodType<Protocol> = z
       if (seenIds.has(comp.id)) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: `ID de componente duplicado: ${comp.id}`,
+          message: validationMessages.protocolDuplicateComponentId(comp.id),
           path: ['components', i, 'id'],
         })
       }
@@ -74,7 +75,7 @@ export const protocolSchema: z.ZodType<Protocol> = z
     if (invalidProportions) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: 'Cada componente deve ter uma proporção numérica maior que zero.',
+        message: validationMessages.protocolComponentProportionInvalid,
         path: ['components'],
       })
     }
@@ -84,7 +85,7 @@ export const protocolSchema: z.ZodType<Protocol> = z
     if (!proportionSumClose(proportions)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: 'A soma das proporções dos componentes deve ser 1.',
+        message: validationMessages.protocolComponentProportionsSumOne,
         path: ['components'],
       })
     }
@@ -96,7 +97,7 @@ export const protocolSchema: z.ZodType<Protocol> = z
       if (!Number.isFinite(derivedDose) || derivedDose <= 0 || derivedDose > SAFETY_LIMITS.SIMULATION_DOSE_MG_MAX) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: `Dose derivada do componente ${comp.id} inválida: ${derivedDose}`,
+          message: validationMessages.protocolDerivedDoseInvalid(comp.id, derivedDose),
           path: ['components', i, 'proportion'],
         })
       }

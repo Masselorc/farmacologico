@@ -62,18 +62,76 @@ describe('E5 Dose & Scenario Schemas (§6)', () => {
   })
 
   describe('scenarioSchema', () => {
-    it('valida cenário completo com doses', () => {
+    it('valida cenário completo com doses e source obrigatório', () => {
       const scenario = {
         id: 'sc-1',
         name: 'Cenário Teste',
         color: '#0055ff',
-        displayUnit: 'mg',
+        source: { type: 'manual' as const },
+        displayUnit: 'mg' as const,
         selectedPkParameters: { halfLifeMs: 86_400_000, tmaxMs: null },
         doses: [
           { id: 'd1', amountMg: 100, time: '2026-08-26T12:00:00Z' },
         ],
       }
       expect(scenarioSchema.safeParse(scenario).success).toBe(true)
+    })
+
+    it('rejeita cenário sem source (source é obrigatório no contrato normativo)', () => {
+      const scenario = {
+        id: 'sc-1',
+        name: 'Cenário Sem Source',
+        color: '#0055ff',
+        displayUnit: 'mg' as const,
+        selectedPkParameters: { halfLifeMs: 86_400_000, tmaxMs: null },
+        doses: [],
+      }
+      expect(scenarioSchema.safeParse(scenario).success).toBe(false)
+    })
+
+    it('aceita cenário com cada variante de source (library, custom_profile, manual)', () => {
+      const base = {
+        id: 'sc-1',
+        name: 'Cenário',
+        color: 'blue-500',
+        displayUnit: 'mg' as const,
+        selectedPkParameters: { halfLifeMs: 86_400_000, tmaxMs: null },
+        doses: [],
+      }
+
+      // library
+      expect(
+        scenarioSchema.safeParse({
+          ...base,
+          source: {
+            type: 'library',
+            substanceId: 'testo-e',
+            profileId: 'default',
+            datasetVersion: 1,
+            pkParametersSnapshot: { halfLife: { value: 4.5, unit: 'days' }, tmax: null },
+          },
+        }).success,
+      ).toBe(true)
+
+      // custom_profile
+      expect(
+        scenarioSchema.safeParse({
+          ...base,
+          source: {
+            type: 'custom_profile',
+            customProfileId: 'cp-1',
+            pkParametersSnapshot: { halfLife: { value: 24, unit: 'hours' }, tmax: null },
+          },
+        }).success,
+      ).toBe(true)
+
+      // manual
+      expect(
+        scenarioSchema.safeParse({
+          ...base,
+          source: { type: 'manual' },
+        }).success,
+      ).toBe(true)
     })
 
     it('rejeita cenário com mais de 2000 doses', () => {
@@ -86,11 +144,38 @@ describe('E5 Dose & Scenario Schemas (§6)', () => {
         id: 'sc-1',
         name: 'Excesso Doses',
         color: '#0055ff',
-        displayUnit: 'mg',
+        source: { type: 'manual' as const },
+        displayUnit: 'mg' as const,
         selectedPkParameters: { halfLifeMs: 86_400_000, tmaxMs: null },
         doses,
       }
       expect(scenarioSchema.safeParse(scenario).success).toBe(false)
+    })
+
+    it('rejeita unknown keys em doseSchema e scenarioSchema', () => {
+      // dose com campo extra
+      expect(
+        doseSchema.safeParse({
+          id: 'd1',
+          amountMg: 100,
+          time: '2026-08-26T12:00:00Z',
+          extra: 'proibido',
+        }).success,
+      ).toBe(false)
+
+      // scenario com campo extra
+      expect(
+        scenarioSchema.safeParse({
+          id: 'sc-1',
+          name: 'Cenário',
+          color: 'blue-500',
+          source: { type: 'manual' },
+          displayUnit: 'mg',
+          selectedPkParameters: { halfLifeMs: 86_400_000, tmaxMs: null },
+          doses: [],
+          extraField: true,
+        }).success,
+      ).toBe(false)
     })
   })
 })

@@ -26,6 +26,8 @@ describe('E5 Bounds — derivação pura para controles HTML (boundsFromLimits)'
     expect(bounds.diluentVolumeMl.max).toBe(SAFETY_LIMITS.RECON_DILUENT_ML_MAX)
     expect(bounds.desiredDoseMcg.max).toBe(SAFETY_LIMITS.RECON_DOSE_MCG_MAX)
     expect(bounds.syringeGraduationUnits.max).toBe(SAFETY_LIMITS.SYRINGE_GRADUATION_UNITS_MAX)
+    expect(bounds.syringeCapacityUnits.min).toBe(0)
+    expect(bounds.syringeCapacityUnits.max).toBeUndefined()
     expect(bounds.weeks.min).toBe(1)
     expect(bounds.weeks.max).toBe(SAFETY_LIMITS.WEEKS_MAX)
     expect(bounds.protocolComponentsCount.min).toBe(1)

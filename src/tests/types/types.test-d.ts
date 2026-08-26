@@ -9,6 +9,7 @@ import type {
 import type { RecurrenceInvalidReason } from '../../domain/recurrence/validate'
 import type { DataManagementErrorCode, DomainErrorCode } from '../../domain/shared/errors'
 import type {
+  DisplayColor,
   Dose,
   DoseDraft,
   IsoWeekday,
@@ -28,6 +29,7 @@ import type {
 } from '../../domain/types'
 import type { LimitsBounds } from '../../validation/bounds'
 import {
+  displayColorSchema,
   doseDraftSchema,
   doseSchema,
   pkParametersSnapshotSchema,
@@ -60,14 +62,22 @@ export type TestScenario = Expect<Extends<z.infer<typeof scenarioSchema>, Scenar
 export type TestProtocolComponentSource = Expect<Extends<z.infer<typeof protocolComponentSourceSchema>, ProtocolComponentSource>>
 export type TestProtocolComponent = Expect<Extends<z.infer<typeof protocolComponentSchema>, ProtocolComponent>>
 export type TestProtocol = Expect<Extends<z.infer<typeof protocolSchema>, Protocol>>
+export type TestDisplayColor = Expect<Extends<z.infer<typeof displayColorSchema>, DisplayColor>>
 export type TestSyringe = Expect<Extends<z.infer<typeof syringeSchema>, Syringe>>
 export type TestReconstitutionInput = Expect<Extends<z.infer<typeof reconstitutionInputSchema>, ReconstitutionInput>>
 
-// 2. Compatibilidade Bidirecional das Entidades Centrais
+// 2. Compatibilidade Bidirecional das Entidades Centrais (Igualdade Exata)
 export type TestExactSelectedPk = Expect<Equal<z.infer<typeof selectedPkParametersSchema>, SelectedPkParameters>>
+export type TestExactScenario = Expect<Equal<z.infer<typeof scenarioSchema>, Scenario>>
+export type TestExactScenarioSource = Expect<Equal<z.infer<typeof scenarioSourceSchema>, ScenarioSource>>
+export type TestExactProtocolComponent = Expect<Equal<z.infer<typeof protocolComponentSchema>, ProtocolComponent>>
+export type TestExactProtocolComponentSource = Expect<Equal<z.infer<typeof protocolComponentSourceSchema>, ProtocolComponentSource>>
+export type TestExactProtocol = Expect<Equal<z.infer<typeof protocolSchema>, Protocol>>
+export type TestExactDisplayColor = Expect<Equal<z.infer<typeof displayColorSchema>, DisplayColor>>
 export type TestExactRecurrence = Expect<Equal<z.infer<typeof recurrenceSchema>, Recurrence>>
 export type TestExactSchedule = Expect<Equal<z.infer<typeof scheduleSchema>, Schedule>>
 export type TestExactDose = Expect<Equal<z.infer<typeof doseSchema>, Dose>>
+export type TestExactDoseDraft = Expect<Equal<z.infer<typeof doseDraftSchema>, DoseDraft>>
 export type TestExactSyringe = Expect<Equal<z.infer<typeof syringeSchema>, Syringe>>
 export type TestExactReconstitutionInput = Expect<Equal<z.infer<typeof reconstitutionInputSchema>, ReconstitutionInput>>
 
@@ -80,8 +90,9 @@ export type TestRecurrenceReasonCatalog = Expect<Equal<keyof typeof recurrenceRe
 
 // 4. Estrutura e integridade do LimitsBounds
 export type TestBoundsType = Expect<Extends<LimitsBounds, {
-  halfLife: { days: { min: number; max: number; step: number | 'any' }; ms: { min: number; max: number; step: number | 'any' } }
-  doseMg: { min: number; max: number; step: number | 'any' }
+  halfLife: { days: { min?: number; max?: number; step: number | 'any' }; ms: { min?: number; max?: number; step: number | 'any' } }
+  doseMg: { min?: number; max?: number; step: number | 'any' }
+  syringeCapacityUnits: { min?: number; max?: number; step: number | 'any' }
   caps: { scenariosMax: number; dosesPerScenarioMax: number; protocolsMax: number; weeksMax: number }
   bytes: { configPayloadBytesMax: number; configImportBytesMax: number; calculationRecordBytesMax: number }
 }>>
@@ -95,3 +106,66 @@ export const testInvalidWeekly: Recurrence = { type: 'weekly', weekdays: ['domin
 
 // @ts-expect-error - single recurrence não aceita campo weeks
 export const testInvalidSingle: Recurrence = { type: 'single', weeks: 4 }
+
+// @ts-expect-error - Scenario sem source é inválido
+export const testScenarioWithoutSource: Scenario = {
+  id: 's1',
+  name: 'Cenário',
+  color: 'c1',
+  displayUnit: 'mg',
+  selectedPkParameters: { halfLifeMs: 86400000, tmaxMs: null },
+  doses: [],
+}
+
+// @ts-expect-error - ProtocolComponent sem source é inválido
+export const testProtocolCompWithoutSource: ProtocolComponent = {
+  id: 'c1',
+  label: 'C1',
+  proportion: 1,
+  selectedPkParameters: { halfLifeMs: 86400000, tmaxMs: null },
+  pkParametersSnapshot: { halfLife: { value: 24, unit: 'hours' }, tmax: null },
+  displayColor: { paletteColor: 'blue' },
+}
+
+// @ts-expect-error - ProtocolComponent sem pkParametersSnapshot é inválido
+export const testProtocolCompWithoutSnapshot: ProtocolComponent = {
+  id: 'c1',
+  label: 'C1',
+  proportion: 1,
+  source: { type: 'manual' },
+  selectedPkParameters: { halfLifeMs: 86400000, tmaxMs: null },
+  displayColor: { paletteColor: 'blue' },
+}
+
+// @ts-expect-error - ProtocolComponent sem displayColor é inválido
+export const testProtocolCompWithoutColor: ProtocolComponent = {
+  id: 'c1',
+  label: 'C1',
+  proportion: 1,
+  source: { type: 'manual' },
+  selectedPkParameters: { halfLifeMs: 86400000, tmaxMs: null },
+  pkParametersSnapshot: { halfLife: { value: 24, unit: 'hours' }, tmax: null },
+}
+
+// @ts-expect-error - DisplayColor como string é inválido
+export const testDisplayColorString: DisplayColor = '#0055ff'
+
+// @ts-expect-error - Protocol sem createdAt é inválido
+export const testProtocolWithoutCreatedAt: Protocol = {
+  id: 'p1',
+  name: 'Protocolo',
+  totalDoseMg: 100,
+  schedule: { startDate: '2026-08-26', localTime: '08:00', timeZone: 'America/Sao_Paulo', recurrence: { type: 'single' } },
+  components: [],
+  updatedAt: '2026-08-26T12:00:00Z',
+}
+
+// @ts-expect-error - Protocol sem updatedAt é inválido
+export const testProtocolWithoutUpdatedAt: Protocol = {
+  id: 'p1',
+  name: 'Protocolo',
+  totalDoseMg: 100,
+  schedule: { startDate: '2026-08-26', localTime: '08:00', timeZone: 'America/Sao_Paulo', recurrence: { type: 'single' } },
+  components: [],
+  createdAt: '2026-08-26T12:00:00Z',
+}

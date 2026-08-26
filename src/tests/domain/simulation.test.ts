@@ -14,6 +14,7 @@ describe('Comparador — janela e seleção', () => {
     id: 'sc1',
     name: 'Cenário A',
     color: '#0f766e',
+    source: { type: 'manual' as const },
     displayUnit: 'mg' as const,
     selectedPkParameters: { halfLifeMs: 6 * MS_PER_DAY, tmaxMs: null },
     doses: [
@@ -85,8 +86,16 @@ describe('Protocolos — um input por componente', () => {
       components: components.map((c, i) => ({
         ...c,
         label: `c${i}`,
+        source: { type: 'manual' as const },
         selectedPkParameters: kineticById[c.id] ?? { halfLifeMs: 6 * MS_PER_DAY, tmaxMs: null },
+        pkParametersSnapshot: {
+          halfLife: { value: 6, unit: 'days' as const },
+          tmax: null,
+        },
+        displayColor: { paletteColor: 'blue' },
       })),
+      createdAt: '2026-01-05T09:00:00Z',
+      updatedAt: '2026-01-05T09:00:00Z',
     }
   }
   const occurrences = [

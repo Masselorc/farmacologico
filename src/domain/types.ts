@@ -5,10 +5,24 @@ import type { Duration, DurationRange, DurationValue, InstantIso, LocalDate, Loc
 
 export type IsoWeekday = 1 | 2 | 3 | 4 | 5 | 6 | 7
 
+export type PaletteColorId = string
+
+export interface DisplayColor {
+  paletteColor: PaletteColorId
+  legacyOriginalHex?: string
+}
+
 export interface SelectedPkParameters {
   halfLifeMs: number
   /** null = absorção instantânea. */
   tmaxMs: number | null
+  selectionNote?: {
+    range: {
+      halfLife?: DurationRange
+      tmaxRange?: DurationRange
+    }
+    chosenBy: 'user'
+  }
 }
 
 export interface PkParametersSnapshot {
@@ -52,8 +66,8 @@ export type ScenarioSource =
 export interface Scenario {
   id: string
   name: string
-  color: string
-  source?: ScenarioSource
+  color: PaletteColorId
+  source: ScenarioSource
   displayUnit: MassUnit
   selectedPkParameters: SelectedPkParameters
   doses: Dose[]
@@ -148,10 +162,10 @@ export interface ProtocolComponent {
   id: string
   label: string
   proportion: number
-  source?: ProtocolComponentSource
+  source: ProtocolComponentSource
   selectedPkParameters: SelectedPkParameters
-  pkParametersSnapshot?: PkParametersSnapshot
-  displayColor?: string
+  pkParametersSnapshot: PkParametersSnapshot
+  displayColor: DisplayColor
 }
 
 export interface Protocol {
@@ -160,8 +174,8 @@ export interface Protocol {
   totalDoseMg: number
   schedule: Schedule
   components: ProtocolComponent[]
-  createdAt?: InstantIso
-  updatedAt?: InstantIso
+  createdAt: InstantIso
+  updatedAt: InstantIso
 }
 
 export interface Syringe {

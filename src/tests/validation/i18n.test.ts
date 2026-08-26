@@ -61,6 +61,10 @@ describe('E5 i18n — Catálogo e formatadores pt-BR de erros e warnings (§6, �
       expect(formatDomainError(domainError('PROTOCOL_COMPONENT_LIMIT_EXCEEDED'))).toBe(
         'Um protocolo pode ter no máximo 20 componentes.',
       )
+      expect(formatDomainError(domainError('PROTOCOL_TOTAL_DOSE_INVALID'))).toBe(
+        'A dose total do protocolo deve ser maior que zero e estar dentro do limite técnico permitido.',
+      )
+      expect(formatDomainError(domainError('PROTOCOL_TOTAL_DOSE_INVALID'))).not.toContain('limite seguro')
     })
 
     it('formata erros com parâmetros dinâmicos (doseNumber, doses/vial)', () => {

@@ -15,37 +15,93 @@ describe('E5 Protocol Schemas (§6)', () => {
     tmaxMs: null,
   }
 
+  const validSnapshot = {
+    halfLife: { value: 24, unit: 'hours' as const },
+    tmax: null,
+  }
+
+  const validDisplayColor = {
+    paletteColor: 'blue-500',
+  }
+
+  function makeComponent(id: string, label: string, proportion: number) {
+    return {
+      id,
+      label,
+      proportion,
+      source: { type: 'manual' as const },
+      selectedPkParameters: validSelectedPk,
+      pkParametersSnapshot: validSnapshot,
+      displayColor: validDisplayColor,
+    }
+  }
+
   describe('protocolComponentSchema', () => {
-    it('aceita componente válido', () => {
-      const comp = {
-        id: 'c1',
-        label: 'Cipionato',
-        proportion: 0.6,
-        selectedPkParameters: validSelectedPk,
-      }
+    it('aceita componente válido completo', () => {
+      const comp = makeComponent('c1', 'Cipionato', 0.6)
       expect(protocolComponentSchema.safeParse(comp).success).toBe(true)
     })
 
+    it('rejeita componente sem source (obrigatório)', () => {
+      const comp = makeComponent('c1', 'C1', 0.6) as Record<string, unknown>
+      delete comp.source
+      expect(protocolComponentSchema.safeParse(comp).success).toBe(false)
+    })
+
+    it('rejeita componente sem pkParametersSnapshot (obrigatório)', () => {
+      const comp = makeComponent('c1', 'C1', 0.6) as Record<string, unknown>
+      delete comp.pkParametersSnapshot
+      expect(protocolComponentSchema.safeParse(comp).success).toBe(false)
+    })
+
+    it('rejeita componente sem displayColor (obrigatório)', () => {
+      const comp = makeComponent('c1', 'C1', 0.6) as Record<string, unknown>
+      delete comp.displayColor
+      expect(protocolComponentSchema.safeParse(comp).success).toBe(false)
+    })
+
+    it('rejeita componente com displayColor como string simples', () => {
+      const invalidColor = { ...makeComponent('c1', 'C1', 0.6), displayColor: '#0055ff' }
+      expect(protocolComponentSchema.safeParse(invalidColor).success).toBe(false)
+    })
+
     it('rejeita proporção <= 0, > 1, NaN ou Infinity', () => {
-      expect(protocolComponentSchema.safeParse({ id: 'c1', label: 'C1', proportion: 0, selectedPkParameters: validSelectedPk }).success).toBe(false)
-      expect(protocolComponentSchema.safeParse({ id: 'c1', label: 'C1', proportion: -0.5, selectedPkParameters: validSelectedPk }).success).toBe(false)
-      expect(protocolComponentSchema.safeParse({ id: 'c1', label: 'C1', proportion: 1.1, selectedPkParameters: validSelectedPk }).success).toBe(false)
-      expect(protocolComponentSchema.safeParse({ id: 'c1', label: 'C1', proportion: NaN, selectedPkParameters: validSelectedPk }).success).toBe(false)
+      expect(protocolComponentSchema.safeParse({ ...makeComponent('c1', 'C1', 0), proportion: 0 }).success).toBe(false)
+      expect(protocolComponentSchema.safeParse({ ...makeComponent('c1', 'C1', -0.5), proportion: -0.5 }).success).toBe(false)
+      expect(protocolComponentSchema.safeParse({ ...makeComponent('c1', 'C1', 1.1), proportion: 1.1 }).success).toBe(false)
+      expect(protocolComponentSchema.safeParse({ ...makeComponent('c1', 'C1', NaN), proportion: NaN }).success).toBe(false)
+    })
+
+    it('rejeita unknown keys em protocolComponentSchema', () => {
+      const comp = { ...makeComponent('c1', 'C1', 0.6), extra: 'proibido' }
+      expect(protocolComponentSchema.safeParse(comp).success).toBe(false)
     })
   })
 
   describe('protocolSchema', () => {
-    it('aceita protocolo válido com 1 componente (proporção 1.0)', () => {
+    it('aceita protocolo válido com 1 componente (proporção 1.0) e timestamps ISO obrigatórios', () => {
       const proto = {
         id: 'p1',
         name: 'Monoterapia',
         totalDoseMg: 250,
         schedule: validSchedule,
-        components: [
-          { id: 'c1', label: 'Enantato', proportion: 1.0, selectedPkParameters: validSelectedPk },
-        ],
+        components: [makeComponent('c1', 'Enantato', 1.0)],
+        createdAt: '2026-08-26T12:00:00Z',
+        updatedAt: '2026-08-26T12:00:00Z',
       }
       expect(protocolSchema.safeParse(proto).success).toBe(true)
+    })
+
+    it('rejeita protocolo sem createdAt ou sem updatedAt', () => {
+      const base = {
+        id: 'p1',
+        name: 'Monoterapia',
+        totalDoseMg: 250,
+        schedule: validSchedule,
+        components: [makeComponent('c1', 'Enantato', 1.0)],
+      }
+      expect(protocolSchema.safeParse({ ...base, updatedAt: '2026-08-26T12:00:00Z' }).success).toBe(false)
+      expect(protocolSchema.safeParse({ ...base, createdAt: '2026-08-26T12:00:00Z' }).success).toBe(false)
     })
 
     it('aceita protocolo válido com múltiplos componentes somando exatamente 1', () => {
@@ -55,10 +111,12 @@ describe('E5 Protocol Schemas (§6)', () => {
         totalDoseMg: 500,
         schedule: validSchedule,
         components: [
-          { id: 'c1', label: 'Propionato', proportion: 0.3, selectedPkParameters: validSelectedPk },
-          { id: 'c2', label: 'Fenilpropionato', proportion: 0.3, selectedPkParameters: validSelectedPk },
-          { id: 'c3', label: 'Isocaproato', proportion: 0.4, selectedPkParameters: validSelectedPk },
+          makeComponent('c1', 'Propionato', 0.3),
+          makeComponent('c2', 'Fenilpropionato', 0.3),
+          makeComponent('c3', 'Isocaproato', 0.4),
         ],
+        createdAt: '2026-08-26T12:00:00Z',
+        updatedAt: '2026-08-26T12:00:00Z',
       }
       expect(protocolSchema.safeParse(proto).success).toBe(true)
     })
@@ -70,9 +128,11 @@ describe('E5 Protocol Schemas (§6)', () => {
         totalDoseMg: 100,
         schedule: validSchedule,
         components: [
-          { id: 'c1', label: 'A', proportion: 0.5, selectedPkParameters: validSelectedPk },
-          { id: 'c2', label: 'B', proportion: 0.4, selectedPkParameters: validSelectedPk },
+          makeComponent('c1', 'A', 0.5),
+          makeComponent('c2', 'B', 0.4),
         ],
+        createdAt: '2026-08-26T12:00:00Z',
+        updatedAt: '2026-08-26T12:00:00Z',
       }
       expect(protocolSchema.safeParse(protoUnder).success).toBe(false)
 
@@ -82,9 +142,11 @@ describe('E5 Protocol Schemas (§6)', () => {
         totalDoseMg: 100,
         schedule: validSchedule,
         components: [
-          { id: 'c1', label: 'A', proportion: 0.6, selectedPkParameters: validSelectedPk },
-          { id: 'c2', label: 'B', proportion: 0.5, selectedPkParameters: validSelectedPk },
+          makeComponent('c1', 'A', 0.6),
+          makeComponent('c2', 'B', 0.5),
         ],
+        createdAt: '2026-08-26T12:00:00Z',
+        updatedAt: '2026-08-26T12:00:00Z',
       }
       expect(protocolSchema.safeParse(protoOver).success).toBe(false)
     })
@@ -96,9 +158,11 @@ describe('E5 Protocol Schemas (§6)', () => {
         totalDoseMg: 200,
         schedule: validSchedule,
         components: [
-          { id: 'dup-id', label: 'A', proportion: 0.5, selectedPkParameters: validSelectedPk },
-          { id: 'dup-id', label: 'B', proportion: 0.5, selectedPkParameters: validSelectedPk },
+          makeComponent('dup-id', 'A', 0.5),
+          makeComponent('dup-id', 'B', 0.5),
         ],
+        createdAt: '2026-08-26T12:00:00Z',
+        updatedAt: '2026-08-26T12:00:00Z',
       }
       expect(protocolSchema.safeParse(proto).success).toBe(false)
     })
@@ -110,36 +174,32 @@ describe('E5 Protocol Schemas (§6)', () => {
         totalDoseMg: 100,
         schedule: validSchedule,
         components: [],
+        createdAt: '2026-08-26T12:00:00Z',
+        updatedAt: '2026-08-26T12:00:00Z',
       }).success).toBe(false)
 
-      const twentyOneComponents = Array.from({ length: 21 }, (_, i) => ({
-        id: `c${i}`,
-        label: `Comp ${i}`,
-        proportion: 1 / 21,
-        selectedPkParameters: validSelectedPk,
-      }))
+      const twentyOneComponents = Array.from({ length: 21 }, (_, i) => makeComponent(`c${i}`, `Comp ${i}`, 1 / 21))
       expect(protocolSchema.safeParse({
         id: 'p7',
         name: 'Excesso Componentes',
         totalDoseMg: 100,
         schedule: validSchedule,
         components: twentyOneComponents,
+        createdAt: '2026-08-26T12:00:00Z',
+        updatedAt: '2026-08-26T12:00:00Z',
       }).success).toBe(false)
     })
 
     it('aceita limite máximo de 20 componentes', () => {
-      const twentyComponents = Array.from({ length: 20 }, (_, i) => ({
-        id: `c${i}`,
-        label: `Comp ${i}`,
-        proportion: 0.05,
-        selectedPkParameters: validSelectedPk,
-      }))
+      const twentyComponents = Array.from({ length: 20 }, (_, i) => makeComponent(`c${i}`, `Comp ${i}`, 0.05))
       expect(protocolSchema.safeParse({
         id: 'p8',
         name: '20 Componentes',
         totalDoseMg: 100,
         schedule: validSchedule,
         components: twentyComponents,
+        createdAt: '2026-08-26T12:00:00Z',
+        updatedAt: '2026-08-26T12:00:00Z',
       }).success).toBe(true)
     })
 
@@ -149,7 +209,9 @@ describe('E5 Protocol Schemas (§6)', () => {
         name: 'Zero total dose',
         totalDoseMg: 0,
         schedule: validSchedule,
-        components: [{ id: 'c1', label: 'A', proportion: 1.0, selectedPkParameters: validSelectedPk }],
+        components: [makeComponent('c1', 'A', 1.0)],
+        createdAt: '2026-08-26T12:00:00Z',
+        updatedAt: '2026-08-26T12:00:00Z',
       }).success).toBe(false)
 
       expect(protocolSchema.safeParse({
@@ -157,8 +219,24 @@ describe('E5 Protocol Schemas (§6)', () => {
         name: 'Excesso total dose',
         totalDoseMg: SAFETY_LIMITS.PROTOCOL_TOTAL_DOSE_MG_MAX + 1,
         schedule: validSchedule,
-        components: [{ id: 'c1', label: 'A', proportion: 1.0, selectedPkParameters: validSelectedPk }],
+        components: [makeComponent('c1', 'A', 1.0)],
+        createdAt: '2026-08-26T12:00:00Z',
+        updatedAt: '2026-08-26T12:00:00Z',
       }).success).toBe(false)
+    })
+
+    it('rejeita unknown keys em protocolSchema', () => {
+      const proto = {
+        id: 'p1',
+        name: 'Monoterapia',
+        totalDoseMg: 250,
+        schedule: validSchedule,
+        components: [makeComponent('c1', 'Enantato', 1.0)],
+        createdAt: '2026-08-26T12:00:00Z',
+        updatedAt: '2026-08-26T12:00:00Z',
+        extraField: 'proibido',
+      }
+      expect(protocolSchema.safeParse(proto).success).toBe(false)
     })
   })
 })

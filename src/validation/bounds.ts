@@ -4,8 +4,8 @@ import { DOMAIN_LIMITS, HALF_LIFE_MS_MAX, MS_PER_DAY, SAFETY_LIMITS, TMAX_MS_MAX
 // HTML é primeira barreira de UX; Zod continua sendo autoridade estrutural e motores a autoridade científica.
 
 export interface HtmlNumberBounds {
-  min: number
-  max: number
+  min?: number
+  max?: number
   step: number | 'any'
 }
 
@@ -111,7 +111,6 @@ export function boundsFromLimits(): LimitsBounds {
     },
     syringeCapacityUnits: {
       min: 0,
-      max: 1000,
       step: 'any',
     },
     weeks: {

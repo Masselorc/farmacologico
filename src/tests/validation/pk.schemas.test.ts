@@ -58,6 +58,15 @@ describe('E5 PK Schemas — SelectedPkParameters & PkParametersSnapshot (§6)', 
       })
       expect(parsed.success).toBe(true)
     })
+
+    it('rejeita unknown keys em selectedPkParametersSchema', () => {
+      const invalid = {
+        halfLifeMs: 86_400_000,
+        tmaxMs: null,
+        unexpectedKey: 123,
+      }
+      expect(selectedPkParametersSchema.safeParse(invalid).success).toBe(false)
+    })
   })
 
   describe('pkParametersSnapshotSchema', () => {
@@ -73,6 +82,15 @@ describe('E5 PK Schemas — SelectedPkParameters & PkParametersSnapshot (§6)', 
         tmax: { value: 12, unit: 'hours' },
       }
       expect(pkParametersSnapshotSchema.safeParse(snapshot2).success).toBe(true)
+    })
+
+    it('rejeita unknown keys em pkParametersSnapshotSchema', () => {
+      const invalid = {
+        halfLife: { value: 24, unit: 'hours' },
+        tmax: null,
+        extra: 'proibido',
+      }
+      expect(pkParametersSnapshotSchema.safeParse(invalid).success).toBe(false)
     })
   })
 })

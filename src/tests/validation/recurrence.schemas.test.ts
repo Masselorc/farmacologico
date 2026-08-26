@@ -79,5 +79,31 @@ describe('E5 Recurrence & Schedule Schemas (§6)', () => {
       }
       expect(scheduleSchema.safeParse(invalidTz).success).toBe(false)
     })
+
+    it('rejeita unknown keys em recurrenceSchema e scheduleSchema', () => {
+      // single com campo extra weeks
+      expect(recurrenceSchema.safeParse({ type: 'single', weeks: 4 }).success).toBe(false)
+
+      // weekly com campo extra
+      expect(
+        recurrenceSchema.safeParse({
+          type: 'weekly',
+          weekdays: [1, 2],
+          weeks: 4,
+          unexpected: true,
+        }).success,
+      ).toBe(false)
+
+      // schedule com campo extra
+      expect(
+        scheduleSchema.safeParse({
+          startDate: '2026-08-26',
+          localTime: '08:00',
+          timeZone: 'America/Sao_Paulo',
+          recurrence: { type: 'single' },
+          extra: 123,
+        }).success,
+      ).toBe(false)
+    })
   })
 })

@@ -64,5 +64,27 @@ describe('E5 Reconstitution Schemas (§6)', () => {
       expect(reconstitutionInputSchema.safeParse({ vialMassMg: 5, diluentVolumeMl: 2, desiredDoseMcg: 0, syringe: validSyringe }).success).toBe(false)
       expect(reconstitutionInputSchema.safeParse({ vialMassMg: 5, diluentVolumeMl: 2, desiredDoseMcg: SAFETY_LIMITS.RECON_DOSE_MCG_MAX + 1, syringe: validSyringe }).success).toBe(false)
     })
+
+    it('aceita capacityUnits > 1000 (ex.: 1500) sem limite artificial normativo', () => {
+      const largeSyringe = { ...validSyringe, capacityUnits: 1500 }
+      expect(syringeSchema.safeParse(largeSyringe).success).toBe(true)
+      expect(reconstitutionInputSchema.safeParse({
+        vialMassMg: 5,
+        diluentVolumeMl: 2,
+        desiredDoseMcg: 250,
+        syringe: largeSyringe,
+      }).success).toBe(true)
+    })
+
+    it('rejeita unknown keys em syringeSchema e reconstitutionInputSchema', () => {
+      expect(syringeSchema.safeParse({ ...validSyringe, extra: 1 }).success).toBe(false)
+      expect(reconstitutionInputSchema.safeParse({
+        vialMassMg: 5,
+        diluentVolumeMl: 2,
+        desiredDoseMcg: 250,
+        syringe: validSyringe,
+        unexpected: 'proibido',
+      }).success).toBe(false)
+    })
   })
 })
