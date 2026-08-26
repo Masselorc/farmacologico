@@ -7,7 +7,7 @@ import { SAFETY_LIMITS } from '../../validation/limits'
 import { depotFromDose, stableBatemanAmount, type DoseKinetics } from './bateman'
 import { CONTRIBUTION_CUTOFF_HALF_LIVES, cutoffAgeFor, effectiveTmaxMs } from './cutoff'
 import { absorptionRateFromTmax } from './rates'
-import { sortedDoses } from './state'
+import { pkStateFromTotals, sortedDoses } from './state'
 
 // PK Engine — analyze(input): SimulationOutput (§7).
 // Não conhece Schedule/Recurrence/dataset. Arredondamento interno proibido.
@@ -237,17 +237,13 @@ function currentStateOf(
   }
 
   const eliminatedMg = Math.max(0, administeredMg - centralMg - depotMg)
-  const factor = administeredMg > 0 ? 1 / administeredMg : 0
 
-  return {
+  return pkStateFromTotals(
     administeredMg,
     centralMg,
     depotMg,
     eliminatedMg,
     administeredCount,
     plannedCount,
-    centralPercent: centralMg * factor,
-    depotPercent: depotMg * factor,
-    eliminatedPercent: eliminatedMg * factor,
-  }
+  )
 }

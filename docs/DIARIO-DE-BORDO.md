@@ -60,6 +60,70 @@ Corrigir nove lacunas contratuais identificadas na revisão profunda do document
 
 - Não criado nesta revisão.
 
+## 2026-08-26 — E4 — Gate matemático e property tests
+
+### Objetivo
+
+Atacar os motores E3 com testes unitários, property-based tests, oráculos independentes e fixtures, sem iniciar E5 ou novas features.
+
+### Alterações realizadas
+
+- Adicionados `fast-check@4.9.0` e `decimal.js@10.6.0` como devDependencies.
+- Criado o comando focal `npm run test:e4`.
+- Adicionados 11 arquivos de testes E4: solver, Bateman, conservação, cutoff, equivalência, análise, recurrence, reconstituição, simulation, extremos e regressões.
+- Corrigidos percentuais de estado para doses subnormais, evitando `Infinity×subnormal ⇒ NaN`.
+- Corrigido `cutoffAgeFor` para rejeitar `Infinity` derivado de `44·T½terminal` com `NUMERIC_FAILURE`.
+
+### Arquivos principais
+
+- `package.json` e `package-lock.json`
+- `src/domain/pk/analysis.ts`
+- `src/domain/pk/state.ts`
+- `src/domain/pk/cutoff.ts`
+- `src/tests/domain/property/`
+- `src/tests/domain/regression/regression.e4.test.ts`
+- `docs/DIARIO-DE-BORDO.md`
+
+### Decisões tomadas
+
+- Seeds canônicas: `1`, `42`, `20260826`, `0x5A17`; shrinking permaneceu habilitado.
+- Oráculo Bateman: Decimal.js com 60 dígitos; solver: identidade independente em espaço-y; recurrence: brute-force civil independente.
+- `EXTREME_PARAMETERS` permaneceu sem novo threshold arbitrário.
+- Soluções, cutoffs e timestamps não representáveis foram classificados por erro normativo, sem reduzir runs nem aumentar tolerâncias.
+
+### Validações executadas
+
+- `npm run lint`: PASS.
+- `npm run typecheck`: PASS.
+- `npm test`: PASS — 28 arquivos, 258 testes.
+- `npm run test:e4`: PASS — 11 arquivos, 71 testes; 24 chamadas `forAllSeeds`, aproximadamente 21.520 execuções por seed/conjunto.
+- `npm run build`: PASS.
+- `npm run check:build-boundaries`: PASS — 9 arquivos em `dist/`, sem `.token-optimizer`, manifest único e CSP/referrer preservados.
+- `npm run test:e1`: PASS — 2 testes Chromium.
+- Varredura estática de hazards, ramos `ka≈ke`, cutoff/44 e marcadores desativados: PASS.
+
+### Problemas encontrados
+
+- Percentuais por fator recíproco falhavam com dose `Number.MIN_VALUE`.
+- `cutoffAgeFor` podia retornar `Infinity` quando o produto de 44 meias-vidas terminais transbordava.
+- Alguns testes iniciais tinham oráculo/expectativa incorretos: contribuição confundida com central, igualdade IEEE em razão 100, `fc.float` fora da faixa, reordenação que alterava proporções, timeout da referência civil e warning de milestone indevidamente obrigatório.
+
+### Solução adotada
+
+- Criadas regressões mínimas antes das correções de motor.
+- Percentuais passaram a usar divisão direta por massa administrada.
+- Cutoff não representável passou a lançar `NUMERIC_FAILURE`.
+- Testes foram corrigidos para refletir os contratos normativos sem enfraquecer tolerâncias, seeds ou cobertura.
+
+### Pendências
+
+- E4 está pronta para commit; E5 ainda não iniciada.
+- Não foram adicionados UI, dataset, persistência, migração ou alterações no README.
+
+### Commit
+
+- Será o commit E4 desta execução; SHA completo e confirmação do push serão informados no relatório final.
+
 ## 2026-08-26 — E1 — Scaffold e infraestrutura
 
 ### Objetivo
@@ -252,6 +316,4 @@ Implementar o núcleo de domínio da FARMakit: PK Engine (eliminação, solver d
 ### Commit
 
 - Criado após aprovação integral dos gates desta etapa (E3).
-
-
 

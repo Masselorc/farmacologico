@@ -1,4 +1,5 @@
 import { MS_PER_DAY } from '../units/convert'
+import { domainError } from '../shared/errors'
 import type { SelectedPkParameters } from '../types'
 import { eliminationRate } from './rates'
 import { resolveKinetics, terminalRate } from './state'
@@ -21,10 +22,14 @@ export function cutoffAgeFor(selected: SelectedPkParameters): number {
   const effTmax = effectiveTmaxMs(selected)
   const kinetics = resolveKinetics(selected.halfLifeMs, selected.tmaxMs)
   const terminalHalfLifeMs = Math.LN2 / terminalRate(kinetics)
-  return Math.max(
+  const cutoffAgeMs = Math.max(
     CONTRIBUTION_CUTOFF_HALF_LIVES * terminalHalfLifeMs + effTmax,
     effTmax + MS_PER_DAY,
   )
+  if (!Number.isFinite(cutoffAgeMs) || cutoffAgeMs < 0) {
+    throw domainError('NUMERIC_FAILURE', { cutoffAgeMs })
+  }
+  return cutoffAgeMs
 }
 
 /** T½ terminal dos parâmetros (ln2/rateTerminal). */

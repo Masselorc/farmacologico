@@ -72,8 +72,31 @@ export function stateAt(doses: SimulationDose[], atTimeMs: number, halfLifeMs: n
     })
   }
 
-  const denominator = administeredMg > 0 ? administeredMg : 1
-  const factor = administeredMg > 0 ? 1 / denominator : 0
+  return pkStateFromTotals(
+    administeredMg,
+    centralMg,
+    depotMg,
+    eliminatedMg,
+    administeredCount,
+    plannedCount,
+  )
+}
+
+/**
+ * Monta o estado final com percentuais como frações [0,1] via DIVISÃO direta.
+ * Multiplicar por 1/administeredMg produz Infinity×subnormal ⇒ NaN para doses
+ * subnormais (regressão E4); divisão parte/administrado permanece finita em [0,1].
+ */
+export function pkStateFromTotals(
+  administeredMg: number,
+  centralMg: number,
+  depotMg: number,
+  eliminatedMg: number,
+  administeredCount: number,
+  plannedCount: number,
+): PkState {
+  const hasMass = Number.isFinite(administeredMg) && administeredMg > 0
+  const ratioOf = (part: number): number => (hasMass ? part / administeredMg : 0)
 
   return {
     administeredMg,
@@ -82,9 +105,9 @@ export function stateAt(doses: SimulationDose[], atTimeMs: number, halfLifeMs: n
     eliminatedMg,
     administeredCount,
     plannedCount,
-    centralPercent: centralMg * factor,
-    depotPercent: depotMg * factor,
-    eliminatedPercent: eliminatedMg * factor,
+    centralPercent: ratioOf(centralMg),
+    depotPercent: ratioOf(depotMg),
+    eliminatedPercent: ratioOf(eliminatedMg),
   }
 }
 
