@@ -413,4 +413,40 @@ Corrigir a classificação IEEE-754 do fixture anterior (1 ms / 1000 ms, cujo $k
 
 ### Commit
 
-- test(farmakit): validar solver em faixa subnormal E4.2
+- `b208ea486b25ca464fdc545484cc88307e72d446`
+
+## 2026-08-26 — E4.3 — Fechamento documental e CI
+
+### Objetivo
+
+Corrigir a última imprecisão numérica de documentação do fixture de 1000 ms e confirmar o gate remoto do GitHub Actions antes de iniciar E5.
+
+### Alterações realizadas
+
+- Comentário `y ≈ −697.75` corrigido para aproximadamente `y ≈ −693.147` em `src/tests/domain/property/pk.solver.property.test.ts`.
+- Nenhuma alteração no solver/motor matemático de produção.
+- Fixtures 1000 ms (normal), 1025 ms (subnormal) e 3650 d (não representável) integralmente preservados.
+- Validação dos gates locais e acompanhamento da execução remota do CI no GitHub Actions.
+
+### Problemas encontrados
+
+- Nenhuma falha funcional; ajuste restrito à precisão de anotação em comentário de teste.
+
+### Validações executadas
+
+- `npm run lint`: PASS
+- `npm run typecheck`: PASS
+- `npm test`: PASS (28 arquivos, 270 testes)
+- `npm run test:e4`: PASS (11 arquivos, 80 testes)
+- `npm run build`: PASS
+- `npm run check:build-boundaries`: PASS
+- `npm run test:e1`: PASS
+
+### Pendências
+
+- E4 encerrada definitivamente com todos os gates matemáticos, de engenharia e CI aprovados.
+- E5 pronta para início.
+
+### Commit
+
+- docs(farmakit): corrigir anotação numérica e fechar E4

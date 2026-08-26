@@ -100,7 +100,7 @@ describe('E4 solver — âncoras normativas e extremos', () => {
   })
 
   it('extremo muito pequeno, porém NORMAL representável: halfLife=1 ms com Tmax=1000 ms', () => {
-    // c ≈ 693.147 ⇒ y ≈ −697.75 ⇒ ka ≈ 6.47e-302 / ms (normal, pois >= 2^-1022 ≈ 2.225e-308)
+    // c ≈ 693.147 ⇒ y ≈ −693.147 ⇒ ka ≈ 6.47e-302 / ms (normal, pois >= 2^-1022 ≈ 2.225e-308)
     const MIN_NORMAL_DOUBLE = 2 ** -1022
     const result = absorptionRateFromTmax({ halfLifeMs: 1, tmaxMs: 1000 })
     expect(result.kaPerMs).not.toBeNull()
