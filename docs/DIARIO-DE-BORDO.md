@@ -125,3 +125,66 @@ Iniciar a implementação greenfield da FARMakit executando somente a E1: scaffo
 
 - Criado após aprovação integral dos gates desta etapa (scaffold E1).
 
+## 2026-08-26 — E2 — Unidades, tempo e decimal
+
+### Objetivo
+
+Criar as primitivas fundamentais de unidades de tempo/massa, tipos temporais, Temporal API/polyfill, conversão civil↔instante com política DST e parsing/formatação pt-BR, com testes unitários sólidos — sem iniciar qualquer motor científico da E3.
+
+### Alterações realizadas
+
+- Instalado `@js-temporal/polyfill` como dependência runtime (bundled; sem moment/luxon/date-fns/Day.js/CDN).
+- `src/domain/shared/types.datetime.ts`: aliases `LocalDate`/`LocalTime`/`InstantIso`/`TimeZoneId`, `TimeUnit`, `MassUnit`, `DurationValue`, `DurationRange`, `Duration` conforme §6.
+- `src/domain/units/convert.ts`: constantes normativas (min=60.000 ms; h=3.600.000 ms; d=86.400.000 ms; 1000 mcg=1 mg; 1000 mg=1 g); `toMilliseconds`, `millisecondsToMinutes/Hours/Days`, `toMilligrams`, `fromMilligrams`; `durationValueToMs`, `compareDurationValues`, `normalizeDurationRange`.
+- `src/domain/shared/datetime.ts`: camada central Temporal — `civilToInstantIso` (`LocalDate+LocalTime+TimeZoneId → InstantIso` canônico em Z), `instantToZonedParts`, `canonicalizeInstantIso`, predicados `isValidLocalDate/LocalTime/TimeZoneId/InstantIso` e erro controlado local `DateTimeError` (códigos INVALID_LOCAL_DATE/LOCAL_TIME/TIME_ZONE/INSTANT).
+- `src/domain/units/decimal.ts`: `parseLocaleDecimal` restritivo ({ok:true,value}|{ok:false}); gramática `[+-]?d+([.,]d+)?`; sem parseFloat permissivo; rejeita múltiplos separadores, mistura vírgula+ponto ("1,2.3"), agrupamento de milhares ("1.234,56"), prefixos com lixo e NaN/Infinity.
+- `src/domain/units/format.ts`: locale normativo `pt-BR` fixo; `formatMassMg` (até 3 casas), `formatDuration` ("X d Y h Z min"; "0 min"; resíduo <1 min truncado só na apresentação), `formatShortDateTime` (dd/mm/aaaa hh:mm), `formatLongDateTime` (por extenso para tooltip), todos dependentes de TimeZoneId explícito.
+- Testes: `src/tests/domain/{units.convert,units.decimal,units.format,shared.datetime,temporal.polyfill}.test.ts` — fixtures DST normativas America/New_York 2024-03-10 02:30 (GAP→03:30) e 2024-11-03 01:30 (OVERLAP→primeira ocorrência -04:00), round-trips, TZ A≠TZ B, entradas inválidas, equivalências de unidades e casos do parser.
+- Nenhum arquivo E3 criado (`domain/pk|recurrence|reconstitution` não existem).
+
+### Arquivos principais
+
+- `package.json`/`package-lock.json` (+@js-temporal/polyfill)
+- `src/domain/shared/{types.datetime,datetime}.ts`
+- `src/domain/units/{convert,decimal,format}.ts`
+- `src/tests/domain/*.test.ts`
+
+### Decisões tomadas
+
+- Política DST implementada por tentativa `disambiguation:'reject'`: se resolver, horário normal; se falhar, OVERLAP quando a ocorrência 'earlier' preserva o horário civil pedido, caso contrário GAP ⇒ 'later' (deslocado para frente pela duração do gap). Determinístico em qualquer host.
+- `LocalTime` aceita 'HH:mm' e 'HH:mm[:ss[.frac]]'; apresentação de edição retorna 'HH:mm'.
+- Parser decimal exige parte inteira (".5"/"5." rejeitados) e trata "1.234" como decimal 1,234 (regra única de separador); apenas a forma mista "1.234,56" é ambígua e rejeitada, conforme contrato.
+- Duração negativa é exibida como "0 min" (clamp somente na apresentação).
+- Assert do polyfill (§23): teste unitário prova dependência declarada, módulo exercitado e zero URL externa no fonte; o código ainda não é consumido por features, portanto não entra no bundle nesta etapa — passará a entrar quando as features o importarem.
+- Validações de domínio (LIMITS/Zod, >0, máximos) permanecem na E5; conversões são matemática pura IEEE-754.
+
+### Validações executadas
+
+- `npm run lint`: PASS
+- `npm run typecheck`: PASS
+- `npm test`: PASS (92 testes / 9 arquivos — 79 novos)
+- `npm run build`: PASS
+- `npm run check:build-boundaries`: PASS (`.token-optimizer` ausente de dist/precache/texto; CSP+referrer preservados)
+- `npm run test:e1`: PASS (smoke CSP×Chart.js contra preview)
+- Varredura `new Date(`/`Date.parse(`/moment/luxon/date-fns/dayjs/CDN em src+scripts: limpa (apenas comentários)
+
+### Problemas encontrados
+
+- Typing do polyfill: `PlainDateTime.toZonedDateTime(tzLike, options?)` difere da forma `{timeZone, disambiguation}` documentada no rascunho; ajustado para a assinatura real.
+- Profundidade incorreta dos imports nos testes iniciais; corrigida para `../../domain/*`.
+
+### Solução adotada
+
+- Correção pontual das chamadas/imports e repetição integral dos gates até PASS.
+
+### Pendências
+
+- LIMITS/Zod, catálogo normativo de erros e tolerâncias pertencem à E5.
+- Engine de recorrência, PK, simulação e dataset pertencem à E3+ (não iniciados).
+- Polyfill entrará no bundle quando features consumirem a camada datetime.
+
+### Commit
+
+- Criado após aprovação integral dos gates desta etapa (E2).
+
+
