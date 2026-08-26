@@ -12,8 +12,10 @@
     "preview": "vite preview --strictPort",
     "lint": "eslint .",
     "typecheck": "tsc -p tsconfig.app.json && tsc -p tsconfig.node.json",
+    "type-tests": "tsc -p tsconfig.type-tests.json",
     "test": "vitest run",
     "test:e4": "vitest run src/tests/domain/property src/tests/domain/regression",
+    "test:e5": "vitest run src/tests/validation",
     "test:watch": "vitest",
     "test:e1": "playwright test",
     "check:build-boundaries": "node scripts/check-build-boundaries.mjs",
@@ -24,7 +26,8 @@
     "chart.js": "^4.5.1",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
-    "react-router-dom": "^7.18.2"
+    "react-router-dom": "^7.18.2",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

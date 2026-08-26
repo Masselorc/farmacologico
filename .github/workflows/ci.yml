@@ -25,6 +25,9 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      - name: Type-tests
+        run: npm run type-tests
+
       - name: Testes baseline
         run: npm test
 

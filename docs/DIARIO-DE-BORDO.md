@@ -449,4 +449,62 @@ Corrigir a última imprecisão numérica de documentação do fixture de 1000 ms
 
 ### Commit
 
-- docs(farmakit): corrigir anotação numérica e fechar E4
+- `30c236707756e99a56d0ae2fd8f58f559d4189c4`
+
+## 2026-08-26 — E5 — LIMITS, Zod, i18n e tipos
+
+### Objetivo
+
+Implementar a camada centralizada e tipada de validação estrutural (Zod), limites (LIMITS), bounds para controles HTML (`boundsFromLimits`), catálogo pt-BR de erros e warnings com formatadores puros, tipos de domínio e type-tests formais, congelando os contratos de entrada e saída da FARMakit sem iniciar persistência/UI.
+
+### Alterações realizadas
+
+- **Dependência Zod**: instalado `zod` como dependência de runtime.
+- **LIMITS (`src/validation/limits.ts`)**: verificado e mantido como fonte única de bounds normativos (`DOMAIN_LIMITS`, `SAFETY_LIMITS`, `UX_LIMITS`), adicionando constantes derivadas em ms (`MS_PER_DAY`, `HALF_LIFE_MS_MAX`, `TMAX_MS_MAX`) sem duplicação de magic numbers.
+- **Bounds HTML (`src/validation/bounds.ts`)**: implementado `boundsFromLimits()` puro, derivando atributos min/max/step/maxLength para formulários HTML diretamente a partir dos limites normativos.
+- **Schemas Zod (`src/validation/schemas/`)**:
+  - `primitives.ts`: schemas para números finitos, positivos, não negativos, inteiros positivos, strings não vazias, nomes (1..100 chars), ISO Instant (`isValidInstantIso`), LocalDate (`isValidLocalDate`), LocalTime (`isValidLocalTime`), TimeZoneId (`isValidTimeZoneId`), IsoWeekday (1..7), MassUnit, TimeUnit, DurationValue, DurationRange.
+  - `pk.ts`: `selectedPkParametersSchema` ($T_{1/2} \in [1\text{ ms}, 3650\text{ d}]$; $T_{max} \in [\text{null}, 0\dots 3650\text{ d}]$) e `pkParametersSnapshotSchema`.
+  - `recurrence.ts`: `recurrenceSchema` (single vs weekly com weekdays 1..7 ordenados ascendentes únicos e weeks inteiro 1..520) e `scheduleSchema`.
+  - `scenario.ts`: `doseSchema` (amountMg $>0 \le 1.000.000\text{ mg}$), `doseDraftSchema`, `scenarioSourceSchema` e `scenarioSchema` (name não vazio $\le 100$, doses $\le 2000$).
+  - `protocol.ts`: `protocolComponentSourceSchema`, `protocolComponentSchema` e `protocolSchema` (1..20 componentes com IDs únicos, proporções $>0$ somando $1 \pm 10^{-12}$ via `proportionSumClose` e doses derivadas $\le 1.000.000\text{ mg}$).
+  - `reconstitution.ts`: `syringeSchema` (U-100, 100 U/mL, graduação $>0 \le 100\text{ U}$) e `reconstitutionInputSchema` (vial $\le 100.000\text{ mg}$, diluente $\le 1000\text{ mL}$, dose $\le 1.000.000\text{ mcg}$).
+  - `index.ts`: exportação unificada de todos os limites, bounds e schemas.
+- **Erros e Warnings de Domínio (`src/domain/shared/errors.ts`)**:
+  - `DomainErrorCode`: todos os 15 códigos normativos presentes, incluindo `SCENARIO_NAME_REQUIRED`.
+  - `DataManagementErrorCode` & `DataManagementError`: adicionados os 5 tipos normativos (`CONFIG_STORAGE_LIMIT_EXCEEDED`, `CALCULATION_RECORD_TOO_LARGE`, `EXPORT_SIZE_LIMIT_EXCEEDED`, `IMPORT_FILE_TOO_LARGE`, `IMPORT_KIND_MISMATCH`).
+- **Catálogo pt-BR e Formatadores (`src/app/i18n/pt-BR.errors.ts`, `pt-BR.messages.ts`)**:
+  - Catálogo exaustivo tipado `domainErrorMessages`, `dataManagementErrorMessages`, `pkWarningMessages`, `reconstitutionWarningMessages`, `recurrenceReasonMessages`.
+  - Formatadores puros `formatDomainError`, `formatDataManagementError`, `formatPkWarning`, `formatReconstitutionWarning`, `formatRecurrenceReason`.
+  - Preservação literal das mensagens herdadas e parâmetros dinâmicos.
+- **Tipos de Domínio (`src/domain/types.ts`)**: alinhados rigorosamente com os schemas Zod (`PkParametersSnapshot`, `DoseDraft`, `ScenarioSource`, `ProtocolComponentSource`, etc.).
+- **Type-Tests (`tsconfig.type-tests.json`, `src/tests/types/types.test-d.ts`)**:
+  - Script `"type-tests": "tsc -p tsconfig.type-tests.json"`.
+  - Validação estática de compatibilidade bidirecional de schemas com tipos de domínio, exaustividade dos catálogos de mensagens pt-BR e rejeição em tempo de compilação de shapes inválidos via `@ts-expect-error`.
+- **CI (`.github/workflows/ci.yml`)**: adicionado o gate `npm run type-tests`.
+- **Testes Unitários E5 (`src/tests/validation/`)**:
+  - 9 arquivos de teste com 74 testes unitários cobrindo exaustivamente limites, bounds, primitivos, PK, recorrência, cenários, protocolos, reconstituição e i18n.
+  - Script `"test:e5": "vitest run src/tests/validation"`.
+
+### Problemas encontrados
+
+- No primeiro teste de lint, uma variável importada em arquivo de teste estava sem uso direto; corrigida com adição de bloco de teste dedicado.
+- Na tipagem inicial de `formatDataManagementError`, `dataManagementErrorMessages` foi inferido como literal string puro inviabilizando o narrowing de função; corrigido tipando explicitamente o dicionário com `Record<DataManagementErrorCode, ErrorMessageTemplate>`.
+
+### Validações executadas
+
+- `npm run lint`: PASS
+- `npm run typecheck`: PASS
+- `npm run type-tests`: PASS
+- `npm test`: PASS (37 arquivos, 345 testes)
+- `npm run test:e5`: PASS (9 arquivos, 74 testes)
+- `npm run test:e4`: PASS (11 arquivos, 80 testes)
+- `npm run build`: PASS
+- `npm run check:build-boundaries`: PASS
+- `npm run test:e1`: PASS
+
+### Pendências
+
+- E5 concluída integralmente.
+- E6+ (Persistência / IndexedDB / Quarentena / Migração) NÃO iniciada.
+

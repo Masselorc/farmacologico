@@ -1,7 +1,7 @@
 // Tipos de domínio necessários à E3 (subconjunto coerente com §6).
 // Histórico/dataset/favoritos/export/storage/migrations pertencem a etapas posteriores.
 
-import type { Duration, DurationRange, DurationValue, InstantIso, LocalDate, LocalTime, MassUnit, TimeZoneId } from './shared/types.datetime'
+import type { Duration, DurationRange, DurationValue, InstantIso, LocalDate, LocalTime, MassUnit, TimeUnit, TimeZoneId } from './shared/types.datetime'
 
 export type IsoWeekday = 1 | 2 | 3 | 4 | 5 | 6 | 7
 
@@ -11,17 +11,49 @@ export interface SelectedPkParameters {
   tmaxMs: number | null
 }
 
+export interface PkParametersSnapshot {
+  halfLife: DurationValue
+  tmax: DurationValue | null
+  selectedFromRange?: { halfLife?: DurationRange; tmax?: DurationRange }
+}
+
 export interface Dose {
   id: string
   amountMg: number
   time: InstantIso
 }
 
-/** Cenário mínimo necessário ao assembly da E3; `source` completo chega na E10. */
+export interface DoseDraft {
+  id: string
+  amountMg: number | null
+  localDate?: LocalDate
+  localTime?: LocalTime
+}
+
+export type ScenarioSource =
+  | {
+      type: 'library'
+      substanceId: string
+      profileId: string
+      datasetVersion: number
+      pkParametersSnapshot: PkParametersSnapshot
+    }
+  | {
+      type: 'custom_profile'
+      customProfileId: string
+      pkParametersSnapshot: PkParametersSnapshot
+    }
+  | {
+      type: 'manual'
+      pkParametersSnapshot?: PkParametersSnapshot
+    }
+
+/** Cenário de simulação (§6). */
 export interface Scenario {
   id: string
   name: string
   color: string
+  source?: ScenarioSource
   displayUnit: MassUnit
   selectedPkParameters: SelectedPkParameters
   doses: Dose[]
@@ -107,11 +139,19 @@ export interface Occurrence {
   scheduleLocalDate: LocalDate
 }
 
+export type ProtocolComponentSource =
+  | { type: 'library'; substanceId: string; profileId: string; datasetVersion: number }
+  | { type: 'custom_profile'; customProfileId: string }
+  | { type: 'manual' }
+
 export interface ProtocolComponent {
   id: string
   label: string
   proportion: number
+  source?: ProtocolComponentSource
   selectedPkParameters: SelectedPkParameters
+  pkParametersSnapshot?: PkParametersSnapshot
+  displayColor?: string
 }
 
 export interface Protocol {
@@ -120,6 +160,8 @@ export interface Protocol {
   totalDoseMg: number
   schedule: Schedule
   components: ProtocolComponent[]
+  createdAt?: InstantIso
+  updatedAt?: InstantIso
 }
 
 export interface Syringe {
@@ -154,4 +196,4 @@ export interface ReconstitutionResult {
 }
 
 // Reexportações de conveniência para consumidores dos motores.
-export type { Duration, DurationRange, DurationValue }
+export type { Duration, DurationRange, DurationValue, InstantIso, LocalDate, LocalTime, MassUnit, TimeUnit, TimeZoneId }

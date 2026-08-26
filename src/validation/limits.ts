@@ -32,3 +32,8 @@ export const UX_LIMITS = {
   FAVORITES_MAX: 100,
   GRADUATION_ERROR_WARN_THRESHOLD: 0.05,
 } as const
+
+// Constantes derivadas diretamente dos limites normativos (sem magic numbers).
+export const MS_PER_DAY = 86_400_000
+export const HALF_LIFE_MS_MAX = SAFETY_LIMITS.HALF_LIFE_DAYS_MAX * MS_PER_DAY
+export const TMAX_MS_MAX = SAFETY_LIMITS.TMAX_DAYS_MAX * MS_PER_DAY
