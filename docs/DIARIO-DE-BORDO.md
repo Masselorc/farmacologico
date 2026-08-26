@@ -321,7 +321,7 @@ Atacar os motores E3 com testes unitários, property-based tests, oráculos inde
 
 ### Objetivo
 
-Fechar as lacunas residuais do gate matemático E4 identificadas na revisão externa: corrigir o counterexample funcional de `shiftSchedule` (weekdays canônicos ascendentes), assertar a aditividade linear nos compartimentos primários, reduzir execuções vazias na property de recorrência com ancoragem na vigência do schedule, cobrir recorrência semanal atravessando GAP/OVERLAP (DST), eliminar escape de divisão no teste do solver e fortalecer a recomposição de $k_a$ subnormal representável, tornar a equivalência de cutoff adversarial junto à fronteira imediata do corte, e instrumentar a métrica de erro relativo máximo de Bateman.
+Fechar as lacunas residuais do gate matemático E4 identificadas na revisão externa: corrigir o counterexample funcional de `shiftSchedule` (weekdays canônicos ascendentes), assertar a aditividade linear nos compartimentos primários, reduzir execuções vazias na property de recorrência com ancoragem na vigência do schedule, cobrir recorrência semanal atravessando GAP/OVERLAP (DST), eliminar escape de divisão no teste do solver e fortalecer a recomposição de $k_a$ extremo muito pequeno normal representável, tornar a equivalência de cutoff adversarial junto à fronteira imediata do corte, e instrumentar a métrica de erro relativo máximo de Bateman.
 
 ### Alterações realizadas
 
@@ -331,7 +331,7 @@ Fechar as lacunas residuais do gate matemático E4 identificadas na revisão ext
 - Linearidade PK (`src/tests/domain/property/pk.conservation.property.test.ts`): assertada aditividade matemática `stateAB.administeredMg ≈ stateA.administeredMg + stateB.administeredMg`, `stateAB.centralMg ≈ stateA.centralMg + stateB.centralMg` e `stateAB.depotMg ≈ stateA.depotMg + stateB.depotMg` via `amountClose`.
 - Recorrência não-vazia (`src/tests/domain/property/recurrence.property.test.ts`): property com janelas derivadas da vigência de `schedule.startDate` com verificação estrutural de geração de ocorrências não vazias (>60% dos runs).
 - DST semanal (`src/tests/domain/recurrence.test.ts`, `src/tests/domain/property/recurrence.property.test.ts`): testes de recorrência semanal em `America/New_York` atravessando GAP (2024-03-10, resolvendo para 03:30 local via 'later') e OVERLAP (2024-11-03, resolvendo para offset -04:00 via 'earlier').
-- Solver subnormal e recomposição (`src/tests/domain/property/pk.solver.property.test.ts`, `src/tests/domain/property/helpers.ts`): removido escape artificial `ka/ke < 1e-300`, recomposição em espaço-$y$ por `Math.log(ka) - Math.log(ke)`, `oracleG` estabilizado para $|y|$ grande; caso subnormal representável $T_{1/2}=1\text{ ms}, T_{max}=1000\text{ ms}$ recomposto pela equação dentro de `TMAX_RECOMPOSITION_RTOL`.
+- Solver e recomposição (`src/tests/domain/property/pk.solver.property.test.ts`, `src/tests/domain/property/helpers.ts`): removido escape artificial `ka/ke < 1e-300`, recomposição em espaço-$y$ por `Math.log(ka) - Math.log(ke)`, `oracleG` estabilizado para $|y|$ grande; caso extremo muito pequeno normal representável $T_{1/2}=1\text{ ms}, T_{max}=1000\text{ ms}$ recomposto pela equação dentro de `TMAX_RECOMPOSITION_RTOL`.
 - Cutoff adversarial e caso $D=\emptyset$ (`src/tests/domain/property/pk.cutoff-equivalence.property.test.ts`): adicionados testes de descarte imediatamente antes da fronteira do corte (-1 ms, -10 ms, -1000 ms) avaliados em todos os timestamps comuns (incluindo `displayStart`); caso $D=\emptyset$ provando `cutoffClose(a,b,0) === amountClose(a,b)`.
 - Bateman (`src/tests/domain/property/pk.bateman.property.test.ts`): acumulado `maxRelativeError` observado na matriz determinística contra oráculo Decimal (60 dígitos) com emissão de log `[e4-bateman] maxRelativeError=...`.
 - Diário (`docs/DIARIO-DE-BORDO.md`): restaurada a ordem cronológica movendo E4 para após E3 e adicionada esta entrada E4.1.
@@ -355,7 +355,7 @@ Fechar as lacunas residuais do gate matemático E4 identificadas na revisão ext
 - Linearidade PK: antes não assertava `base = stateA + stateB`; agora verifica aditividade física nos compartimentos primários via `amountClose`.
 - Recurrence property vazia: janelas antigas em 2024 criavam execuções vacuamente vazias para schedules em 2025–2027; corrigido para janelas ancoradas em `schedule.startDate`.
 - DST semanal: adicionada cobertura de recorrência semanal atravessando transições de GAP e OVERLAP em `America/New_York`.
-- Recomposição de $k_a$ subnormal: evitado subflow na razão $k_a/k_e$ usando $\ln(k_a) - \ln(k_e)$ e `oracleG` estável; validado caso $T_{1/2}=1\text{ ms}, T_{max}=1000\text{ ms}$.
+- Recomposição de $k_a$ extremo muito pequeno normal: evitado subflow na razão $k_a/k_e$ usando $\ln(k_a) - \ln(k_e)$ e `oracleG` estável; validado caso $T_{1/2}=1\text{ ms}, T_{max}=1000\text{ ms}$.
 - Cutoff adversarial: coberta fronteira imediata do corte ($t_{calcStart} - 1\text{ ms}$) com `cutoffClose`.
 - Resultado final dos gates: todos os gates locais aprovados (PASS).
 
@@ -376,4 +376,41 @@ Fechar as lacunas residuais do gate matemático E4 identificadas na revisão ext
 
 ### Commit
 
-- fix(farmakit): fechar lacunas residuais do gate matemático E4
+- `b256a0adbdfe0f7eb47ed1cf9709313ec1e34dc8`
+
+## 2026-08-26 — E4.2 — Validação de solução PK subnormal
+
+### Objetivo
+
+Corrigir a classificação IEEE-754 do fixture anterior (1 ms / 1000 ms, cujo $k_a \approx 6,47 \times 10^{-302}\text{ ms}^{-1} \ge 2^{-1022}$ é normal) e adicionar um caso genuinamente subnormal representável (1 ms / 1025 ms, cujo $k_a \approx 1,93 \times 10^{-309}\text{ ms}^{-1} < 2^{-1022}$) com prova de recomposição pela equação em espaço-$y$, consolidando a distinção entre as três regiões numéricas do solver antes do início da E5.
+
+### Alterações realizadas
+
+- Reclassificação IEEE-754 (`src/tests/domain/property/pk.solver.property.test.ts`, `src/tests/domain/property/extremes.property.test.ts`): caso $T_{1/2}=1\text{ ms}, T_{max}=1000\text{ ms}$ reclassificado como normal representável com assert explícito `ka >= 2^-1022` ($MIN\_NORMAL\_DOUBLE$).
+- Novo fixture subnormal (`src/tests/domain/property/pk.solver.property.test.ts`, `src/tests/domain/property/extremes.property.test.ts`): caso $T_{1/2}=1\text{ ms}, T_{max}=1025\text{ ms}$ produz $k_a \approx 1,93 \times 10^{-309}\text{ ms}^{-1}$, provando `0 < ka < 2^-1022` e `ka >= Number.MIN_VALUE`.
+- Recomposição subnormal em espaço-$y$: $y = \ln(k_a) - \ln(k_e)$ e $g(y) \approx k_e \cdot T_{max}$ via `oracleG` estável verificado dentro de `TMAX_RECOMPOSITION_RTOL` ($10^{-9}$) para $1000\text{ ms}$ e $1025\text{ ms}$.
+- Teste explícito de 3 regiões: normal ($1000\text{ ms}$), subnormal ($1025\text{ ms}$) e não representável ($3650\text{ d} \Rightarrow ABSORPTION\_SOLVER\_FAILURE$).
+- Correção factual de comentários no diário de bordo e nas suítes de testes.
+
+### Problemas encontrados
+
+- Não foi identificado novo bug no solver; o algoritmo de bisseção e cálculo de $k_a$ já operava corretamente no domínio subnormal, restando apenas a classificação e cobertura explícita do fixture subnormal nos testes.
+
+### Validações executadas
+
+- `npm run lint`: PASS
+- `npm run typecheck`: PASS
+- `npm test`: PASS (28 arquivos, 270 testes)
+- `npm run test:e4`: PASS (11 arquivos, 80 testes)
+- `npm run build`: PASS
+- `npm run check:build-boundaries`: PASS
+- `npm run test:e1`: PASS
+
+### Pendências
+
+- E5 ainda não iniciada.
+- E4.2 fecha em definitivo o gate matemático E4.
+
+### Commit
+
+- test(farmakit): validar solver em faixa subnormal E4.2

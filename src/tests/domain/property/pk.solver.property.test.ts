@@ -99,12 +99,14 @@ describe('E4 solver — âncoras normativas e extremos', () => {
     }
   })
 
-  it('fronteira representável: halfLife=1 ms com Tmax=1000 ms produz finite>0 e recompõe pela equação', () => {
-    // c ≈ 693 ⇒ y ≈ −697 ⇒ exp(y) ≈ 1e-303 > 0 (subnormal positivo representável)
+  it('extremo muito pequeno, porém NORMAL representável: halfLife=1 ms com Tmax=1000 ms', () => {
+    // c ≈ 693.147 ⇒ y ≈ −697.75 ⇒ ka ≈ 6.47e-302 / ms (normal, pois >= 2^-1022 ≈ 2.225e-308)
+    const MIN_NORMAL_DOUBLE = 2 ** -1022
     const result = absorptionRateFromTmax({ halfLifeMs: 1, tmaxMs: 1000 })
     expect(result.kaPerMs).not.toBeNull()
     expect(Number.isFinite(result.kaPerMs!)).toBe(true)
     expect(result.kaPerMs!).toBeGreaterThan(0)
+    expect(result.kaPerMs!).toBeGreaterThanOrEqual(MIN_NORMAL_DOUBLE)
 
     const ke = eliminationRate(1)
     const y = Math.log(result.kaPerMs!) - Math.log(ke)
@@ -112,6 +114,58 @@ describe('E4 solver — âncoras normativas e extremos', () => {
     const cAchieved = oracleG(y)
     const relativeResidual = Math.abs(cAchieved - cTarget) / cTarget
     expect(relativeResidual).toBeLessThanOrEqual(TMAX_RECOMPOSITION_RTOL)
+  })
+
+  it('extremo SUBNORMAL positivo representável: halfLife=1 ms com Tmax=1025 ms', () => {
+    // c ≈ 710.476 ⇒ y ≈ −710.476 ⇒ ka ≈ 1.93e-309 / ms (subnormal, pois 0 < ka < 2^-1022)
+    const MIN_NORMAL_DOUBLE = 2 ** -1022
+    const result = absorptionRateFromTmax({ halfLifeMs: 1, tmaxMs: 1025 })
+    expect(result.kaPerMs).not.toBeNull()
+    expect(Number.isFinite(result.kaPerMs!)).toBe(true)
+    expect(result.kaPerMs!).toBeGreaterThan(0)
+    expect(result.kaPerMs!).toBeLessThan(MIN_NORMAL_DOUBLE)
+    expect(result.kaPerMs!).toBeGreaterThanOrEqual(Number.MIN_VALUE)
+
+    const ke = eliminationRate(1)
+    const y = Math.log(result.kaPerMs!) - Math.log(ke)
+    const cTarget = ke * 1025
+    const cAchieved = oracleG(y)
+    const relativeResidual = Math.abs(cAchieved - cTarget) / cTarget
+    expect(relativeResidual).toBeLessThanOrEqual(TMAX_RECOMPOSITION_RTOL)
+  })
+
+  it('classificação IEEE-754 explícita: 1000 ms (normal) vs 1025 ms (subnormal) vs 3650 d (não representável)', () => {
+    const minNormal = 2 ** -1022
+
+    const ka1000 = absorptionRateFromTmax({ halfLifeMs: 1, tmaxMs: 1000 }).kaPerMs!
+    const ka1025 = absorptionRateFromTmax({ halfLifeMs: 1, tmaxMs: 1025 }).kaPerMs!
+
+    // ka1000 é NORMAL
+    expect(ka1000).toBeGreaterThanOrEqual(minNormal)
+    expect(Number.isFinite(ka1000)).toBe(true)
+
+    // ka1025 é SUBNORMAL positivo
+    expect(ka1025).toBeGreaterThan(0)
+    expect(ka1025).toBeLessThan(minNormal)
+    expect(ka1025).toBeGreaterThanOrEqual(Number.MIN_VALUE)
+
+    // Ambos recompõem a equação dentro de TMAX_RECOMPOSITION_RTOL
+    const ke = eliminationRate(1)
+    for (const [ka, tmaxMs] of [
+      [ka1000, 1000],
+      [ka1025, 1025],
+    ] as const) {
+      const y = Math.log(ka) - Math.log(ke)
+      const cTarget = ke * tmaxMs
+      const cAchieved = oracleG(y)
+      const relativeResidual = Math.abs(cAchieved - cTarget) / cTarget
+      expect(relativeResidual).toBeLessThanOrEqual(TMAX_RECOMPOSITION_RTOL)
+    }
+
+    // 3650 d é não representável ⇒ ABSORPTION_SOLVER_FAILURE
+    expect(() => absorptionRateFromTmax({ halfLifeMs: 1, tmaxMs: 3650 * MS_PER_DAY })).toThrowError(
+      expect.objectContaining({ code: 'ABSORPTION_SOLVER_FAILURE' }),
+    )
   })
 
   it('property de pós-condição: nunca existe solução aceita com ka ≤ 0 ou não finito', () => {

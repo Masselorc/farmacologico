@@ -29,10 +29,16 @@ describe('E4 extremos — classificação determinística', () => {
     expect(output.peak.amountMg).toBeGreaterThan(0)
   })
 
-  it('meia-vida mínima com Tmax pequeno representável: finite>0 (subnormal aceito)', () => {
-    const result = absorptionRateFromTmax({ halfLifeMs: HALF_LIFE_MIN, tmaxMs: 1000 })
-    expect(result.kaPerMs).not.toBeNull()
-    expect(result.kaPerMs).toBeGreaterThan(0)
+  it('meia-vida mínima com Tmax pequeno representável: finite>0 (1000 ms normal, 1025 ms subnormal)', () => {
+    const minNormal = 2 ** -1022
+    const res1000 = absorptionRateFromTmax({ halfLifeMs: HALF_LIFE_MIN, tmaxMs: 1000 })
+    expect(res1000.kaPerMs).not.toBeNull()
+    expect(res1000.kaPerMs!).toBeGreaterThanOrEqual(minNormal)
+
+    const res1025 = absorptionRateFromTmax({ halfLifeMs: HALF_LIFE_MIN, tmaxMs: 1025 })
+    expect(res1025.kaPerMs).not.toBeNull()
+    expect(res1025.kaPerMs!).toBeGreaterThan(0)
+    expect(res1025.kaPerMs!).toBeLessThan(minNormal)
   })
 
   it('meia-vida mínima com Tmax máximo: ABSORPTION_SOLVER_FAILURE (nunca ka=0)', () => {
