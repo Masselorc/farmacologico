@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import fc from 'fast-check'
 import { deriveCalculationWindow } from '../../../domain/simulation/windows'
 import { absorptionRateFromTmax } from '../../../domain/pk/rates'
-import { cutoffClose } from '../../../domain/shared/tolerances'
+import { amountClose, cutoffClose } from '../../../domain/shared/tolerances'
 import type { SelectedPkParameters } from '../../../domain/types'
 import type { DoseKinetics } from '../../../domain/pk/bateman'
 import { MS_PER_DAY } from './cutoff-fixtures'
@@ -70,11 +70,13 @@ describe('E4 equivalência — padrão × referência estendida', () => {
 
         // Universo B (referência estendida): MESMO limite superior; estende só o inferior
         // com administrações antigas deliberadamente descartadas pela política de cutoff.
+        // Cobre tanto doses IMEDIATAMENTE antes do corte (-1 ms, -10 ms, etc.) quanto mais antigas.
         const extendedDoses = [...standardDoses]
         let sumDiscardedDoseMg = 0
         const terminalHalfLifeMs = terminalHalfOf(selected)
         for (let j = 1; j <= discardedCount; j++) {
-          const ageBeforeDisplayStart = calculationWindow.startMs - j * 3 * terminalHalfLifeMs - offsetSeed % (MS_PER_DAY / 2)
+          const nearBoundaryOffset = j === 1 ? 1 + (offsetSeed % 1000) : j * 3 * terminalHalfLifeMs + (offsetSeed % (MS_PER_DAY / 2))
+          const ageBeforeDisplayStart = calculationWindow.startMs - nearBoundaryOffset
           if (ageBeforeDisplayStart <= 0) continue
           const amountMg = 5 * j
           extendedDoses.push({ amountMg, timeMs: ageBeforeDisplayStart })
@@ -107,6 +109,82 @@ describe('E4 equivalência — padrão × referência estendida', () => {
       },
     )
     forAllSeeds(property, { numRuns: 120 })
+  })
+
+  it('doses descartadas imediatamente antes do cutoff (fronteira adversarial: -1 ms, -10 ms, -1000 ms) respeitam cutoffClose', () => {
+    const halfLives = [60_000, 3_600_000, 24 * 3_600_000, 180 * 24 * 3_600_000]
+    const offsets = [1, 10, 100, 1000] // ms antes de calculationWindow.startMs
+
+    for (const halfLifeMs of halfLives) {
+      for (const tmaxOpt of [null, halfLifeMs / 2, halfLifeMs * 2]) {
+        let kinetics: DoseKinetics
+        try {
+          kinetics = absorptionKinetics(halfLifeMs, tmaxOpt)
+        } catch {
+          continue
+        }
+
+        const selected: SelectedPkParameters = { halfLifeMs, tmaxMs: tmaxOpt }
+        const displayStart = 1_800_000_000_000
+        const displayEnd = displayStart + 14 * MS_PER_DAY
+        const calculationWindow = deriveCalculationWindow({ startMs: displayStart, endMs: displayEnd }, [selected])
+
+        const standardDoses = [
+          { amountMg: 100, timeMs: calculationWindow.startMs + 1000 },
+          { amountMg: 50, timeMs: displayStart + MS_PER_DAY },
+        ]
+
+        const extendedDoses = [...standardDoses]
+        let sumDiscardedDoseMg = 0
+        for (const offset of offsets) {
+          const timeMs = calculationWindow.startMs - offset
+          const amountMg = 50
+          extendedDoses.push({ amountMg, timeMs })
+          sumDiscardedDoseMg += amountMg
+        }
+
+        const timestamps = buildTimestamps(
+          displayStart,
+          displayEnd,
+          standardDoses.map((d) => d.timeMs),
+          tmaxOpt,
+        )
+        // Primeiro ponto obrigatório é displayStart
+        expect(timestamps[0]).toBe(displayStart)
+
+        for (const t of timestamps) {
+          const std = universeAmounts(standardDoses, t, kinetics)
+          const ext = universeAmounts(extendedDoses, t, kinetics)
+
+          expect(cutoffClose(std.centralMg, ext.centralMg, sumDiscardedDoseMg)).toBe(true)
+          expect(cutoffClose(std.depotMg, ext.depotMg, sumDiscardedDoseMg)).toBe(true)
+          expect(cutoffClose(std.totalPresentMg, ext.totalPresentMg, sumDiscardedDoseMg)).toBe(true)
+        }
+      }
+    }
+  })
+
+  it('caso D vazio: sumDiscardedDoseMg=0 implica equivalência exata cutoffClose(a,b,0) ≡ amountClose(a,b)', () => {
+    const halfLifeMs = 6 * MS_PER_DAY
+    const kinetics = absorptionKinetics(halfLifeMs, 2 * MS_PER_DAY)
+    const displayStart = 1_800_000_000_000
+    const displayEnd = displayStart + 14 * MS_PER_DAY
+    const doses = [
+      { amountMg: 100, timeMs: displayStart + MS_PER_DAY },
+      { amountMg: 50, timeMs: displayStart + 3 * MS_PER_DAY },
+    ]
+    const timestamps = [displayStart, displayStart + MS_PER_DAY, displayStart + 5 * MS_PER_DAY, displayEnd]
+
+    for (const t of timestamps) {
+      const amounts = universeAmounts(doses, t, kinetics)
+      expect(cutoffClose(amounts.centralMg, amounts.centralMg, 0)).toBe(true)
+      expect(cutoffClose(amounts.centralMg, amounts.centralMg, 0)).toBe(
+        amountClose(amounts.centralMg, amounts.centralMg),
+      )
+      expect(cutoffClose(amounts.totalPresentMg, amounts.totalPresentMg, 0)).toBe(
+        amountClose(amounts.totalPresentMg, amounts.totalPresentMg),
+      )
+    }
   })
 
   it('sanidade do oráculo: sem descarte os universos coincidem bit a bit', () => {

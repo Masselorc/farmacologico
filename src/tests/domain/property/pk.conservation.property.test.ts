@@ -96,6 +96,12 @@ describe('E4 conservação de massa — property ampla', () => {
         const halfB = doses.slice(Math.floor(doses.length / 2))
         const stateA = stateAt(halfA, nowMs, halfLifeMs, tmaxMs)
         const stateB = stateAt(halfB, nowMs, halfLifeMs, tmaxMs)
+
+        // Linearidade aditiva nos compartimentos primários físicos e na massa administrada:
+        expect(amountClose(base.administeredMg, stateA.administeredMg + stateB.administeredMg)).toBe(true)
+        expect(amountClose(base.centralMg, stateA.centralMg + stateB.centralMg)).toBe(true)
+        expect(amountClose(base.depotMg, stateA.depotMg + stateB.depotMg)).toBe(true)
+
         // Conservação dentro de cada universo (nunca comparar counts entre universos distintos).
         for (const s of [base, stateA, stateB]) {
           expect(

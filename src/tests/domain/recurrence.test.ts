@@ -141,7 +141,27 @@ describe('shiftSchedule — deslocamento CIVIL', () => {
   it('-1 dia rotaciona para trás com módulo não negativo (seg→dom)', () => {
     const shifted = shiftSchedule(weeklyMonWedFri, -1)
     expect(shifted.startDate).toBe('2026-01-04')
-    expect(shifted.recurrence).toEqual({ type: 'weekly', weekdays: [7, 2, 4], weeks: 2 })
+    expect(shifted.recurrence).toEqual({ type: 'weekly', weekdays: [2, 4, 7], weeks: 2 })
+  })
+
+  it('preserva ordenação ascendente dos weekdays na rotação ISO (ex: [1,7]+1⇒[1,2], [1,6,7]+1⇒[1,2,7])', () => {
+    const scheduleA: Schedule = {
+      startDate: '2026-01-05',
+      localTime: '10:00',
+      timeZone: UTC,
+      recurrence: { type: 'weekly', weekdays: [1, 7], weeks: 2 },
+    }
+    const shiftedA = shiftSchedule(scheduleA, 1)
+    expect(shiftedA.recurrence).toEqual({ type: 'weekly', weekdays: [1, 2], weeks: 2 })
+
+    const scheduleB: Schedule = {
+      startDate: '2026-01-05',
+      localTime: '10:00',
+      timeZone: UTC,
+      recurrence: { type: 'weekly', weekdays: [1, 6, 7], weeks: 2 },
+    }
+    const shiftedB = shiftSchedule(scheduleB, 1)
+    expect(shiftedB.recurrence).toEqual({ type: 'weekly', weekdays: [1, 2, 7], weeks: 2 })
   })
 
   it('+7 dias preserva os weekdays; original NUNCA mutado; delta fracionário rejeitado', () => {
@@ -162,7 +182,7 @@ describe('shiftSchedule — deslocamento CIVIL', () => {
 })
 
 describe('DST usa a camada Temporal da E2 (GAP later / OVERLAP earlier)', () => {
-  it('GAP: New York 2024-03-10 02:30 → instante do horário resolvido 03:30', () => {
+  it('GAP: New York 2024-03-10 02:30 → instante do horário resolvido 03:30 (single)', () => {
     const schedule: Schedule = {
       startDate: '2024-03-10',
       localTime: '02:30',
@@ -176,20 +196,70 @@ describe('DST usa a camada Temporal da E2 (GAP later / OVERLAP earlier)', () => 
     expect(instantToZonedParts({ instantIso: expectedIso, timeZone: NY }).localTime).toBe('03:30')
   })
 
-  it('OVERLAP: New York 2024-11-03 01:30 → primeira ocorrência (-04:00)', () => {
+  it('GAP: New York 2024-03-10 02:30 em recorrência WEEKLY atravessando a transição', () => {
+    const schedule: Schedule = {
+      startDate: '2024-03-03', // domingo anterior ao GAP
+      localTime: '02:30',
+      timeZone: NY,
+      recurrence: { type: 'weekly', weekdays: [7], weeks: 3 }, // 3 domingos: 03/03, 10/03 (GAP), 17/03
+    }
+    const start = utcMs('2024-03-01', '00:00')
+    const end = utcMs('2024-03-25', '00:00')
+    const got = generateOccurrences(schedule, start, end)
+    expect(got.length).toBe(3)
+
+    const gapOcc = got.find((o) => o.scheduleLocalDate === '2024-03-10')
+    expect(gapOcc).toBeDefined()
+
+    const expectedIso = civilToInstantIso({ localDate: '2024-03-10', localTime: '02:30', timeZone: NY })
+    const parts = instantToZonedParts({ instantIso: expectedIso, timeZone: NY })
+    expect(gapOcc!.instantMs).toBe(parts.epochMilliseconds)
+    expect(parts.localDate).toBe('2024-03-10')
+    expect(parts.localTime).toBe('03:30')
+    expect(parts.offset).toBe('-04:00')
+  })
+
+  it('OVERLAP: New York 2024-11-03 01:30 → primeira ocorrência (-04:00) (single)', () => {
     const schedule: Schedule = {
       startDate: '2024-11-03',
       localTime: '01:30',
       timeZone: NY,
       recurrence: { type: 'single' },
     }
-    const got = generateOccurrences(schedule, 0, Number.MAX_SAFE_INTEGER)
+    const start = utcMs('2024-11-01', '00:00')
+    const end = utcMs('2024-11-10', '00:00')
+    const got = generateOccurrences(schedule, start, end)
     expect(got.length).toBe(1)
     const parts = instantToZonedParts({
       instantIso: civilToInstantIso({ localDate: '2024-11-03', localTime: '01:30', timeZone: NY }),
       timeZone: NY,
     })
     expect(got[0]!.instantMs).toBe(parts.epochMilliseconds)
+    expect(parts.offset).toBe('-04:00')
+  })
+
+  it('OVERLAP: New York 2024-11-03 01:30 em recorrência WEEKLY atravessando a transição', () => {
+    const schedule: Schedule = {
+      startDate: '2024-10-27', // domingo anterior ao OVERLAP
+      localTime: '01:30',
+      timeZone: NY,
+      recurrence: { type: 'weekly', weekdays: [7], weeks: 3 }, // 3 domingos: 27/10, 03/11 (OVERLAP), 10/11
+    }
+    const start = utcMs('2024-10-20', '00:00')
+    const end = utcMs('2024-11-15', '00:00')
+    const got = generateOccurrences(schedule, start, end)
+    expect(got.length).toBe(3)
+
+    const overlapOcc = got.find((o) => o.scheduleLocalDate === '2024-11-03')
+    expect(overlapOcc).toBeDefined()
+
+    const parts = instantToZonedParts({
+      instantIso: civilToInstantIso({ localDate: '2024-11-03', localTime: '01:30', timeZone: NY }),
+      timeZone: NY,
+    })
+    expect(overlapOcc!.instantMs).toBe(parts.epochMilliseconds)
+    expect(parts.localDate).toBe('2024-11-03')
+    expect(parts.localTime).toBe('01:30')
     expect(parts.offset).toBe('-04:00')
   })
 

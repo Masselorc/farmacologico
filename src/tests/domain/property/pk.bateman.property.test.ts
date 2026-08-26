@@ -27,6 +27,46 @@ describe('E4 Bateman — matriz degenerada obrigatória vs oráculo Decimal (60 
   ]
   const doses = [1e-9, 1, 1e6]
 
+  it('matriz completa ratio ka/ke × tempos × doses: acumula maxRelativeError e verifica bound', () => {
+    const halfLifeMs = 48 * MS_PER_HOUR
+    const ke = eliminationRate(halfLifeMs)
+    let maxRelativeError = 0
+
+    for (const ratio of ratios) {
+      const ka = ke * ratio
+      const kinetics = { kePerMs: ke, kaPerMs: ka }
+
+      for (const dose of doses) {
+        for (const dt of times) {
+          const gotCentral = stableBatemanAmount(dose, dt, kinetics)
+          const expectedCentral = decimalOracleCentral(dose, dt, ke, ka)
+          expect(Number.isFinite(gotCentral)).toBe(true)
+          if (expectedCentral === 0) {
+            expect(gotCentral).toBe(0)
+          } else {
+            const relErr = Math.abs(gotCentral - expectedCentral) / expectedCentral
+            if (relErr > maxRelativeError) maxRelativeError = relErr
+            expect(relErr).toBeLessThanOrEqual(1e-11)
+          }
+          expect(amountClose(gotCentral, expectedCentral)).toBe(true)
+
+          const gotDepot = depotFromDose(dose, dt, kinetics)
+          const expectedDepot = decimalOracleDepot(dose, dt, ka)
+          if (expectedDepot === 0) {
+            expect(gotDepot).toBe(0)
+          } else {
+            const relErrDepot = Math.abs(gotDepot - expectedDepot) / expectedDepot
+            if (relErrDepot > maxRelativeError) maxRelativeError = relErrDepot
+            expect(relErrDepot).toBeLessThanOrEqual(1e-11)
+          }
+        }
+      }
+    }
+
+    expect(maxRelativeError).toBeLessThanOrEqual(1e-11)
+    console.info(`[e4-bateman] maxRelativeError=${maxRelativeError.toExponential(16)}`)
+  })
+
   it.each(ratios.map((r) => [r as number]))('ratio ka/ke=%e: motor ≡ oráculo em todos os tempos/doses', (ratio) => {
     const halfLifeMs = 48 * MS_PER_HOUR
     const ke = eliminationRate(halfLifeMs)

@@ -18,9 +18,9 @@ export function shiftSchedule(schedule: Schedule, deltaDays: number): Schedule {
       ? schedule.recurrence
       : {
           type: 'weekly' as const,
-          weekdays: schedule.recurrence.weekdays.map(
-            (day) => (1 + (((day - 1 + deltaDays) % 7) + 7) % 7) as typeof day,
-          ),
+          weekdays: schedule.recurrence.weekdays
+            .map((day) => (1 + (((day - 1 + deltaDays) % 7) + 7) % 7) as typeof day)
+            .sort((a, b) => a - b),
           weeks: schedule.recurrence.weeks,
         }
 

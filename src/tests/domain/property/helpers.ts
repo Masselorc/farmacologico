@@ -30,6 +30,12 @@ export function oracleG(y: number): number {
     const y2 = y * y
     return 1 - y / 2 + y2 / 12 - (y2 * y2) / 720
   }
+  if (y < -50) {
+    return -y / (1 - Math.exp(y))
+  }
+  if (y > 700) {
+    return y * Math.exp(-y)
+  }
   return y / (Math.exp(y) - 1)
 }
 

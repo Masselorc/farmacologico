@@ -60,70 +60,6 @@ Corrigir nove lacunas contratuais identificadas na revisão profunda do document
 
 - Não criado nesta revisão.
 
-## 2026-08-26 — E4 — Gate matemático e property tests
-
-### Objetivo
-
-Atacar os motores E3 com testes unitários, property-based tests, oráculos independentes e fixtures, sem iniciar E5 ou novas features.
-
-### Alterações realizadas
-
-- Adicionados `fast-check@4.9.0` e `decimal.js@10.6.0` como devDependencies.
-- Criado o comando focal `npm run test:e4`.
-- Adicionados 11 arquivos de testes E4: solver, Bateman, conservação, cutoff, equivalência, análise, recurrence, reconstituição, simulation, extremos e regressões.
-- Corrigidos percentuais de estado para doses subnormais, evitando `Infinity×subnormal ⇒ NaN`.
-- Corrigido `cutoffAgeFor` para rejeitar `Infinity` derivado de `44·T½terminal` com `NUMERIC_FAILURE`.
-
-### Arquivos principais
-
-- `package.json` e `package-lock.json`
-- `src/domain/pk/analysis.ts`
-- `src/domain/pk/state.ts`
-- `src/domain/pk/cutoff.ts`
-- `src/tests/domain/property/`
-- `src/tests/domain/regression/regression.e4.test.ts`
-- `docs/DIARIO-DE-BORDO.md`
-
-### Decisões tomadas
-
-- Seeds canônicas: `1`, `42`, `20260826`, `0x5A17`; shrinking permaneceu habilitado.
-- Oráculo Bateman: Decimal.js com 60 dígitos; solver: identidade independente em espaço-y; recurrence: brute-force civil independente.
-- `EXTREME_PARAMETERS` permaneceu sem novo threshold arbitrário.
-- Soluções, cutoffs e timestamps não representáveis foram classificados por erro normativo, sem reduzir runs nem aumentar tolerâncias.
-
-### Validações executadas
-
-- `npm run lint`: PASS.
-- `npm run typecheck`: PASS.
-- `npm test`: PASS — 28 arquivos, 258 testes.
-- `npm run test:e4`: PASS — 11 arquivos, 71 testes; 24 chamadas `forAllSeeds`, aproximadamente 21.520 execuções por seed/conjunto.
-- `npm run build`: PASS.
-- `npm run check:build-boundaries`: PASS — 9 arquivos em `dist/`, sem `.token-optimizer`, manifest único e CSP/referrer preservados.
-- `npm run test:e1`: PASS — 2 testes Chromium.
-- Varredura estática de hazards, ramos `ka≈ke`, cutoff/44 e marcadores desativados: PASS.
-
-### Problemas encontrados
-
-- Percentuais por fator recíproco falhavam com dose `Number.MIN_VALUE`.
-- `cutoffAgeFor` podia retornar `Infinity` quando o produto de 44 meias-vidas terminais transbordava.
-- Alguns testes iniciais tinham oráculo/expectativa incorretos: contribuição confundida com central, igualdade IEEE em razão 100, `fc.float` fora da faixa, reordenação que alterava proporções, timeout da referência civil e warning de milestone indevidamente obrigatório.
-
-### Solução adotada
-
-- Criadas regressões mínimas antes das correções de motor.
-- Percentuais passaram a usar divisão direta por massa administrada.
-- Cutoff não representável passou a lançar `NUMERIC_FAILURE`.
-- Testes foram corrigidos para refletir os contratos normativos sem enfraquecer tolerâncias, seeds ou cobertura.
-
-### Pendências
-
-- E4 está pronta para commit; E5 ainda não iniciada.
-- Não foram adicionados UI, dataset, persistência, migração ou alterações no README.
-
-### Commit
-
-- Será o commit E4 desta execução; SHA completo e confirmação do push serão informados no relatório final.
-
 ## 2026-08-26 — E1 — Scaffold e infraestrutura
 
 ### Objetivo
@@ -317,3 +253,127 @@ Implementar o núcleo de domínio da FARMakit: PK Engine (eliminação, solver d
 
 - Criado após aprovação integral dos gates desta etapa (E3).
 
+## 2026-08-26 — E4 — Gate matemático e property tests
+
+### Objetivo
+
+Atacar os motores E3 com testes unitários, property-based tests, oráculos independentes e fixtures, sem iniciar E5 ou novas features.
+
+### Alterações realizadas
+
+- Adicionados `fast-check@4.9.0` e `decimal.js@10.6.0` como devDependencies.
+- Criado o comando focal `npm run test:e4`.
+- Adicionados 11 arquivos de testes E4: solver, Bateman, conservação, cutoff, equivalência, análise, recurrence, reconstituição, simulation, extremos e regressões.
+- Corrigidos percentuais de estado para doses subnormais, evitando `Infinity×subnormal ⇒ NaN`.
+- Corrigido `cutoffAgeFor` para rejeitar `Infinity` derivado de `44·T½terminal` com `NUMERIC_FAILURE`.
+
+### Arquivos principais
+
+- `package.json` e `package-lock.json`
+- `src/domain/pk/analysis.ts`
+- `src/domain/pk/state.ts`
+- `src/domain/pk/cutoff.ts`
+- `src/tests/domain/property/`
+- `src/tests/domain/regression/regression.e4.test.ts`
+- `docs/DIARIO-DE-BORDO.md`
+
+### Decisões tomadas
+
+- Seeds canônicas: `1`, `42`, `20260826`, `0x5A17`; shrinking permaneceu habilitado.
+- Oráculo Bateman: Decimal.js com 60 dígitos; solver: identidade independente em espaço-y; recurrence: brute-force civil independente.
+- `EXTREME_PARAMETERS` permaneceu sem novo threshold arbitrário.
+- Soluções, cutoffs e timestamps não representáveis foram classificados por erro normativo, sem reduzir runs nem aumentar tolerâncias.
+
+### Validações executadas
+
+- `npm run lint`: PASS.
+- `npm run typecheck`: PASS.
+- `npm test`: PASS — 28 arquivos, 258 testes.
+- `npm run test:e4`: PASS — 11 arquivos, 71 testes; 24 chamadas `forAllSeeds`, aproximadamente 21.520 execuções por seed/conjunto.
+- `npm run build`: PASS.
+- `npm run check:build-boundaries`: PASS — 9 arquivos em `dist/`, sem `.token-optimizer`, manifest único e CSP/referrer preservados.
+- `npm run test:e1`: PASS — 2 testes Chromium.
+- Varredura estática de hazards, ramos `ka≈ke`, cutoff/44 e marcadores desativados: PASS.
+
+### Problemas encontrados
+
+- Percentuais por fator recíproco falhavam com dose `Number.MIN_VALUE`.
+- `cutoffAgeFor` podia retornar `Infinity` quando o produto de 44 meias-vidas terminais transbordava.
+- Alguns testes iniciais tinham oráculo/expectativa incorretos: contribuição confundida com central, igualdade IEEE em razão 100, `fc.float` fora da faixa, reordenação que alterava proporções, timeout da referência civil e warning de milestone indevidamente obrigatório.
+
+### Solução adotada
+
+- Criadas regressões mínimas antes das correções de motor.
+- Percentuais passaram a usar divisão direta por massa administrada.
+- Cutoff não representável passou a lançar `NUMERIC_FAILURE`.
+- Testes foram corrigidos para refletir os contratos normativos sem enfraquecer tolerâncias, seeds ou cobertura.
+
+### Pendências
+
+- E4 fechada no commit `f53c37701bbeb8171984916cbc2c9bee88a2c2a6`.
+- Não foram adicionados UI, dataset, persistência, migração ou alterações no README.
+
+### Commit
+
+- `f53c37701bbeb8171984916cbc2c9bee88a2c2a6`
+
+## 2026-08-26 — E4.1 — Correções de fechamento do gate matemático
+
+### Objetivo
+
+Fechar as lacunas residuais do gate matemático E4 identificadas na revisão externa: corrigir o counterexample funcional de `shiftSchedule` (weekdays canônicos ascendentes), assertar a aditividade linear nos compartimentos primários, reduzir execuções vazias na property de recorrência com ancoragem na vigência do schedule, cobrir recorrência semanal atravessando GAP/OVERLAP (DST), eliminar escape de divisão no teste do solver e fortalecer a recomposição de $k_a$ subnormal representável, tornar a equivalência de cutoff adversarial junto à fronteira imediata do corte, e instrumentar a métrica de erro relativo máximo de Bateman.
+
+### Alterações realizadas
+
+- Recurrence (`src/domain/recurrence/shift.ts`): ordenação ascendente numérica dos weekdays após a rotação ISO (`.sort((a, b) => a - b)`), assegurando que todo schedule resultante seja canônico e passe em `validateRecurrence` e `validateScheduleShape`.
+- Regressões (`src/tests/domain/regression/regression.e4.test.ts`, `src/tests/domain/recurrence.test.ts`): testes explícitos para `[1,7] + 1 ⇒ [1,2]` e `[1,6,7] + 1 ⇒ [1,2,7]`, provando preservação de ordem ascendente e shape válido.
+- Propriedade de shift (`src/tests/domain/property/recurrence.property.test.ts`): property garantindo `validateRecurrence(shifted.recurrence).ok === true` e `validateScheduleShape(shifted).ok === true` sob qualquer delta inteiro (+1, -1, +7, -7, inteiros positivos e negativos).
+- Linearidade PK (`src/tests/domain/property/pk.conservation.property.test.ts`): assertada aditividade matemática `stateAB.administeredMg ≈ stateA.administeredMg + stateB.administeredMg`, `stateAB.centralMg ≈ stateA.centralMg + stateB.centralMg` e `stateAB.depotMg ≈ stateA.depotMg + stateB.depotMg` via `amountClose`.
+- Recorrência não-vazia (`src/tests/domain/property/recurrence.property.test.ts`): property com janelas derivadas da vigência de `schedule.startDate` com verificação estrutural de geração de ocorrências não vazias (>60% dos runs).
+- DST semanal (`src/tests/domain/recurrence.test.ts`, `src/tests/domain/property/recurrence.property.test.ts`): testes de recorrência semanal em `America/New_York` atravessando GAP (2024-03-10, resolvendo para 03:30 local via 'later') e OVERLAP (2024-11-03, resolvendo para offset -04:00 via 'earlier').
+- Solver subnormal e recomposição (`src/tests/domain/property/pk.solver.property.test.ts`, `src/tests/domain/property/helpers.ts`): removido escape artificial `ka/ke < 1e-300`, recomposição em espaço-$y$ por `Math.log(ka) - Math.log(ke)`, `oracleG` estabilizado para $|y|$ grande; caso subnormal representável $T_{1/2}=1\text{ ms}, T_{max}=1000\text{ ms}$ recomposto pela equação dentro de `TMAX_RECOMPOSITION_RTOL`.
+- Cutoff adversarial e caso $D=\emptyset$ (`src/tests/domain/property/pk.cutoff-equivalence.property.test.ts`): adicionados testes de descarte imediatamente antes da fronteira do corte (-1 ms, -10 ms, -1000 ms) avaliados em todos os timestamps comuns (incluindo `displayStart`); caso $D=\emptyset$ provando `cutoffClose(a,b,0) === amountClose(a,b)`.
+- Bateman (`src/tests/domain/property/pk.bateman.property.test.ts`): acumulado `maxRelativeError` observado na matriz determinística contra oráculo Decimal (60 dígitos) com emissão de log `[e4-bateman] maxRelativeError=...`.
+- Diário (`docs/DIARIO-DE-BORDO.md`): restaurada a ordem cronológica movendo E4 para após E3 e adicionada esta entrada E4.1.
+
+### Arquivos principais
+
+- `src/domain/recurrence/shift.ts`
+- `src/tests/domain/recurrence.test.ts`
+- `src/tests/domain/regression/regression.e4.test.ts`
+- `src/tests/domain/property/recurrence.property.test.ts`
+- `src/tests/domain/property/pk.conservation.property.test.ts`
+- `src/tests/domain/property/pk.solver.property.test.ts`
+- `src/tests/domain/property/pk.cutoff-equivalence.property.test.ts`
+- `src/tests/domain/property/pk.bateman.property.test.ts`
+- `src/tests/domain/property/helpers.ts`
+- `docs/DIARIO-DE-BORDO.md`
+
+### Bugs/counterexamples
+
+- Counterexample `shiftSchedule([1,7], +1) → [2,1]`: gerava weekdays fora de ordem ascendente, violando a forma canônica e sendo rejeitado por `validateRecurrence`. Corrigido para `[1,2]`.
+- Linearidade PK: antes não assertava `base = stateA + stateB`; agora verifica aditividade física nos compartimentos primários via `amountClose`.
+- Recurrence property vazia: janelas antigas em 2024 criavam execuções vacuamente vazias para schedules em 2025–2027; corrigido para janelas ancoradas em `schedule.startDate`.
+- DST semanal: adicionada cobertura de recorrência semanal atravessando transições de GAP e OVERLAP em `America/New_York`.
+- Recomposição de $k_a$ subnormal: evitado subflow na razão $k_a/k_e$ usando $\ln(k_a) - \ln(k_e)$ e `oracleG` estável; validado caso $T_{1/2}=1\text{ ms}, T_{max}=1000\text{ ms}$.
+- Cutoff adversarial: coberta fronteira imediata do corte ($t_{calcStart} - 1\text{ ms}$) com `cutoffClose`.
+- Resultado final dos gates: todos os gates locais aprovados (PASS).
+
+### Validações executadas
+
+- `npm run lint`: PASS
+- `npm run typecheck`: PASS
+- `npm test`: PASS
+- `npm run test:e4`: PASS
+- `npm run build`: PASS
+- `npm run check:build-boundaries`: PASS
+- `npm run test:e1`: PASS
+
+### Pendências
+
+- E5 ainda não iniciada (Zod, schemas de validação, catálogo pt-BR de erros).
+- E4.1 fecha definitivamente o gate matemático E4.
+
+### Commit
+
+- fix(farmakit): fechar lacunas residuais do gate matemático E4

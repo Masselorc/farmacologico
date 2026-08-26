@@ -37,3 +37,37 @@ describe('regressão E4 — cutoff não representável', () => {
     )
   })
 })
+
+describe('regressão E4.1 — shiftSchedule preserva weekdays canônicos ascendentes e shape válido', () => {
+  // Counterexample: weekdays=[1,7], deltaDays=+1 gerava [2,1] (não ascendente), rejeitado por validateRecurrence.
+  // Correção: ordenação numérica ascendente dos weekdays após a rotação ISO.
+  it('shiftSchedule([1,7], +1) produz weekdays=[1,2] com shape de Schedule válido', async () => {
+    const { shiftSchedule } = await import('../../../domain/recurrence/shift')
+    const { validateRecurrence, validateScheduleShape } = await import('../../../domain/recurrence/validate')
+    const schedule: import('../../../domain/types').Schedule = {
+      startDate: '2026-01-05',
+      localTime: '08:00',
+      timeZone: 'UTC',
+      recurrence: { type: 'weekly', weekdays: [1, 7], weeks: 4 },
+    }
+    const shifted = shiftSchedule(schedule, 1)
+    expect(shifted.recurrence).toEqual({ type: 'weekly', weekdays: [1, 2], weeks: 4 })
+    expect(validateRecurrence(shifted.recurrence)).toEqual({ ok: true })
+    expect(validateScheduleShape(shifted)).toEqual({ ok: true })
+  })
+
+  it('shiftSchedule([1,6,7], +1) produz weekdays=[1,2,7] com shape de Schedule válido', async () => {
+    const { shiftSchedule } = await import('../../../domain/recurrence/shift')
+    const { validateRecurrence, validateScheduleShape } = await import('../../../domain/recurrence/validate')
+    const schedule: import('../../../domain/types').Schedule = {
+      startDate: '2026-01-05',
+      localTime: '08:00',
+      timeZone: 'UTC',
+      recurrence: { type: 'weekly', weekdays: [1, 6, 7], weeks: 4 },
+    }
+    const shifted = shiftSchedule(schedule, 1)
+    expect(shifted.recurrence).toEqual({ type: 'weekly', weekdays: [1, 2, 7], weeks: 4 })
+    expect(validateRecurrence(shifted.recurrence)).toEqual({ ok: true })
+    expect(validateScheduleShape(shifted)).toEqual({ ok: true })
+  })
+})

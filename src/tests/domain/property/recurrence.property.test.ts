@@ -3,7 +3,7 @@ import fc from 'fast-check'
 import { civilToInstantIso, instantToZonedParts } from '../../../domain/shared/datetime'
 import { generateOccurrences } from '../../../domain/recurrence/generate'
 import { shiftSchedule } from '../../../domain/recurrence/shift'
-import { validateRecurrence } from '../../../domain/recurrence/validate'
+import { validateRecurrence, validateScheduleShape } from '../../../domain/recurrence/validate'
 import type { IsoWeekday, Schedule } from '../../../domain/types'
 import { bruteForceOccurrences, forAllSeeds, isoWeekdayOf } from './helpers'
 
@@ -14,6 +14,17 @@ function utcMs(localDate: string, localTime = '09:00'): number {
   return instantToZonedParts({
     instantIso: civilToInstantIso({ localDate, localTime, timeZone: UTC }),
     timeZone: UTC,
+  }).epochMilliseconds
+}
+
+function scheduleStartInstantMs(schedule: Schedule): number {
+  return instantToZonedParts({
+    instantIso: civilToInstantIso({
+      localDate: schedule.startDate,
+      localTime: schedule.localTime,
+      timeZone: schedule.timeZone,
+    }),
+    timeZone: schedule.timeZone,
   }).epochMilliseconds
 }
 
@@ -64,6 +75,44 @@ describe('E4 recurrence — propriedades estruturais vs oráculo brute-force', (
       },
     )
     forAllSeeds(property, { numRuns: 120 })
+  }, 60_000)
+
+  it('saída ≡ brute-force com janela ancorada na vigência do schedule (casos não vazios garantidos)', () => {
+    let nonEmptyCount = 0
+    let totalCount = 0
+
+    const property = fc.property(
+      arbitrarySchedule(12),
+      fc.integer({ min: -2, max: 5 }), // offset em dias civis relativo a startDate
+      fc.integer({ min: 1, max: 30 * 86_400_000 }), // largura da janela (até 30 dias)
+      (schedule, offsetDays, spanMs) => {
+        const startAnchor = scheduleStartInstantMs(schedule)
+        const startMs = startAnchor + offsetDays * 86_400_000
+        const endMs = startMs + spanMs
+
+        const got = generateOccurrences(schedule, startMs, endMs)
+        const expected = bruteForceOccurrences(schedule, startMs, endMs)
+
+        expect(got).toEqual(expected)
+        expect(new Set(got.map((o) => o.instantMs)).size).toBe(got.length)
+        for (const occurrence of got) {
+          expect(occurrence.instantMs).toBeGreaterThanOrEqual(startMs)
+          expect(occurrence.instantMs).toBeLessThan(endMs)
+        }
+        for (let i = 1; i < got.length; i++) {
+          expect(got[i]!.instantMs).toBeGreaterThan(got[i - 1]!.instantMs)
+        }
+
+        totalCount++
+        if (got.length > 0) {
+          nonEmptyCount++
+        }
+      },
+    )
+    forAllSeeds(property, { numRuns: 150 })
+
+    expect(totalCount).toBeGreaterThan(0)
+    expect(nonEmptyCount / totalCount).toBeGreaterThan(0.6)
   }, 60_000)
 
   it('weekday de cada ocorrência pertence aos selecionados (verificação direta por instante)', () => {
@@ -126,33 +175,48 @@ describe('E4 recurrence — propriedades estruturais vs oráculo brute-force', (
 })
 
 describe('E4 shiftSchedule — propriedades civis', () => {
-  it('shift(shift(s,d),−d) recupera o schedule original; ±1/±7 rotacionam conforme ISO', () => {
+  it('shiftSchedule preserva validade de recorrência e shape canônico para qualquer deltaDays', () => {
     const property = fc.property(
       arbitrarySchedule(520),
-      fc.integer({ min: -3650, max: 3650 }),
+      fc.oneof(
+        fc.constantFrom(1, -1, 7, -7, 14, -14, 365, -365),
+        fc.integer({ min: -1000, max: 1000 }),
+      ),
       (schedule, delta) => {
         const shifted = shiftSchedule(schedule, delta)
+
+        const recValidation = validateRecurrence(shifted.recurrence)
+        expect(recValidation.ok).toBe(true)
+
+        const shapeValidation = validateScheduleShape(shifted)
+        expect(shapeValidation.ok).toBe(true)
+
         const restored = shiftSchedule(shifted, -delta)
         expect(restored).toEqual(schedule)
 
-        // Rotação weekday: shift +7 preserva weekdays.
+        // Rotação weekday: shift múltiplo de 7 preserva weekdays.
         if (schedule.recurrence.type === 'weekly' && delta % 7 === 0) {
           expect(shifted.recurrence).toEqual(schedule.recurrence)
         }
       },
     )
     forAllSeeds(property, { numRuns: 200 })
+  })
 
+  it('shift(shift(s,d),−d) recupera o schedule original; ±1/±7 rotacionam e canonicalizam conforme ISO', () => {
     const weekly: Schedule = {
       startDate: '2026-05-04', // segunda-feira
       localTime: '08:00',
       timeZone: UTC,
-      recurrence: { type: 'weekly', weekdays: [1], weeks: 4 },
+      recurrence: { type: 'weekly', weekdays: [1, 7], weeks: 4 },
     }
-    expect(shiftSchedule(weekly, 1).recurrence).toEqual({ type: 'weekly', weekdays: [2], weeks: 4 })
-    expect(shiftSchedule(weekly, -1).recurrence).toEqual({ type: 'weekly', weekdays: [7], weeks: 4 })
+    // [1, 7] + 1 ⇒ [1, 2] (ordenado de forma ascendente)
+    expect(shiftSchedule(weekly, 1).recurrence).toEqual({ type: 'weekly', weekdays: [1, 2], weeks: 4 })
+    // [1, 7] - 1 ⇒ [6, 7] (ordenado de forma ascendente)
+    expect(shiftSchedule(weekly, -1).recurrence).toEqual({ type: 'weekly', weekdays: [6, 7], weeks: 4 })
     expect(shiftSchedule(weekly, -1).startDate).toBe('2026-05-03')
     expect(shiftSchedule(weekly, 7).startDate).toBe('2026-05-11')
+    expect(shiftSchedule(weekly, 7).recurrence).toEqual(weekly.recurrence)
   })
 
   it('deslocamento civil NÃO é deslocamento de milissegundos (DST muda o instante)', () => {
@@ -182,7 +246,8 @@ describe('E4 validateRecurrence — fronteiras', () => {
     }
   })
 
-  it('fixtures DST obrigatórias na recorrência: GAP later e OVERLAP earlier', () => {
+  it('fixtures DST obrigatórias na recorrência: GAP later e OVERLAP earlier (single e weekly)', () => {
+    // GAP single
     const gapSchedule: Schedule = {
       startDate: '2024-03-10',
       localTime: '02:30',
@@ -195,8 +260,26 @@ describe('E4 validateRecurrence — fronteiras', () => {
       timeZone: NY,
     })
     expect(gapOccurrence.instantMs).toBe(expectedGap.epochMilliseconds)
+    expect(expectedGap.localDate).toBe('2024-03-10')
     expect(expectedGap.localTime).toBe('03:30')
+    expect(expectedGap.offset).toBe('-04:00')
 
+    // GAP weekly atravessando 2024-03-10
+    const weeklyGapSchedule: Schedule = {
+      startDate: '2024-03-03',
+      localTime: '02:30',
+      timeZone: NY,
+      recurrence: { type: 'weekly', weekdays: [7], weeks: 3 },
+    }
+    const startGap = utcMs('2024-03-01', '00:00')
+    const endGap = utcMs('2024-03-25', '00:00')
+    const weeklyGapOccs = generateOccurrences(weeklyGapSchedule, startGap, endGap)
+    expect(weeklyGapOccs.length).toBe(3)
+    const weeklyGapOcc = weeklyGapOccs.find((o) => o.scheduleLocalDate === '2024-03-10')!
+    expect(weeklyGapOcc).toBeDefined()
+    expect(weeklyGapOcc.instantMs).toBe(expectedGap.epochMilliseconds)
+
+    // OVERLAP single
     const overlapSchedule: Schedule = {
       ...gapSchedule,
       startDate: '2024-11-03',
@@ -208,6 +291,23 @@ describe('E4 validateRecurrence — fronteiras', () => {
       timeZone: NY,
     })
     expect(overlapOccurrence.instantMs).toBe(expectedOverlap.epochMilliseconds)
+    expect(expectedOverlap.localDate).toBe('2024-11-03')
+    expect(expectedOverlap.localTime).toBe('01:30')
     expect(expectedOverlap.offset).toBe('-04:00')
+
+    // OVERLAP weekly atravessando 2024-11-03
+    const weeklyOverlapSchedule: Schedule = {
+      startDate: '2024-10-27',
+      localTime: '01:30',
+      timeZone: NY,
+      recurrence: { type: 'weekly', weekdays: [7], weeks: 3 },
+    }
+    const startOverlap = utcMs('2024-10-20', '00:00')
+    const endOverlap = utcMs('2024-11-15', '00:00')
+    const weeklyOverlapOccs = generateOccurrences(weeklyOverlapSchedule, startOverlap, endOverlap)
+    expect(weeklyOverlapOccs.length).toBe(3)
+    const weeklyOverlapOcc = weeklyOverlapOccs.find((o) => o.scheduleLocalDate === '2024-11-03')!
+    expect(weeklyOverlapOcc).toBeDefined()
+    expect(weeklyOverlapOcc.instantMs).toBe(expectedOverlap.epochMilliseconds)
   })
 })

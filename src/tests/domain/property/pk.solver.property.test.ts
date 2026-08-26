@@ -30,10 +30,9 @@ describe('E4 solver — identidade pela equação em espaço-y (oráculo indepen
     expect(Number.isFinite(kaPerMs!)).toBe(true)
     expect(kaPerMs!).toBeGreaterThan(0)
 
-    // Recomposição: y = ln(ka/ke); g(y) deve reproduzir c = ke·Tmax dentro de TMAX_RECOMPOSITION_RTOL.
+    // Recomposição: y = ln(ka) - ln(ke); g(y) deve reproduzir c = ke·Tmax dentro de TMAX_RECOMPOSITION_RTOL.
     const ke = eliminationRate(halfLifeMs)
-    if (kaPerMs! / ke < 1e-300) return // ln subnormal: fora do domínio recomponível
-    const y = Math.log(kaPerMs! / ke)
+    const y = Math.log(kaPerMs!) - Math.log(ke)
     const cTarget = ke * tmaxMs
     const cAchieved = oracleG(y)
     const relativeResidual = Math.abs(cAchieved - cTarget) / cTarget
@@ -100,12 +99,19 @@ describe('E4 solver — âncoras normativas e extremos', () => {
     }
   })
 
-  it('fronteira representável: halfLife=1 ms com Tmax=1000 ms ainda produz finite>0', () => {
+  it('fronteira representável: halfLife=1 ms com Tmax=1000 ms produz finite>0 e recompõe pela equação', () => {
     // c ≈ 693 ⇒ y ≈ −697 ⇒ exp(y) ≈ 1e-303 > 0 (subnormal positivo representável)
     const result = absorptionRateFromTmax({ halfLifeMs: 1, tmaxMs: 1000 })
     expect(result.kaPerMs).not.toBeNull()
     expect(Number.isFinite(result.kaPerMs!)).toBe(true)
     expect(result.kaPerMs!).toBeGreaterThan(0)
+
+    const ke = eliminationRate(1)
+    const y = Math.log(result.kaPerMs!) - Math.log(ke)
+    const cTarget = ke * 1000
+    const cAchieved = oracleG(y)
+    const relativeResidual = Math.abs(cAchieved - cTarget) / cTarget
+    expect(relativeResidual).toBeLessThanOrEqual(TMAX_RECOMPOSITION_RTOL)
   })
 
   it('property de pós-condição: nunca existe solução aceita com ka ≤ 0 ou não finito', () => {
