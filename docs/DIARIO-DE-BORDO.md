@@ -187,4 +187,71 @@ Criar as primitivas fundamentais de unidades de tempo/massa, tipos temporais, Te
 
 - Criado após aprovação integral dos gates desta etapa (E2).
 
+## 2026-08-26 — E3 — Motores de domínio
+
+### Objetivo
+
+Implementar o núcleo de domínio da FARMakit: PK Engine (eliminação, solver de ka, Bateman estável, estado/superposição, análise/pico/marcos, cutoff), Recurrence Engine, Reconstitution Engine e a cola de simulação (Comparador × Protocolos), com testes unitários fundamentais — sem executar E4 e sem UI.
+
+### Alterações realizadas
+
+- Fundação: `src/domain/version.ts` (PK/RECURRENCE/RECONSTITUTION = '1.0.0', independentes do package.json), `shared/errors.ts` ({code,params}), `shared/result.ts`, `shared/tolerances.ts` (valores normativos + `amountClose`/`conservationClose`/`proportionSumClose`/`cutoffClose` com invariante budget 0 ⇒ amountClose), `src/validation/limits.ts` (DOMAIN/SAFETY/UX_LIMITS literais da §6) e `src/domain/types.ts` (subconjunto §6 necessário aos motores).
+- PK: `pk/rates.ts` (`eliminationRate`; solver `g(y)=y/expm1(y)=c` com Taylor |y|<1e-8, bracket normativo c=1⇒y=0 / duplicação de hi|lo, bisseção 180, pós-condição finite>0 ⇒ senão ABSORPTION_SOLVER_FAILURE; Tmax null/0⇒ka=null; <0⇒TMAX_NEGATIVE); `pk/bateman.ts` (`phi(z)=−expm1(−z)/z` com phi(0)=1, forma estável única dose·ka·Δt·exp(−slow·Δt)·phi, depot, contribuição central+depot, NUMERIC_FAILURE em não-finito inesperado, clamp pós-finitude); `pk/state.ts` (superposição linear, doses futuras ⇒ plannedCount, eliminated=max(0,adm−central−depot), conservação por conservationClose, percentuais como frações); `pk/cutoff.ts` (CONTRIBUTION_CUTOFF_HALF_LIVES=44; effectiveTmax=tmaxMs??0; cutoffAge=max(44·T½term+effTmax, effTmax+86_400_000)); `pk/analysis.ts` (analyze: validações NO_DOSES/INVALID_DOSE_AMOUNT/TIME/HORIZON, horizonte última dose+max(10,5·T½term, 2·Tmax_eff, 2·T½), curva CENTRAL com 1600 intervalos+doses+dose+Tmax ordenados/dedup, pico varredura+ternária 80, marcos [50..0,1]% via última travessia reversa+bisseção 80 com MILESTONE_NOT_REACHED/null, warnings FLIP_FLOP_ABSORPTION e NEAR_DEGENERATE_RATES separados do algoritmo).
+- Recurrence: `validate.ts` (weekdays 1..7 não vazio ascendente sem duplicatas; weeks inteiro 1..WEEKS_MAX; forma do Schedule via camada E2), `generate.ts` (janela SEMIABERTA [start,end), single e weekly com vigência civil inclusiva weeks·7−1 dias, iteração proporcional à janela ±2 dias civis, civil→instante pela política GAP later/OVERLAP earlier da E2, ascendente sem duplicatas), `shift.ts` (deltaDays inteiro civil; rotação ISO rotate(d)=1+mod((d−1)+Δ,7); localTime/timeZone preservados; entrada nunca mutada).
+- Reconstitution: `calculate.ts` (validações finite>0 dentro de SAFETY_LIMITS e U-100 unitsPerMl=100; DOSE_EXCEEDS_VIAL_CONTENT bloqueante antes de qualquer resultado; matemática exata mcg/mL, mL, U, floor teórico; CAPACITY_EXCEEDED numérico retornado; LOW_SYRINGE_PRECISION estrito >0,05; THEORETICAL_YIELD anexo; metadata reconstitutionEngineVersion).
+- Simulation: `windows.ts` (`requiredPkLookback === max cutoffAgeFor`; `deriveCalculationWindow`) e `assemble.ts` (`selectRelevantScenarioDoses` [start,end) sem mutar Scenario; `assembleScenarioInputs` sem Recurrence/dataset; `assembleProtocolInputs` EXATAMENTE um input por componente com componentDoseMg derivado finite>0≤SIMULATION_DOSE_MG_MAX, IDs determinísticos `protocolId:componentId:instantMs`, erros normativos COMPONENT_*/PROTOCOL_*).
+
+### Arquivos principais
+
+- `src/domain/{version,types}.ts`
+- `src/domain/shared/{errors,result,tolerances}.ts`
+- `src/domain/pk/{rates,bateman,state,cutoff,analysis}.ts`
+- `src/domain/recurrence/{validate,generate,shift}.ts`
+- `src/domain/reconstitution/calculate.ts`
+- `src/domain/simulation/{windows,assemble}.ts`
+- `src/validation/limits.ts`
+- `src/tests/domain/*.test.ts` (8 arquivos novos)
+
+### Decisões tomadas
+
+- analysisCurve é a quantidade do compartimento CENTRAL (§4 "Central por dose"); depot integra o estado e a contribuição de cutoff, não a curva plotada.
+- Milestones usam semântica de ÚLTIMA travessia descendente após o pico (conjunto {f≥alvo menor ⊆ maior} ⇒ tempos não decrescentes garantidos).
+- nowMs de assembleProtocolInputs deriva do máximo dos occurrences (determinístico); occurrences vazio ⇒ input vazio que o PK rejeita com NO_DOSES.
+- Validações de forma do recurrence retornam motivos locais tipados (não DomainErrorCode): o catálogo pt-BR completo permanece da E5; generateOccurrences lança RangeError defensivo em argumentos inválidos.
+- EXTREME_PARAMETERS reservado (sem gatilho emitido nesta etapa); NUMERIC_FAILURE cobre não-finito inesperado.
+- Percentuais do estado como frações [0,1]; UI converterá para % (convenção normalizedRatio da §6).
+- sampleForDisplay fica para E9+ (geometria de apresentação consumida pelas features).
+
+### Validações executadas
+
+- `npm run lint`: PASS
+- `npm run typecheck`: PASS
+- `npm test`: PASS (187 testes / 17 arquivos — 95 novos)
+- `npm run build`: PASS
+- `npm run check:build-boundaries`: PASS
+- `npm run test:e1`: PASS (CSP×Chart.js contra preview)
+- Verificações numéricas §39: 6d/2d ⇒ ka≈1,34159/dia rtol≤1e-4 ✓ · Tmax 4,649224 d ⇒ ka≈0,36/dia ✓ · Tmax crítico T½/ln2 ⇒ ka=ke EXATO ✓ · 1 T½ instantâneo ≈50% ✓ · ka=ke ≡ dose·k·t·exp(−kt) ✓ · âncoras 10U/120U/240U + 20 teóricas ✓ · 9U alerta / 10U sem alerta ✓
+- Varredura: zero toFixed/Math.round/new Date/Date.parse/random/randomUUID no domínio (Math.round apenas em fixture de teste); cutoff=44 em todo o código.
+
+### Problemas encontrados
+
+- Polyfill Temporal proíbe operadores `<`/`>` em PlainDate (valueOf lança): comparações de datas civis migradas para `Temporal.PlainDate.compare`.
+- Primeira versão montava analysisCurve com central+depot ⇒ pico caía em t=0 (depot cheio) no flip-flop; corrigida para curva CENTRAL normativa, pico passou a coincidir com Tmax.
+- Cenário de MILESTONE_NOT_REACHED mal construído (regimes de doses iguais sempre cruzam 0,1% em 10,5 T½): substituído por flip-flop longo (ka=0,75·ke) cujo horizonte termina em ≈9,26 halvings pós-pico.
+
+### Solução adotada
+
+- Correções pontuais no motor/teste conforme acima; nenhum contrato normativo alterado; gates repetidos integralmente até PASS.
+
+### Pendências
+
+- E4 (property tests, red-team matemático, equivalência de cutoff, extremos sistemáticos, fast-check) EXPLICITAMENTE pendente.
+- EXTREME_PARAMETERS sem gatilho definido (definir critério na E4/E5).
+- sampleForDisplay, Zod/LIMITS→schemas, catálogo pt-BR, dataset oficial, persistência: etapas posteriores.
+
+### Commit
+
+- Criado após aprovação integral dos gates desta etapa (E3).
+
+
 
