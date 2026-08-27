@@ -1,4 +1,4 @@
-// IndexedDB da E6.3: fila global de mutações, isolamento de recovery, copy-in/copy-out,
+// IndexedDB da E6.4: fila global de mutações, isolamento de recovery, copy-in/copy-out,
 // normalização e poda na hidratação, diagnóstico seguro e autoridade da memória em degradação.
 
 import type {
@@ -19,7 +19,6 @@ import { clonePersistedValue } from './clone'
 import { validateCalculationRecordRuntime, validateHistoricalInvariants } from './history-validation'
 import { detectInitialCalendarTimeZone, getPersistenceConsent } from './consent'
 import { enqueueStorageMutation, resetMutationQueueForTesting } from './queue'
-
 import { validateConfigReferences } from './references'
 
 export const DB_NAME = 'farmakit_v1'
@@ -49,11 +48,17 @@ interface RawDatabaseSnapshot {
 }
 
 export function getDefaultSettings(): AppSettings {
-  return { theme: 'system', calendarTimeZone: detectInitialCalendarTimeZone() }
+  return {
+    theme: 'system',
+    calendarTimeZone: detectInitialCalendarTimeZone(),
+  }
 }
 
 export function getDefaultFavorites(): Favorites {
-  return { substances: [], recipeIds: [] }
+  return {
+    substances: [],
+    recipeIds: [],
+  }
 }
 
 class InMemoryStore {
@@ -63,9 +68,7 @@ class InMemoryStore {
   custom = new Map<string, unknown>()
   quarantine = new Map<string, StoredQuarantineEntry>()
 
-  constructor(withDefaults = true) { if (withDefaults) this.resetDefaults() }
-
-  resetDefaults(): void {
+  constructor() {
     this.custom.set('fk:v1:settings', getDefaultSettings())
     this.custom.set('fk:v1:favorites', getDefaultFavorites())
     this.custom.set('fk:v1:customSubstances', [])
@@ -73,17 +76,24 @@ class InMemoryStore {
     this.custom.set('fk:v1:recipes', [])
   }
 
-  clearAll(): void {
-    this.scenarios.clear(); this.protocols.clear(); this.history.clear()
-    this.custom.clear(); this.quarantine.clear(); this.resetDefaults()
+  clone(): InMemoryStore {
+    const copy = new InMemoryStore()
+    copy.scenarios = new Map(this.scenarios)
+    copy.protocols = new Map(this.protocols)
+    copy.history = new Map(this.history)
+    copy.custom = new Map(this.custom)
+    copy.quarantine = new Map(this.quarantine)
+    return copy
   }
 
-  clone(): InMemoryStore {
-    const next = new InMemoryStore(false)
-    next.scenarios = new Map(this.scenarios); next.protocols = new Map(this.protocols)
-    next.history = new Map(this.history); next.custom = new Map(this.custom)
-    next.quarantine = new Map(this.quarantine)
-    return next
+  clearAll(): void {
+    this.scenarios.clear(); this.protocols.clear(); this.history.clear(); this.quarantine.clear()
+    this.custom.clear()
+    this.custom.set('fk:v1:settings', getDefaultSettings())
+    this.custom.set('fk:v1:favorites', getDefaultFavorites())
+    this.custom.set('fk:v1:customSubstances', [])
+    this.custom.set('fk:v1:customProfiles', [])
+    this.custom.set('fk:v1:recipes', [])
   }
 
   replaceWith(next: InMemoryStore): void {
@@ -171,8 +181,16 @@ function parseStoredQuarantineEntry(value: unknown): StoredQuarantineEntry | nul
   if (typeof value !== 'object' || value === null) return null
   const candidate = value as Record<string, unknown>
   const item = quarantineItemSchema.safeParse(candidate.item)
-  if (typeof candidate.id !== 'string' || !Number.isSafeInteger(candidate.insertionOrder) ||
-      (candidate.insertionOrder as number) < 0 || !item.success || item.data.id !== candidate.id) return null
+  if (
+    typeof candidate.id !== 'string' ||
+    !Number.isSafeInteger(candidate.insertionOrder) ||
+    (candidate.insertionOrder as number) < 0 ||
+    !item.success ||
+    item.data.id !== candidate.id ||
+    serializedUtf8Bytes(item.data) > SAFETY_LIMITS.QUARANTINE_ITEM_BYTES_MAX
+  ) {
+    return null
+  }
   return { id: candidate.id, insertionOrder: candidate.insertionOrder as number, item: item.data }
 }
 
@@ -194,7 +212,7 @@ function applyOperation(target: InMemoryStore, operation: StorageOperation): voi
     return
   }
   if (operation.store === 'custom') {
-    if (!operation.key) throw new Error('Custom store put requires a key')
+    if (!operation.key) throw new Error('custom put requires a key')
     target.custom.set(operation.key, clonePersistedValue(operation.value))
     return
   }
@@ -275,7 +293,7 @@ async function readRawSnapshot(db: IDBDatabase): Promise<RawDatabaseSnapshot> {
 interface CorruptionNotice { raw: unknown; store: StoreName; id?: string }
 
 /**
- * Serializador defensivo de diagnóstico: nunca lança erro e limita o tamanho gerado (§11, §18, E6.3).
+ * Serializador defensivo de diagnóstico: nunca lança erro e limita o tamanho gerado (§11, §18, E6.4).
  */
 export function safeDiagnosticString(value: unknown, maxLen = 4096): string {
   try {
@@ -307,19 +325,20 @@ async function recordIdbCorruption(notice: CorruptionNotice): Promise<void> {
     return
   }
   try {
-    const { addQuarantineItem } = await import('./quarantine')
+    const { addQuarantineItemUnlocked } = await import('./quarantine')
     const rawExcerpt = safeDiagnosticString(notice.raw, SAFETY_LIMITS.QUARANTINE_ITEM_BYTES_MAX)
     const rawBytes = new TextEncoder().encode(rawExcerpt).byteLength
-    const safeId = notice.id && notice.id.length <= 100 ? notice.id : generateCompactId('corrupt-entry')
-    await addQuarantineItem({
+    const safeId = generateCompactId('idb-corrupt')
+    await addQuarantineItemUnlocked({
       id: safeId,
       source: 'idb_corruption',
       errorCode: `IDB_CORRUPTED_ENTRY_${notice.store.toUpperCase()}`,
       originalUtf8Bytes: rawBytes,
       rawExcerptUtf8: rawExcerpt,
     })
-
-  } catch (error) { lastStorageError = asError(error, 'Failed to quarantine corrupted entry') }
+  } catch (error) {
+    lastStorageError = asError(error, 'Failed to quarantine corrupted entry')
+  }
 }
 
 function parseCustomEntry(raw: unknown, target: InMemoryStore, corruptions: CorruptionNotice[]): void {
@@ -365,17 +384,29 @@ async function hydrateMemory(): Promise<void> {
       }
       for (const value of raw.custom) parseCustomEntry(value, next, corruptions)
 
-      // ── Processa e normaliza histórico ──
+      // ── Processa e normaliza histórico (§11, E6.4: validação individual ≤ 8 MiB) ──
       const validHistory: StoredHistoryEntry[] = []
       const legacyHistory: CalculationRecord[] = []
       for (const value of raw.history) {
         const entry = storedHistoryEntrySchema.safeParse(value)
-        if (entry.success && entry.data.id === entry.data.record.id &&
-            validateCalculationRecordRuntime(entry.data.record).valid) validHistory.push(entry.data)
-        else {
+        if (
+          entry.success &&
+          entry.data.id === entry.data.record.id &&
+          validateCalculationRecordRuntime(entry.data.record).valid &&
+          serializedUtf8Bytes(entry.data.record) <= SAFETY_LIMITS.CALCULATION_RECORD_BYTES_MAX
+        ) {
+          validHistory.push(entry.data)
+        } else {
           const record = calculationRecordSchema.safeParse(value)
-          if (record.success && validateCalculationRecordRuntime(record.data).valid) legacyHistory.push(record.data)
-          else corruptions.push({ raw: value, store: 'history', id: (value as { id?: string })?.id })
+          if (
+            record.success &&
+            validateCalculationRecordRuntime(record.data).valid &&
+            serializedUtf8Bytes(record.data) <= SAFETY_LIMITS.CALCULATION_RECORD_BYTES_MAX
+          ) {
+            legacyHistory.push(record.data)
+          } else {
+            corruptions.push({ raw: value, store: 'history', id: (value as { id?: string })?.id })
+          }
         }
       }
 
@@ -410,27 +441,33 @@ async function hydrateMemory(): Promise<void> {
       for (const entry of finalHistoryEntries) next.history.set(entry.id, entry)
 
       // Se a lista resultante física divergiu da raw, agenda normalização
-      if (raw.history.length !== finalHistoryEntries.length || legacyHistory.length > 0 ||
-          validHistory.some((v, idx) => v.insertionOrder !== (idx + 1))) {
+      if (
+        raw.history.length !== finalHistoryEntries.length ||
+        legacyHistory.length > 0 ||
+        validHistory.some((v, idx) => v.insertionOrder !== (idx + 1))
+      ) {
         normalization.push({ kind: 'clear', store: 'history' })
         for (const entry of finalHistoryEntries) {
           normalization.push({ kind: 'put', store: 'history', value: entry })
         }
       }
 
-      // ── Processa e normaliza quarentena ──
+      // ── Processa e normaliza quarentena (§11, E6.4: validação individual ≤ 256 KiB) ──
       const validQuarantine: StoredQuarantineEntry[] = []
       const legacyQuarantine: QuarantineItem[] = []
       for (const value of raw.quarantine) {
         const entry = parseStoredQuarantineEntry(value)
-        if (entry) validQuarantine.push(entry)
-        else {
+        if (entry && serializedUtf8Bytes(entry.item) <= SAFETY_LIMITS.QUARANTINE_ITEM_BYTES_MAX) {
+          validQuarantine.push(entry)
+        } else {
           const item = quarantineItemSchema.safeParse(value)
-          if (item.success) legacyQuarantine.push(item.data)
-          else {
+          if (item.success && serializedUtf8Bytes(item.data) <= SAFETY_LIMITS.QUARANTINE_ITEM_BYTES_MAX) {
+            legacyQuarantine.push(item.data)
+          } else {
             corruptions.push({ raw: value, store: 'quarantine', id: (value as { id?: string })?.id })
-            if (typeof (value as { id?: unknown })?.id === 'string')
+            if (typeof (value as { id?: unknown })?.id === 'string') {
               normalization.push({ kind: 'delete', store: 'quarantine', key: (value as { id: string }).id })
+            }
           }
         }
       }
@@ -461,32 +498,45 @@ async function hydrateMemory(): Promise<void> {
 
       for (const entry of finalQuarantineEntries) next.quarantine.set(entry.id, entry)
 
-      if (raw.quarantine.length !== finalQuarantineEntries.length || legacyQuarantine.length > 0 ||
-          validQuarantine.some((v, idx) => v.insertionOrder !== (idx + 1))) {
+      if (
+        raw.quarantine.length !== finalQuarantineEntries.length ||
+        legacyQuarantine.length > 0 ||
+        validQuarantine.some((v, idx) => v.insertionOrder !== (idx + 1))
+      ) {
         normalization.push({ kind: 'clear', store: 'quarantine' })
         for (const entry of finalQuarantineEntries) {
           normalization.push({ kind: 'put', store: 'quarantine', value: entry })
         }
       }
 
+      // ── Processa e valida ConfigPayload completo (§11, E6.4: schema + refs + ≤ 15 MiB) ──
       const payload: ConfigPayload = {
-        settings: next.custom.get('fk:v1:settings') as AppSettings,
-        favorites: next.custom.get('fk:v1:favorites') as Favorites,
-        customSubstances: next.custom.get('fk:v1:customSubstances') as CustomSubstance[],
-        customProfiles: next.custom.get('fk:v1:customProfiles') as CustomProfile[],
-        recipes: next.custom.get('fk:v1:recipes') as ReconstitutionRecipe[],
-        scenarios: [...next.scenarios.values()], protocols: [...next.protocols.values()],
+        settings: (next.custom.get('fk:v1:settings') as AppSettings | undefined) || getDefaultSettings(),
+        favorites: (next.custom.get('fk:v1:favorites') as Favorites | undefined) || getDefaultFavorites(),
+        customSubstances: (next.custom.get('fk:v1:customSubstances') as CustomSubstance[] | undefined) || [],
+        customProfiles: (next.custom.get('fk:v1:customProfiles') as CustomProfile[] | undefined) || [],
+        recipes: (next.custom.get('fk:v1:recipes') as ReconstitutionRecipe[] | undefined) || [],
+        scenarios: [...next.scenarios.values()],
+        protocols: [...next.protocols.values()],
       }
-      const references = validateConfigReferences(payload)
-      if (!references.valid) {
-        corruptions.push({ raw: payload, store: 'custom', id: 'fk:v1:config-references' })
-        next.scenarios.clear(); next.protocols.clear()
+      const parsedConfig = configPayloadSchema.safeParse(payload)
+      const references = parsedConfig.success ? validateConfigReferences(parsedConfig.data) : { valid: false as const }
+      const configBytes = parsedConfig.success ? serializedUtf8Bytes(parsedConfig.data) : Infinity
+
+      if (!parsedConfig.success || !references.valid || configBytes > SAFETY_LIMITS.CONFIG_PAYLOAD_BYTES_MAX) {
+        corruptions.push({ raw: payload, store: 'custom', id: 'fk:v1:config-payload' })
+        next.scenarios.clear()
+        next.protocols.clear()
+        next.custom.set('fk:v1:settings', getDefaultSettings())
         next.custom.set('fk:v1:favorites', getDefaultFavorites())
-        next.custom.set('fk:v1:customSubstances', []); next.custom.set('fk:v1:customProfiles', [])
+        next.custom.set('fk:v1:customSubstances', [])
+        next.custom.set('fk:v1:customProfiles', [])
         next.custom.set('fk:v1:recipes', [])
       }
 
-      inMemory.replaceWith(next); memoryHydrated = true
+      inMemory.replaceWith(next)
+      memoryHydrated = true
+
       if (normalization.length > 0) {
         try {
           const normalizationDb = await openIDB()
@@ -494,6 +544,7 @@ async function hydrateMemory(): Promise<void> {
           else await runTransaction(normalizationDb, normalization)
         } catch (error) { markDegraded(error); appendDirtyMutation(normalization) }
       }
+
       for (const corruption of corruptions) await recordIdbCorruption(corruption)
     } catch (error) { markDegraded(error, 'IndexedDB hydration failed') }
   })()
@@ -501,7 +552,7 @@ async function hydrateMemory(): Promise<void> {
 }
 
 /**
- * Executa internamente as operações de storage sem adquirir lock adicional (unlocked).
+ * Executa internamente as operações de storage sem adquirir lock adicional (unlocked) (§11, E6.4).
  */
 export async function commitStorageOperationsUnlocked(
   operations: StorageOperation[],
@@ -533,7 +584,7 @@ export async function commitStorageOperationsUnlocked(
 }
 
 /**
- * Executa mutações enfileiradas na fila global de storage (§11, E6.3).
+ * Executa mutações enfileiradas na fila global de storage (§11, E6.4).
  */
 export async function commitStorageOperations(
   operations: StorageOperation[],
@@ -543,7 +594,7 @@ export async function commitStorageOperations(
 }
 
 /**
- * Reabre o IndexedDB e sincroniza mutações pendentes com coordenação segura na fila global (§11, §12, E6.3).
+ * Reabre o IndexedDB e sincroniza mutações pendentes com coordenação segura na fila global (§11, §12, E6.4).
  */
 export async function retryStorageOpen(): Promise<boolean> {
   return enqueueStorageMutation(async () => {
@@ -635,6 +686,25 @@ export async function purgePersistentData(): Promise<void> {
   } catch (error) { markDegraded(error, 'Persistent purge failed'); throw error }
 }
 
+/**
+ * Limpa fisicamente os stores no IndexedDB sem alterar o estado ativo em memória (§10, E6.4).
+ * Usado exclusivamente na compensação de rollback em caso de falha no localStorage durante enablePersistence.
+ */
+export async function purgePhysicalIDBOnly(): Promise<void> {
+  const db = await openIDB()
+  if (!db) return
+  try {
+    await runTransaction(db, [
+      { kind: 'clear', store: 'scenarios' }, { kind: 'clear', store: 'protocols' },
+      { kind: 'clear', store: 'history' }, { kind: 'clear', store: 'custom' },
+      { kind: 'clear', store: 'quarantine' },
+    ])
+  } catch (error) {
+    markDegraded(error, 'Physical IDB purge failed')
+    throw error
+  }
+}
+
 export async function loadConfigPayload(): Promise<ConfigPayload> {
   if (getStorageMode() === 'persistent-ok') await hydrateMemory()
   const payload: ConfigPayload = {
@@ -724,7 +794,7 @@ export async function restoreFullBackup(payload: ConfigPayload, history: Calcula
 }
 
 /**
- * Ativação atômica da persistência no IndexedDB para a sessão corrente (§10, §11, E6.3).
+ * Ativação atômica da persistência no IndexedDB para a sessão corrente (§10, §11, E6.4).
  */
 export async function enablePersistenceInternal(): Promise<void> {
   const config = await loadConfigPayload()
@@ -770,7 +840,6 @@ export function resetStorageSessionForTesting(): void {
   simulatedFailure = null; hasUnsyncedMemoryChanges = false; dirtyJournal.length = 0
   inMemory.clearAll(); memoryHydrated = false; hydrationPromise = null
 }
-
 
 export async function resetStorageForTesting(): Promise<void> {
   resetStorageSessionForTesting()

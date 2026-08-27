@@ -41,6 +41,14 @@ export interface DataManagementError {
   validationDetails?: string
 }
 
+export interface InternalStorageError {
+  code?: never
+  internalReason: string
+  validationDetails?: string
+}
+
+export type StorageOperationError = DataManagementError | InternalStorageError
+
 export function dataManagementError(
   code: DataManagementErrorCode,
   params?: Record<string, number | string>,

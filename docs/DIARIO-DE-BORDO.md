@@ -1054,3 +1054,87 @@ Executar o hardening corretivo definitivo da E6 (§6, §10, §11, §12, §13, §
 
 - Mensagem: `fix(farmakit): endurecer fronteiras da persistencia E6`
 
+## 2026-08-27 — E6.4 — Fechamento final da persistência após auditoria da E6.3
+
+### Objetivo
+
+Executar o fechamento corretivo definitivo da E6 (§6, §10, §11, §12, §13, §14, §18, §20) no commit-base `f7a16a8ef831e5834aff77fd245efdd5ae34c5df`, sanando todos os apontamentos da auditoria externa pós-E6.3:
+1. Eliminar risco de reentrância / deadlock da fila global durante a hidratação com corrupção de dados via `addQuarantineItemUnlocked`.
+2. Validar limites de tamanho individuais e agregados durante a hidratação (`CalculationRecord` $\le 8$ MiB, `QuarantineItem` $\le 256$ KiB, `ConfigPayload` $\le 15$ MiB com fallback seguro).
+3. Implementar compensação atômica com `purgePhysicalIDBOnly()` caso `localStorage.setItem` falhe durante `enablePersistence()`, e garantir fallback `removeItem` em `disablePersistenceAndPurge()`.
+4. Garantir chaves primárias únicas geradas para todas as corrupções do IndexedDB, eliminando colisões entre stores.
+5. Garantir snapshot síncrono imediato (`copy-in` antes do enqueue assíncrono) na recepção de dados em `addCalculationRecord` e `addQuarantineItem`.
+6. Alinhar tipagem e semântica de erros com `StorageOperationError`, eliminando falsos positivos de códigos normativos (`CALCULATION_RECORD_TOO_LARGE` / `CONFIG_STORAGE_LIMIT_EXCEEDED`) em falhas estruturais ou de duplicidade de ID.
+7. Comprovação física de invariantes e normalização estrita de `insertionOrder` no IndexedDB.
+
+### Alterações realizadas
+
+- **Prevenção de Deadlock / Reentrância (`src/storage/quarantine.ts`, `src/storage/idb.ts`):** implementado `addQuarantineItemUnlocked()`, que realiza a inserção de itens de quarentena sem re-enfileirar na fila global `enqueueStorageMutation`. `recordIdbCorruption()` consome a versão unlocked durante o ciclo de vida da hidratação.
+- **Caps e Invariantes na Hidratação (`src/storage/idb.ts`):**
+  - Histórico: `storedHistoryEntrySchema` e registros legados validam individualmente `serializedUtf8Bytes(record) <= SAFETY_LIMITS.CALCULATION_RECORD_BYTES_MAX` (8 MiB).
+  - Quarentena: entradas raw e legadas validam `serializedUtf8Bytes(item) <= SAFETY_LIMITS.QUARANTINE_ITEM_BYTES_MAX` (256 KiB).
+  - ConfigPayload: validação combinada de schema, integridade referencial e `serializedUtf8Bytes(payload) <= SAFETY_LIMITS.CONFIG_PAYLOAD_BYTES_MAX` (15 MiB). Em caso de violação, reverte para defaults seguros e gera item de corrupção na quarentena.
+- **Compensação Atômica de Consentimento (`src/storage/consent.ts`, `src/storage/idb.ts`):**
+  - `enablePersistence()`: se a gravação de consentimento no `localStorage` lançar exceção, executa `purgePhysicalIDBOnly()` para limpar os stores físicos do IndexedDB sem afetar a memória da sessão ativa, mantém `inMemoryConsent = false` e propaga o erro.
+  - `disablePersistenceAndPurge()`: define `inMemoryConsent = false` imediatamente; se `localStorage.setItem` falhar, executa fallback com `localStorage.removeItem`. Se ambos falharem, lança erro observável preservando `inMemoryConsent = false`.
+- **IDs Únicos para Corrupções no IDB (`src/storage/idb.ts`):** `recordIdbCorruption()` gera identificador exclusivo via `generateCompactId('idb-corrupt')`, evitando colisões mesmo que stores diferentes contenham chaves corrompidas idênticas.
+- **Copy-in Síncrono Imediato (`src/storage/history.ts`, `src/storage/quarantine.ts`):** `clonedRecord = clonePersistedValue(record)` e `snapshot = clonePersistedValue(options)` são executados de forma síncrona antes de chamar `enqueueStorageMutation()`, blindando contra modificações imediatas do objeto de entrada pelo chamador.
+- **Semântica e Tipagem de Erros (`src/domain/shared/errors.ts`, `src/domain/data-management/types.ts`, `src/storage/history.ts`, `src/storage/config.ts`):**
+  - Criado `InternalStorageError` (`{ code?: never; internalReason: string; validationDetails?: string }`) e união discriminada `StorageOperationError`.
+  - `addCalculationRecord` retorna `{ internalReason: 'DUPLICATE_HISTORY_ID' | 'STRUCTURAL_VALIDATION_FAILED' }` (sem código de tamanho).
+  - `validateProjectedConfigPayload` retorna `{ internalReason: 'REFERENCE_VALIDATION_FAILED' | 'STRUCTURAL_VALIDATION_FAILED' }` (sem código de tamanho).
+  - Códigos normativos públicos restritos estritamente para estouro real de capacidade em bytes.
+- **Suíte de Testes da E6.4 (`src/tests/storage/`):**
+  - `concurrency.test.ts`: deadlock prevention na primeira mutation com corrupção no IDB; integridade física e unicidade de `insertionOrder` no IDB.
+  - `hydration-hardening.test.ts`: caps individuais de 8 MiB (histórico), 256 KiB (quarentena), 15 MiB (config) e prevenção de colisão de IDs de corrupção.
+  - `enable-persistence.test.ts`: compensação atômica com purge físico e fallbacks em falha de localStorage.
+  - `aliasing.test.ts`: copy-in síncrono imediato na entrada pública.
+  - `history.test.ts` e `config.test.ts`: asserções de semântica de erros.
+
+### Arquivos principais
+
+- `src/domain/shared/errors.ts`
+- `src/domain/data-management/types.ts`
+- `src/domain/types.ts`
+- `src/storage/quarantine.ts`
+- `src/storage/idb.ts`
+- `src/storage/history.ts`
+- `src/storage/config.ts`
+- `src/storage/consent.ts`
+- `src/storage/testing.ts`
+- `src/tests/storage/concurrency.test.ts`
+- `src/tests/storage/hydration-hardening.test.ts`
+- `src/tests/storage/enable-persistence.test.ts`
+- `src/tests/storage/aliasing.test.ts`
+- `src/tests/storage/history.test.ts`
+- `src/tests/storage/config.test.ts`
+- `src/tests/storage/corruption.test.ts`
+- `docs/DIARIO-DE-BORDO.md`
+
+### Validações executadas
+
+- `npm run lint`: PASS (0 erros, 0 avisos).
+- `npm run typecheck`: PASS (0 erros).
+- `npm run type-tests`: PASS (0 erros).
+- `npm run test:e6`: PASS (21 arquivos, 116 testes).
+- `npm test`: PASS (58 arquivos, 486 testes).
+- `npm run test:e5`: PASS (9 arquivos, 99 testes).
+- `npm run test:e4`: PASS (11 arquivos, 81 testes).
+- `npm run build`: PASS (Vite + PWA generateSW, 10 precache entries).
+- `npm run check:build-boundaries`: PASS (9 arquivos em dist, 0 referências externas).
+- `npm run test:e1`: PASS (2 testes Playwright).
+- `git diff --check`: PASS (0 avisos de whitespace/EOF).
+
+### Escopo preservado
+
+- E7 não iniciada; nenhuma migration de produto legado criada.
+- E8–E15 não iniciadas.
+- Nenhum dataset oficial criado.
+- Nenhuma matemática científica alterada (PK, Bateman, cutoff, recurrence, DST, reconstitution, solvers, amostragem).
+- `README.md` permaneceu intacto.
+- `.token-optimizer` permaneceu intacto e isolado fora de dist/runtime.
+
+### Commit previsto
+
+- Mensagem: `fix(farmakit): fechar reentrancia e consentimento da E6`
+

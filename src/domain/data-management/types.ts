@@ -323,5 +323,5 @@ export type ConfigMutationResult =
     }
   | {
       ok: false
-      error: import('../shared/errors').DataManagementError
+      error: import('../shared/errors').StorageOperationError
     }

@@ -19,8 +19,6 @@ import {
   setCustomIDBFactoryForTesting,
   setCustomStorageForTesting,
 } from '../../storage/testing'
-
-
 import { createFaultController, readRawStore } from './idb-faults'
 
 const dummyScenario: Scenario = {
@@ -103,7 +101,7 @@ const dummyRecord: CalculationRecord = {
   },
 }
 
-describe('Enable Persistence & LocalStorage Fault Resilience (§10, §11, E6.3)', () => {
+describe('Enable Persistence & LocalStorage Fault Resilience (§10, §11, E6.4)', () => {
   beforeEach(async () => {
     setCustomIDBFactoryForTesting(indexedDB)
     resetPersistenceConsentForTesting()
@@ -112,6 +110,7 @@ describe('Enable Persistence & LocalStorage Fault Resilience (§10, §11, E6.3)'
 
   afterEach(() => {
     vi.restoreAllMocks()
+    setCustomStorageForTesting(undefined)
   })
 
   it('ativação atômica de persistência migra o estado memory-only completo para o IndexedDB', async () => {
@@ -178,9 +177,10 @@ describe('Enable Persistence & LocalStorage Fault Resilience (§10, §11, E6.3)'
     expect(history).toHaveLength(1)
   })
 
-  it('falha ao gravar no localStorage durante enablePersistence aborta a ativação', async () => {
+  it('falha ao gravar no localStorage durante enablePersistence compensa o IDB e mantém consent=false (§10, E6.4)', async () => {
     expect(getPersistenceConsent()).toBe(false)
     await putToStore('scenarios', dummyScenario)
+    await addCalculationRecord(dummyRecord)
 
     const failingStorage: Storage = {
       length: 0,
@@ -195,26 +195,73 @@ describe('Enable Persistence & LocalStorage Fault Resilience (§10, §11, E6.3)'
     await expect(enablePersistence()).rejects.toThrow('Falha ao gravar consentimento no localStorage')
     expect(getPersistenceConsent()).toBe(false)
 
-    setCustomStorageForTesting(undefined)
+    // Dados continuam íntegros na sessão corrente em memória
+    const memConfig = await loadConfigPayload()
+    expect(memConfig.scenarios).toHaveLength(1)
+    const memHistory = await getCalculationRecords()
+    expect(memHistory).toHaveLength(1)
+
+    // Mas o IDB físico foi limpo pela compensação e NÃO contém os dados
+    const rawScenarios = await readRawStore<Scenario>(indexedDB, 'scenarios')
+    expect(rawScenarios).toHaveLength(0)
+    const rawHistory = await readRawStore<CalculationRecord>(indexedDB, 'history')
+    expect(rawHistory).toHaveLength(0)
+
+    // Nova sessão com consent=false não ressuscita dados persistidos
+    resetStorageSessionForTesting()
+    const emptyConfig = await loadConfigPayload()
+    expect(emptyConfig.scenarios).toHaveLength(0)
   })
 
-  it('falha ao gravar no localStorage durante disablePersistenceAndPurge propaga o erro', async () => {
+  it('disablePersistenceAndPurge com fallback removeItem quando setItem falha (§10, E6.4)', async () => {
     await enablePersistence()
     expect(getPersistenceConsent()).toBe(true)
+    await putToStore('scenarios', dummyScenario)
 
-    const failingStorage: Storage = {
+    let itemRemoved = false
+    const fallbackStorage: Storage = {
       length: 0,
       clear: () => {},
-      getItem: () => null,
+      getItem: () => 'true',
       key: () => null,
-      removeItem: () => {},
+      removeItem: () => { itemRemoved = true },
       setItem: () => { throw new Error('LocalStorage setItem blocked') },
     }
-    setCustomStorageForTesting(failingStorage)
+    setCustomStorageForTesting(fallbackStorage)
+
+    // Não deve lançar erro porque removeItem funcionou como fallback adequado
+    await disablePersistenceAndPurge()
+
+    expect(itemRemoved).toBe(true)
+    expect(getPersistenceConsent()).toBe(false)
+
+    // IDB físico está limpo
+    const raw = await readRawStore<Scenario>(indexedDB, 'scenarios')
+    expect(raw).toHaveLength(0)
+  })
+
+  it('disablePersistenceAndPurge com falha total de localStorage mantém sessão false e propaga erro (§10, E6.4)', async () => {
+    await enablePersistence()
+    expect(getPersistenceConsent()).toBe(true)
+    await putToStore('scenarios', dummyScenario)
+
+    const totalFailingStorage: Storage = {
+      length: 0,
+      clear: () => {},
+      getItem: () => 'true',
+      key: () => null,
+      removeItem: () => { throw new Error('LocalStorage removeItem blocked') },
+      setItem: () => { throw new Error('LocalStorage setItem blocked') },
+    }
+    setCustomStorageForTesting(totalFailingStorage)
 
     await expect(disablePersistenceAndPurge()).rejects.toThrow('Falha ao gravar revogação de consentimento')
 
-    setCustomStorageForTesting(undefined)
+    // Sessão continua false incondicionalmente
+    expect(getPersistenceConsent()).toBe(false)
+
+    // IDB físico foi purgado com sucesso
+    const raw = await readRawStore<Scenario>(indexedDB, 'scenarios')
+    expect(raw).toHaveLength(0)
   })
 })
-

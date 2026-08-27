@@ -222,12 +222,13 @@ export interface ReconstitutionResult {
   metadata: { reconstitutionEngineVersion: string }
 }
 
-// Reexportações de conveniência para consumidores dos motores e da persistência.
 export type { Duration, DurationRange, DurationValue, InstantIso, LocalDate, LocalTime, MassUnit, TimeUnit, TimeZoneId }
+export type { DataManagementError, DataManagementErrorCode, InternalStorageError, StorageOperationError } from './shared/errors'
 export type {
   AdministrationRoute,
   AppSettings,
   BackupCounts,
+
   CalculationRecord,
   CalculationRecordBase,
   ChartScaleMode,

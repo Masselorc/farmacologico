@@ -90,20 +90,19 @@ describe('Config Storage, Budgets & Auto-Pruning (§11, §12, E6.1)', () => {
   })
 
   it('rejeita ConfigPayload que ultrapasse o limite de 15 MiB', async () => {
-    // Cria um payload com ~16 MiB em customSubstances
-    const bigCustomSubstances = []
-    for (let i = 0; i < 35000; i++) {
-      bigCustomSubstances.push({
-        id: `sub-${i}`,
-        slug: `slug-${i}`,
-        name: `Substância Muito Longa Para Teste ${i} ` + 'A'.repeat(400),
-        aliases: ['alias1', 'alias2'],
+    // Cria um payload com ~16 MiB em customSubstances de forma estruturalmente válida
+    const bigCustomSubstances = [
+      {
+        id: 'sub-large-1',
+        slug: 'slug-large-1',
+        name: 'Substância Válida',
+        aliases: ['A'.repeat(16 * 1024 * 1024)],
         category: 'peptide' as const,
         tags: ['tag1', 'tag2'],
         createdAt: '2026-08-27T08:00:00.000Z',
         updatedAt: '2026-08-27T08:00:00.000Z',
-      })
-    }
+      },
+    ]
 
     const bigPayload: ConfigPayload = {
       ...baseConfig,
@@ -147,9 +146,18 @@ describe('Config Storage, Budgets & Auto-Pruning (§11, §12, E6.1)', () => {
 
     const validation = validateProjectedConfigPayload(invalidPayload)
     expect(validation.ok).toBe(false)
+    if (!validation.ok) {
+      expect(validation.error.code).toBeUndefined()
+      expect(validation.error.internalReason).toBe('REFERENCE_VALIDATION_FAILED')
+    }
 
     const res = await mutateConfigPayload(() => invalidPayload)
     expect(res.ok).toBe(false)
+    if (!res.ok) {
+      expect(res.error.code).toBeUndefined()
+      expect(res.error.internalReason).toBe('REFERENCE_VALIDATION_FAILED')
+    }
+
   })
 
   it('remove a falsa premissa de eviction quando Config + history permanecem abaixo de 64 MiB', async () => {

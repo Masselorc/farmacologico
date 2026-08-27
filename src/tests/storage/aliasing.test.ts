@@ -18,7 +18,6 @@ import {
 type ReconstitutionRecord = Extract<CalculationRecord, { type: 'reconstitution' }>
 
 function createSampleRecord(): ReconstitutionRecord {
-
   return {
     id: 'rec-alias-1',
     createdAt: '2026-08-27T08:00:00.000Z',
@@ -51,7 +50,7 @@ function createSampleRecord(): ReconstitutionRecord {
   }
 }
 
-describe('Storage Immutability & Copy-in / Copy-out Defensive Aliasing (§11, E6.3)', () => {
+describe('Storage Immutability & Copy-in / Copy-out Defensive Aliasing (§11, E6.4)', () => {
   beforeEach(async () => {
     setCustomIDBFactoryForTesting(indexedDB)
     setPersistenceConsentForTesting(true)
@@ -68,6 +67,24 @@ describe('Storage Immutability & Copy-in / Copy-out Defensive Aliasing (§11, E6
     inputRecord.input.vialMassMg = 9999
 
     // Lê do storage
+    const stored = await getCalculationRecordById(inputRecord.id)
+    expect(stored?.display.title).toBe('Título Original')
+    if (stored?.type === 'reconstitution') {
+      expect(stored.input.vialMassMg).toBe(10)
+    }
+  })
+
+  it('copy-in síncrono imediato em addCalculationRecord protege contra mutação antes do enqueue resolver (§11, E6.4)', async () => {
+    const inputRecord = createSampleRecord()
+    const addPromise = addCalculationRecord(inputRecord)
+
+    // Muta imediatamente antes do await
+    inputRecord.display.title = 'ALTERADO_IMEDIATAMENTE_ANTES_DO_AWAIT'
+    inputRecord.input.vialMassMg = 8888
+
+    const addRes = await addPromise
+    expect(addRes.ok).toBe(true)
+
     const stored = await getCalculationRecordById(inputRecord.id)
     expect(stored?.display.title).toBe('Título Original')
     if (stored?.type === 'reconstitution') {
@@ -94,8 +111,6 @@ describe('Storage Immutability & Copy-in / Copy-out Defensive Aliasing (§11, E6
       expect(secondFetch.input.desiredDoseMcg).toBe(100)
     }
   })
-
-
 
   it('output alias em loadConfigPayload não altera cenários/configurações do storage', async () => {
     const scenario: Scenario = {
@@ -134,7 +149,6 @@ describe('Storage Immutability & Copy-in / Copy-out Defensive Aliasing (§11, E6
       rawExcerptUtf8: 'corrupted json snippet',
     })
 
-
     const items1 = await getQuarantineItems()
     expect(items1).toHaveLength(1)
     expect(items1[0].errorCode).toBe('SYNTAX_ERROR')
@@ -145,5 +159,26 @@ describe('Storage Immutability & Copy-in / Copy-out Defensive Aliasing (§11, E6
     const items2 = await getQuarantineItems()
     expect(items2[0].errorCode).toBe('SYNTAX_ERROR')
     expect(items2[0].rawExcerptUtf8).toBe('corrupted json snippet')
+  })
+
+  it('copy-in síncrono imediato em addQuarantineItem protege contra mutação das options (§11, E6.4)', async () => {
+    const options = {
+      source: 'config_import' as const,
+      errorCode: 'ORIGINAL_ERR',
+      originalUtf8Bytes: 100,
+      rawExcerptUtf8: 'original snippet',
+    }
+    const addPromise = addQuarantineItem(options)
+
+    // Muta imediatamente antes do await
+    options.errorCode = 'MUTATED_BEFORE_AWAIT'
+    options.rawExcerptUtf8 = 'mutated snippet'
+
+    await addPromise
+
+    const items = await getQuarantineItems()
+    expect(items).toHaveLength(1)
+    expect(items[0].errorCode).toBe('ORIGINAL_ERR')
+    expect(items[0].rawExcerptUtf8).toBe('original snippet')
   })
 })

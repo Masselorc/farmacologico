@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { indexedDB } from 'fake-indexeddb'
-import type { CalculationRecord, StoredHistoryEntry } from '../../domain/types'
-
+import type { CalculationRecord, Scenario, StoredHistoryEntry } from '../../domain/types'
 import {
   getCalculationRecords,
   getQuarantineItems,
@@ -16,6 +15,7 @@ import {
 } from '../../storage/testing'
 import { serializedUtf8Bytes } from '../../storage/bytes'
 import { DB_NAME, DB_VERSION } from '../../storage/idb'
+import { SAFETY_LIMITS } from '../../validation/limits'
 
 async function openRawIDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -33,7 +33,7 @@ async function openRawIDB(): Promise<IDBDatabase> {
   })
 }
 
-function createDummyReconRecord(id: string): CalculationRecord {
+function createDummyReconRecord(id: string, labelPadding?: string): CalculationRecord {
   return {
     id,
     createdAt: '2026-08-27T08:00:00.000Z',
@@ -45,6 +45,7 @@ function createDummyReconRecord(id: string): CalculationRecord {
       diluentVolumeMl: 2,
       desiredDoseMcg: 100,
       syringe: { family: 'U-100', capacityUnits: 100, unitsPerMl: 100, graduationUnits: 1 },
+      ...(labelPadding ? { label: labelPadding } : {}),
     },
     resultSnapshot: {
       concentrationMcgPerMl: 5000,
@@ -58,7 +59,7 @@ function createDummyReconRecord(id: string): CalculationRecord {
   }
 }
 
-describe('Hydration Invariants & Normalization Hardening (§11, §18, E6.3)', () => {
+describe('Hydration Invariants & Normalization Hardening (§11, §18, E6.4)', () => {
   beforeEach(async () => {
     setCustomIDBFactoryForTesting(indexedDB)
     setPersistenceConsentForTesting(true)
@@ -70,7 +71,6 @@ describe('Hydration Invariants & Normalization Hardening (§11, §18, E6.3)', ()
     const tx = db.transaction('quarantine', 'readwrite')
     const store = tx.objectStore('quarantine')
 
-    // Injeta 7 envelopes válidos diretamente no IDB
     for (let i = 1; i <= 7; i++) {
       const entry: StoredQuarantineEntry = {
         id: `q-raw-${i}`,
@@ -92,12 +92,10 @@ describe('Hydration Invariants & Normalization Hardening (§11, §18, E6.3)', ()
       tx.oncomplete = () => { db.close(); resolve() }
     })
 
-    // Hidrata memória
     resetStorageSessionForTesting()
     const items = await getQuarantineItems()
 
     expect(items).toHaveLength(5)
-    // Preserva os 5 mais recentes (q-raw-3 a q-raw-7)
     const errorCodes = items.map((it) => it.errorCode)
     expect(errorCodes).toContain('ERR_7')
     expect(errorCodes).toContain('ERR_3')
@@ -110,7 +108,6 @@ describe('Hydration Invariants & Normalization Hardening (§11, §18, E6.3)', ()
     const tx = db.transaction('quarantine', 'readwrite')
     const store = tx.objectStore('quarantine')
 
-    // Injeta 5 envelopes de ~240 KiB cada (total ~1.2 MiB > 1 MiB)
     const largeExcerpt = 'A'.repeat(240 * 1024)
     for (let i = 1; i <= 5; i++) {
       const entry: StoredQuarantineEntry = {
@@ -129,7 +126,6 @@ describe('Hydration Invariants & Normalization Hardening (§11, §18, E6.3)', ()
       store.put(entry)
     }
 
-
     await new Promise<void>((resolve) => {
       tx.oncomplete = () => { db.close(); resolve() }
     })
@@ -144,7 +140,6 @@ describe('Hydration Invariants & Normalization Hardening (§11, §18, E6.3)', ()
     const tx = db.transaction('history', 'readwrite')
     const store = tx.objectStore('history')
 
-    // Injeta 505 registros
     for (let i = 1; i <= 505; i++) {
       const record = createDummyReconRecord(`rec-h-${i}`)
       const entry: StoredHistoryEntry = {
@@ -162,7 +157,6 @@ describe('Hydration Invariants & Normalization Hardening (§11, §18, E6.3)', ()
     resetStorageSessionForTesting()
     const history = await getCalculationRecords()
     expect(history).toHaveLength(500)
-    // Preserva os 500 mais novos (rec-h-6 a rec-h-505)
     expect(history[0].id).toBe('rec-h-505')
     expect(history.some((r) => r.id === 'rec-h-1')).toBe(false)
   })
@@ -172,7 +166,6 @@ describe('Hydration Invariants & Normalization Hardening (§11, §18, E6.3)', ()
     const tx = db.transaction('history', 'readwrite')
     const store = tx.objectStore('history')
 
-    // Injeta 3 registros com insertionOrder duplicado = 10
     for (let i = 1; i <= 3; i++) {
       const record = createDummyReconRecord(`rec-dup-order-${i}`)
       const entry: StoredHistoryEntry = {
@@ -191,7 +184,6 @@ describe('Hydration Invariants & Normalization Hardening (§11, §18, E6.3)', ()
     const history = await getCalculationRecords()
     expect(history).toHaveLength(3)
 
-    // Recarrega de uma nova sessão e verifica que a normalização física foi persistida
     resetStorageSessionForTesting()
     const historyReloaded = await getCalculationRecords()
     expect(historyReloaded).toHaveLength(3)
@@ -202,7 +194,6 @@ describe('Hydration Invariants & Normalization Hardening (§11, §18, E6.3)', ()
     const tx = db.transaction('scenarios', 'readwrite')
     const store = tx.objectStore('scenarios')
 
-    // Registro corrompido com ID gigantesco de 500.000 caracteres
     const hugeId = 'id-giant-' + 'X'.repeat(500_000)
     store.put({ id: hugeId, invalidField: 12345 })
 
@@ -211,15 +202,150 @@ describe('Hydration Invariants & Normalization Hardening (§11, §18, E6.3)', ()
     })
 
     resetStorageSessionForTesting()
-    // Força hidratação
     await loadConfigPayload()
 
     const quarantineItems = await getQuarantineItems()
     expect(quarantineItems.length).toBeGreaterThanOrEqual(1)
 
     const corruptedItem = quarantineItems[0]
-    // O ID do item da quarentena deve ser compacto e seguro (< 100 caracteres)
     expect(corruptedItem.id.length).toBeLessThan(100)
     expect(serializedUtf8Bytes(corruptedItem)).toBeLessThanOrEqual(256 * 1024)
+  })
+
+  it('G: CalculationRecord > 8 MiB na hidratação é rejeitado e não entra no histórico ativo (§11, E6.4)', async () => {
+    const db = await openRawIDB()
+    const tx = db.transaction('history', 'readwrite')
+    const store = tx.objectStore('history')
+
+    // Registro válido pequeno
+    const recSmall = createDummyReconRecord('rec-small')
+    store.put({ id: recSmall.id, insertionOrder: 1, record: recSmall })
+
+    // Registro com > 8 MiB (8.5 MiB)
+    const padding = 'Z'.repeat(8.5 * 1024 * 1024)
+    const recGiant = createDummyReconRecord('rec-giant', padding)
+    store.put({ id: recGiant.id, insertionOrder: 2, record: recGiant })
+
+    await new Promise<void>((resolve) => {
+      tx.oncomplete = () => { db.close(); resolve() }
+    })
+
+    resetStorageSessionForTesting()
+    const history = await getCalculationRecords()
+
+    expect(history).toHaveLength(1)
+    expect(history[0].id).toBe('rec-small')
+  })
+
+  it('H: QuarantineItem > 256 KiB na hidratação é descartado/normalizado da quarentena (§11, E6.4)', async () => {
+    const db = await openRawIDB()
+    const tx = db.transaction('quarantine', 'readwrite')
+    const store = tx.objectStore('quarantine')
+
+    // Item válido pequeno (10 KiB)
+    const validEntry: StoredQuarantineEntry = {
+      id: 'q-valid-small',
+      insertionOrder: 1,
+      item: {
+        id: 'q-valid-small',
+        createdAt: '2026-08-27T08:00:00.000Z',
+        source: 'config_import',
+        errorCode: 'ERR_SMALL',
+        originalUtf8Bytes: 10 * 1024,
+        rawExcerptUtf8: 'X'.repeat(10 * 1024),
+        truncated: false,
+      },
+    }
+    store.put(validEntry)
+
+    // Item que excede 256 KiB (300 KiB)
+    const giantEntry = {
+      id: 'q-giant',
+      insertionOrder: 2,
+      item: {
+        id: 'q-giant',
+        createdAt: '2026-08-27T08:00:00.000Z',
+        source: 'config_import',
+        errorCode: 'ERR_GIANT',
+        originalUtf8Bytes: 300 * 1024,
+        rawExcerptUtf8: 'Y'.repeat(300 * 1024),
+        truncated: false,
+      },
+    }
+    store.put(giantEntry)
+
+    await new Promise<void>((resolve) => {
+      tx.oncomplete = () => { db.close(); resolve() }
+    })
+
+    resetStorageSessionForTesting()
+    const items = await getQuarantineItems()
+
+    expect(items).toHaveLength(1)
+    expect(items[0].id).toBe('q-valid-small')
+  })
+
+  it('I: ConfigPayload > 15 MiB na hidratação não é publicado e reverte para defaults seguros (§11, E6.4)', async () => {
+    const db = await openRawIDB()
+    const tx = db.transaction('scenarios', 'readwrite')
+    const store = tx.objectStore('scenarios')
+
+    // Injeta cenário com doses suficientes para exceder 15 MiB
+    const largeDoses = Array.from({ length: 350_000 }, (_, i) => ({
+      id: `d-${i}`,
+      amountMg: 50,
+      time: '2026-08-27T08:00:00.000Z',
+    }))
+    const hugeScenario: Scenario = {
+      id: 'sc-giant',
+      name: 'Giant Scenario',
+      color: 'blue-500',
+      source: {
+        type: 'manual',
+        pkParametersSnapshot: { halfLife: { value: 12, unit: 'hours' }, tmax: null },
+      },
+      displayUnit: 'mg',
+      selectedPkParameters: { halfLifeMs: 43200000, tmaxMs: null },
+      doses: largeDoses,
+    }
+    expect(serializedUtf8Bytes(hugeScenario)).toBeGreaterThan(SAFETY_LIMITS.CONFIG_PAYLOAD_BYTES_MAX)
+    store.put(hugeScenario)
+
+    await new Promise<void>((resolve) => {
+      tx.oncomplete = () => { db.close(); resolve() }
+    })
+
+    resetStorageSessionForTesting()
+    const config = await loadConfigPayload()
+
+    // Config reverteu para defaults seguros vazios
+    expect(config.scenarios).toHaveLength(0)
+    expect(config.protocols).toHaveLength(0)
+
+    // Corrupção foi registrada na quarentena
+    const quarantine = await getQuarantineItems()
+    expect(quarantine.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('J: duas corrupções com mesmo ID original em stores distintas geram IDs únicos na quarentena sem colidir (§11, E6.4)', async () => {
+    const db = await openRawIDB()
+    const tx = db.transaction(['scenarios', 'protocols'], 'readwrite')
+    tx.objectStore('scenarios').put({ id: 'same-corrupt-id', badField: 1 })
+    tx.objectStore('protocols').put({ id: 'same-corrupt-id', badField: 2 })
+
+    await new Promise<void>((resolve) => {
+      tx.oncomplete = () => { db.close(); resolve() }
+    })
+
+    resetStorageSessionForTesting()
+    await loadConfigPayload()
+
+    const quarantine = await getQuarantineItems()
+    expect(quarantine).toHaveLength(2)
+
+    // IDs de quarentena devem ser distintos e nenhum deles deve ser o literal 'same-corrupt-id'
+    expect(quarantine[0].id).not.toBe(quarantine[1].id)
+    expect(quarantine[0].id).not.toBe('same-corrupt-id')
+    expect(quarantine[1].id).not.toBe('same-corrupt-id')
   })
 })

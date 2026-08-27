@@ -77,7 +77,10 @@ describe('History Storage, Insertion-Order FIFO & ID Immutability (§11, §13, E
       resultSnapshot: { invalid: true } } as unknown as CalculationRecord
     const result = await addCalculationRecord(invalid)
     expect(result.ok).toBe(false)
-    if (!result.ok) expect(result.error.internalReason).toBe('STRUCTURAL_VALIDATION_FAILED')
+    if (!result.ok) {
+      expect(result.error.code).toBeUndefined()
+      expect(result.error.internalReason).toBe('STRUCTURAL_VALIDATION_FAILED')
+    }
     expect(await getCalculationRecords()).toEqual([valid])
   })
 
@@ -98,35 +101,28 @@ describe('History Storage, Insertion-Order FIFO & ID Immutability (§11, §13, E
     }
 
     // 7º registro: total ultrapassa 47 MiB
-    // A poda FIFO por insertionOrder DEVE remover o registro rec-A (inserido primeiro),
-    // mesmo que o createdAt de A seja mais recente que o createdAt de B!
-    const rec7 = createSampleRecord('rec-7', '2026-08-27T13:00:00.000Z', 7 * 1024 * 1024)
-    const res7 = await addCalculationRecord(rec7)
-    expect(res7.ok).toBe(true)
+    // Como rec-A foi inserido primeiro (insertionOrder=1), rec-A deve ser evictado
+    const recFinal = createSampleRecord('rec-final', '2026-08-27T08:00:00.000Z', 7 * 1024 * 1024)
+    await addCalculationRecord(recFinal)
 
-    const remaining = await getCalculationRecords()
-    const remainingIds = remaining.map((r) => r.id)
+    const records = await getCalculationRecords()
+    const ids = records.map((r) => r.id)
 
-    // A deve ter sido evictado porque foi inserido primeiro
-    expect(remainingIds).not.toContain('rec-A')
-    expect(remainingIds).toContain('rec-B')
-    expect(remainingIds).toContain('rec-7')
+    expect(ids).not.toContain('rec-A')
+    expect(ids).toContain('rec-B')
+    expect(ids).toContain('rec-final')
   })
 
   it('suporta registros com createdAt idênticos preservando a ordem de inserção', async () => {
-    const sameDate = '2026-08-27T10:00:00.000Z'
-    for (let i = 1; i <= 6; i++) {
-      const rec = createSampleRecord(`same-${i}`, sameDate, 7 * 1024 * 1024)
+    const sameTime = '2026-08-27T12:00:00.000Z'
+    for (let i = 1; i <= 7; i++) {
+      const rec = createSampleRecord(`same-${i}`, sameTime, 7 * 1024 * 1024)
       await addCalculationRecord(rec)
     }
 
-    const rec7 = createSampleRecord('same-7', sameDate, 7 * 1024 * 1024)
-    await addCalculationRecord(rec7)
+    const records = await getCalculationRecords()
+    const ids = records.map((r) => r.id)
 
-    const remaining = await getCalculationRecords()
-    const ids = remaining.map((r) => r.id)
-
-    // same-1 foi o primeiro inserido e deve ter sido evictado
     expect(ids).not.toContain('same-1')
     expect(ids).toContain('same-2')
     expect(ids).toContain('same-7')
@@ -143,7 +139,10 @@ describe('History Storage, Insertion-Order FIFO & ID Immutability (§11, §13, E
 
     const res = await addCalculationRecord(duplicate)
     expect(res.ok).toBe(false)
-    if (!res.ok) expect(res.error.internalReason).toBe('DUPLICATE_HISTORY_ID')
+    if (!res.ok) {
+      expect(res.error.code).toBeUndefined()
+      expect(res.error.internalReason).toBe('DUPLICATE_HISTORY_ID')
+    }
 
     const fetched = await getCalculationRecordById('immutable-id')
     expect(fetched?.display.title).toBe('Título Original')

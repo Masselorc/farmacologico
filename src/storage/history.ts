@@ -1,4 +1,4 @@
-// Gestão de persistência e poda determinística FIFO do histórico (§11, §13, E6.3).
+// Gestão de persistência e poda determinística FIFO do histórico (§11, §13, E6.4).
 // Limites:
 // - cada registro ≤ 8 MiB (CALCULATION_RECORD_BYTES_MAX)
 // - total de registros ≤ 500 (HISTORY_RECORDS_MAX)
@@ -6,20 +6,18 @@
 // - FullBackup projetado ≤ 64 MiB (FULL_BACKUP_IMPORT_BYTES_MAX)
 // - FIFO ordenado estritamente por insertionOrder persistida (nunca por createdAt).
 // - Imutabilidade por ID: ID já existente não sobrescreve registro histórico.
-// - Copy-in e copy-out defensivos para prevenir vazamento de referências mutáveis.
+// - Copy-in síncrono na entrada e copy-out defensivo na saída.
 
-import type { CalculationRecord, ConfigPayload, FullBackupBundle, StoredHistoryEntry } from '../domain/types'
-import { dataManagementError, type DataManagementError } from '../domain/shared/errors'
+import type { CalculationRecord, ConfigPayload, FullBackupBundle, StorageOperationError, StoredHistoryEntry } from '../domain/types'
+import { dataManagementError } from '../domain/shared/errors'
 import { CURRENT_DATASET_VERSION, ENGINE_VERSIONS } from '../domain/version'
 import { SAFETY_LIMITS } from '../validation/limits'
 import { calculationRecordSchema } from '../validation/schemas/data-management'
 import { serializedUtf8Bytes } from './bytes'
 import { clonePersistedValue } from './clone'
 import { commitStorageOperationsUnlocked, deleteFromStore, getAllFromStore, getFromStore, loadConfigPayload } from './idb'
-
 import { enqueueStorageMutation } from './queue'
 import { validateCalculationRecordRuntime } from './history-validation'
-
 
 export type AddCalculationRecordResult =
   | {
@@ -30,7 +28,7 @@ export type AddCalculationRecordResult =
     }
   | {
       ok: false
-      error: DataManagementError
+      error: StorageOperationError
     }
 
 /**
@@ -59,29 +57,29 @@ export function calculateProjectedFullBackupBytes(
 }
 
 /**
- * Insere um novo CalculationRecord no histórico de forma atômica e serializada (§11, §13, E6.3),
- * aplicando validação individual de 8 MiB, imutabilidade por ID, copy-in defensivo e poda FIFO
- * determinística por ordem de inserção sobre os registros mais antigos.
+ * Insere um novo CalculationRecord no histórico de forma atômica e serializada (§11, §13, E6.4),
+ * aplicando copy-in síncrono antes do enqueue, validação individual de 8 MiB, imutabilidade por ID,
+ * e poda FIFO determinística por ordem de inserção sobre os registros mais antigos.
  */
 export async function addCalculationRecord(
   record: CalculationRecord,
 ): Promise<AddCalculationRecordResult> {
-  return enqueueStorageMutation(async () => {
-    // Clona defensivamente o registro de entrada (copy-in)
-    const clonedRecord = clonePersistedValue(record)
+  // Clona defensivamente de forma síncrona na entrada pública (copy-in antes do enqueue) (§11, E6.4)
+  const clonedRecord = clonePersistedValue(record)
 
-    // Validação estrutural e semântica
+  return enqueueStorageMutation(async () => {
+    // Validação estrutural e semântica de runtime
     const parsedRecord = calculationRecordSchema.safeParse(clonedRecord)
     const runtimeValidation = validateCalculationRecordRuntime(clonedRecord)
     if (!parsedRecord.success || !runtimeValidation.valid) {
       return {
         ok: false,
-        error: dataManagementError('CALCULATION_RECORD_TOO_LARGE', undefined, {
+        error: {
           internalReason: runtimeValidation.valid ? 'STRUCTURAL_VALIDATION_FAILED' : runtimeValidation.internalReason,
           validationDetails: runtimeValidation.valid
             ? (!parsedRecord.success ? parsedRecord.error.message : 'CalculationRecord inválido')
             : runtimeValidation.error,
-        }),
+        },
       }
     }
 
@@ -102,10 +100,10 @@ export async function addCalculationRecord(
     if (existing) {
       return {
         ok: false,
-        error: dataManagementError('CALCULATION_RECORD_TOO_LARGE', undefined, {
+        error: {
           internalReason: 'DUPLICATE_HISTORY_ID',
           validationDetails: `CalculationRecord.id já existe: ${clonedRecord.id}`,
-        }),
+        },
       }
     }
 
@@ -160,7 +158,6 @@ export async function addCalculationRecord(
       ...evictedIds.map((key) => ({ kind: 'delete' as const, store: 'history' as const, key })),
       { kind: 'put', store: 'history', value: newEntry },
     ])
-
 
     return {
       ok: true,

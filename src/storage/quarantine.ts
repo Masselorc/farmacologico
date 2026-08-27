@@ -1,14 +1,16 @@
-// Quarentena compacta com envelope FIFO persistido, mutação atômica única e copy-out defensivo (§11, §18, E6.3).
+// Quarentena compacta com envelope FIFO persistido, mutação atômica única e copy-out defensivo (§11, §18, E6.4).
 
 import type { InstantIso, QuarantineItem, QuarantineSource } from '../domain/types'
 import { SAFETY_LIMITS } from '../validation/limits'
 import { serializedUtf8Bytes } from './bytes'
 import { clonePersistedValue } from './clone'
 import {
-  commitStorageOperations, commitStorageOperationsUnlocked, getAllFromStore,
-  type StorageOperation, type StoredQuarantineEntry,
+  commitStorageOperations,
+  commitStorageOperationsUnlocked,
+  getAllFromStore,
+  type StorageOperation,
+  type StoredQuarantineEntry,
 } from './idb'
-
 import { enqueueStorageMutation } from './queue'
 
 export interface AddQuarantineOptions {
@@ -78,51 +80,59 @@ function quarantineBytes(entries: StoredQuarantineEntry[]): number {
   return serializedUtf8Bytes(entries.map((entry) => entry.item))
 }
 
+/**
+ * Insere item na quarentena sem re-adquirir o lock da fila global (unlocked) (§11, §18, E6.4).
+ * Usado internamente durante a hidratação e recovery para prevenir deadlocks de reentrância.
+ */
+export async function addQuarantineItemUnlocked(options: AddQuarantineOptions): Promise<AddQuarantineResult> {
+  const id = options.id && options.id.length <= 100 ? options.id : newId()
+  const createdAt = options.createdAt || (new Date().toISOString() as InstantIso)
+  const item = fitItem(options, id, createdAt)
+  if (serializedUtf8Bytes(item) > SAFETY_LIMITS.QUARANTINE_ITEM_BYTES_MAX) {
+    throw new Error('Quarantine item exceeds the individual byte budget')
+  }
+
+  const entries = await getAllFromStore<StoredQuarantineEntry>('quarantine')
+  entries.sort((a, b) => a.insertionOrder - b.insertionOrder)
+  const insertionOrder = entries.reduce((max, entry) => Math.max(max, entry.insertionOrder), 0) + 1
+  const newest: StoredQuarantineEntry = { id, insertionOrder, item: clonePersistedValue(item) }
+  const retained = [...entries.filter((entry) => entry.id !== id), newest]
+  let evictedCount = 0
+  let evictedBytes = 0
+
+  while (
+    retained.length > 1 &&
+    (retained.length > SAFETY_LIMITS.QUARANTINE_ITEMS_MAX ||
+      quarantineBytes(retained) > SAFETY_LIMITS.QUARANTINE_TOTAL_BYTES_MAX)
+  ) {
+    const oldest = retained[0]
+    if (oldest.id === newest.id) break
+    retained.shift()
+    evictedCount += 1
+    evictedBytes += serializedUtf8Bytes(oldest.item)
+  }
+
+  const retainedIds = new Set(retained.map((entry) => entry.id))
+  const operations: StorageOperation[] = [
+    { kind: 'put', store: 'quarantine', value: newest },
+    ...entries
+      .filter((entry) => !retainedIds.has(entry.id))
+      .map((entry): StorageOperation => ({ kind: 'delete', store: 'quarantine', key: entry.id })),
+  ]
+  await commitStorageOperationsUnlocked(operations)
+  return {
+    item: clonePersistedValue(item),
+    evictedCount,
+    evictedBytes,
+  }
+}
+
+/**
+ * API pública: executa snapshot síncrono dos argumentos (copy-in antes do enqueue) e enfileira a mutação (§11, E6.4).
+ */
 export async function addQuarantineItem(options: AddQuarantineOptions): Promise<AddQuarantineResult> {
-  return enqueueStorageMutation(async () => {
-    // E6.3: se o ID fornecido for excessivo (> 100 caracteres), gera novo ID compacto para não quebrar orçamentos
-    const id = options.id && options.id.length <= 100 ? options.id : newId()
-    const createdAt = options.createdAt || (new Date().toISOString() as InstantIso)
-    const item = fitItem(options, id, createdAt)
-    if (serializedUtf8Bytes(item) > SAFETY_LIMITS.QUARANTINE_ITEM_BYTES_MAX) {
-      throw new Error('Quarantine item exceeds the individual byte budget')
-    }
-
-    const entries = await getAllFromStore<StoredQuarantineEntry>('quarantine')
-    entries.sort((a, b) => a.insertionOrder - b.insertionOrder)
-    const insertionOrder = entries.reduce((max, entry) => Math.max(max, entry.insertionOrder), 0) + 1
-    const newest: StoredQuarantineEntry = { id, insertionOrder, item: clonePersistedValue(item) }
-    const retained = [...entries.filter((entry) => entry.id !== id), newest]
-    let evictedCount = 0
-    let evictedBytes = 0
-
-    while (
-      retained.length > 1 &&
-      (retained.length > SAFETY_LIMITS.QUARANTINE_ITEMS_MAX ||
-        quarantineBytes(retained) > SAFETY_LIMITS.QUARANTINE_TOTAL_BYTES_MAX)
-    ) {
-      const oldest = retained[0]
-      if (oldest.id === newest.id) break
-      retained.shift()
-      evictedCount += 1
-      evictedBytes += serializedUtf8Bytes(oldest.item)
-    }
-
-    const retainedIds = new Set(retained.map((entry) => entry.id))
-    const operations: StorageOperation[] = [
-      { kind: 'put', store: 'quarantine', value: newest },
-      ...entries
-        .filter((entry) => !retainedIds.has(entry.id))
-        .map((entry): StorageOperation => ({ kind: 'delete', store: 'quarantine', key: entry.id })),
-    ]
-    await commitStorageOperationsUnlocked(operations)
-    return {
-
-      item: clonePersistedValue(item),
-      evictedCount,
-      evictedBytes,
-    }
-  })
+  const snapshot = clonePersistedValue(options)
+  return enqueueStorageMutation(() => addQuarantineItemUnlocked(snapshot))
 }
 
 export async function getQuarantineItems(): Promise<QuarantineItem[]> {

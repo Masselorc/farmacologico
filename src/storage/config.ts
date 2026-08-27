@@ -1,10 +1,10 @@
-// Validação de budget e atomicidade de mutações em ConfigPayload (§11, §12, E6.3).
+// Validação de budget e atomicidade de mutações em ConfigPayload (§11, §12, E6.4).
 // Limite: SAFETY_LIMITS.CONFIG_PAYLOAD_BYTES_MAX = 15_728_640 (15 MiB).
 // Poda determinística FIFO do histórico acionada automaticamente se FullBackup > 64 MiB.
 // Mutex global e isolamento estrito de referências mutáveis.
 
-import type { ConfigMutationResult, ConfigPayload, StoredHistoryEntry } from '../domain/types'
-import { dataManagementError, type DataManagementError } from '../domain/shared/errors'
+import type { ConfigMutationResult, ConfigPayload, StorageOperationError, StoredHistoryEntry } from '../domain/types'
+import { dataManagementError } from '../domain/shared/errors'
 import { SAFETY_LIMITS } from '../validation/limits'
 import { configPayloadSchema } from '../validation/schemas/data-management'
 import { serializedUtf8Bytes } from './bytes'
@@ -17,32 +17,35 @@ import { validateConfigReferences } from './references'
 export type { ConfigMutationResult }
 export { loadConfigPayload } from './idb'
 
-
 /**
- * Valida se um ConfigPayload projetado respeita o limite normativo de 15 MiB e a integridade de referências.
+ * Valida se um ConfigPayload projetado respeita o limite normativo de 15 MiB e a integridade de referências (§11, E6.4).
  */
 export function validateProjectedConfigPayload(
   payload: ConfigPayload,
-): { ok: true; bytes: number } | { ok: false; error: DataManagementError; bytes: number } {
+): { ok: true; bytes: number } | { ok: false; error: StorageOperationError; bytes: number } {
   const structural = configPayloadSchema.safeParse(payload)
   const bytes = serializedUtf8Bytes(payload)
   if (!structural.success) {
     return {
       ok: false,
-      error: dataManagementError('CONFIG_STORAGE_LIMIT_EXCEEDED', undefined, {
+      error: {
         internalReason: 'STRUCTURAL_VALIDATION_FAILED',
         validationDetails: structural.error.message,
-      }),
+      },
       bytes,
     }
   }
   if (bytes > SAFETY_LIMITS.CONFIG_PAYLOAD_BYTES_MAX) {
     return {
       ok: false,
-      error: dataManagementError('CONFIG_STORAGE_LIMIT_EXCEEDED', {
-        bytes,
-        maxBytes: SAFETY_LIMITS.CONFIG_PAYLOAD_BYTES_MAX,
-      }, { internalReason: 'PAYLOAD_SIZE_EXCEEDED' }),
+      error: dataManagementError(
+        'CONFIG_STORAGE_LIMIT_EXCEEDED',
+        {
+          bytes,
+          maxBytes: SAFETY_LIMITS.CONFIG_PAYLOAD_BYTES_MAX,
+        },
+        { internalReason: 'PAYLOAD_SIZE_EXCEEDED' },
+      ),
       bytes,
     }
   }
@@ -51,10 +54,10 @@ export function validateProjectedConfigPayload(
   if (!refCheck.valid) {
     return {
       ok: false,
-      error: dataManagementError('CONFIG_STORAGE_LIMIT_EXCEEDED', undefined, {
+      error: {
         internalReason: 'REFERENCE_VALIDATION_FAILED',
         validationDetails: refCheck.error,
-      }),
+      },
       bytes,
     }
   }
@@ -63,7 +66,7 @@ export function validateProjectedConfigPayload(
 }
 
 /**
- * Executa uma mutação atômica e serializada sobre o ConfigPayload persistido (§11, E6.3).
+ * Executa uma mutação atômica e serializada sobre o ConfigPayload persistido (§11, E6.4).
  * Se a mutação projetada ultrapassar 15 MiB ou violar referências, a mutação é abortada e o storage não é alterado.
  * Se a mutação fizer o FullBackup projetado ultrapassar 64 MiB, o histórico é podado deterministicamente por FIFO.
  */

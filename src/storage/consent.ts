@@ -1,4 +1,4 @@
-// Gerenciamento do consentimento explícito para persistência de dados (§10, §11, E6.3).
+// Gerenciamento do consentimento explícito para persistência de dados (§10, §11, E6.4).
 // Padrão: DESLIGADO (opt-in).
 // Armazenamento em chave técnica de localStorage (fk:v1:persistence-consent).
 // Não integra ConfigPayload nem FullBackupBundle e nunca é exportado/restaurado.
@@ -80,13 +80,14 @@ export function getPersistenceConsent(): boolean {
 }
 
 /**
- * Habilita a persistência de dados atomicamente (§10, §11, E6.3).
+ * Habilita a persistência de dados atomicamente com compensação (§10, §11, E6.4).
  * Captura o estado atual em memória, valida todos os orçamentos e invariantes,
- * persiste o snapshot no IndexedDB e só então confirma o consentimento no localStorage.
+ * persiste o snapshot no IndexedDB e confirma o consentimento no localStorage.
+ * Se o localStorage falhar, executa compensação física no IndexedDB e mantém inMemoryConsent=false.
  */
 export async function enablePersistence(): Promise<void> {
   return enqueueStorageMutation(async () => {
-    const { enablePersistenceInternal } = await import('./idb')
+    const { enablePersistenceInternal, purgePhysicalIDBOnly } = await import('./idb')
     await enablePersistenceInternal()
 
     const storage = getLocalStorage()
@@ -94,7 +95,17 @@ export async function enablePersistence(): Promise<void> {
       try {
         storage.setItem(CONSENT_STORAGE_KEY, 'true')
       } catch (err) {
-        throw new Error(`Falha ao gravar consentimento no localStorage: ${err instanceof Error ? err.message : String(err)}`, { cause: err })
+        // Compensação atômica: remove dados persistidos no IDB para não deixar resíduo silencioso
+        try {
+          await purgePhysicalIDBOnly()
+        } catch {
+          // Silencia erro de compensação secundário
+        }
+        inMemoryConsent = false
+        throw new Error(
+          `Falha ao gravar consentimento no localStorage: ${err instanceof Error ? err.message : String(err)}`,
+          { cause: err },
+        )
       }
     }
 
@@ -104,25 +115,33 @@ export async function enablePersistence(): Promise<void> {
 }
 
 /**
- * Desativa a persistência com purge físico obrigatório e seguro (§10, §11, E6.3).
+ * Desativa a persistência com purge físico obrigatório e seguro (§10, §11, E6.4).
  * Executa o purge real em todos os stores do IndexedDB antes de persistir a flag false no localStorage.
+ * Se setItem falhar, tenta removeItem(); se ambos falharem, propaga erro observável e mantém inMemoryConsent=false.
  */
 export async function disablePersistenceAndPurge(): Promise<void> {
   return enqueueStorageMutation(async () => {
     const { purgePersistentData } = await import('./idb')
     await purgePersistentData()
 
+    inMemoryConsent = false
+    notifyListeners(false)
+
     const storage = getLocalStorage()
     if (storage) {
       try {
         storage.setItem(CONSENT_STORAGE_KEY, 'false')
-      } catch (err) {
-        throw new Error(`Falha ao gravar revogação de consentimento no localStorage: ${err instanceof Error ? err.message : String(err)}`, { cause: err })
+      } catch {
+        try {
+          storage.removeItem(CONSENT_STORAGE_KEY)
+        } catch (err2) {
+          throw new Error(
+            `Falha ao gravar revogação de consentimento no localStorage: ${err2 instanceof Error ? err2.message : String(err2)}`,
+            { cause: err2 },
+          )
+        }
       }
     }
-
-    inMemoryConsent = false
-    notifyListeners(false)
   })
 }
 
