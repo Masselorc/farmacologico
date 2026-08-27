@@ -1,17 +1,57 @@
-// Gerenciamento do consentimento explícito para persistência de dados (§10, §11).
+// Gerenciamento do consentimento explícito para persistência de dados (§10, §11, E6.3).
 // Padrão: DESLIGADO (opt-in).
 // Armazenamento em chave técnica de localStorage (fk:v1:persistence-consent).
 // Não integra ConfigPayload nem FullBackupBundle e nunca é exportado/restaurado.
 
 import { isValidTimeZoneId } from '../domain/shared/datetime'
 import type { TimeZoneId } from '../domain/shared/types.datetime'
+import { enqueueStorageMutation } from './queue'
 
 const CONSENT_STORAGE_KEY = 'fk:v1:persistence-consent'
 
 type ConsentListener = (enabled: boolean) => void
 const listeners = new Set<ConsentListener>()
 
-let inMemoryConsent: boolean = false
+let customStorage: Storage | null | undefined = undefined
+
+export function setCustomStorageForTesting(storage: Storage | null | undefined): void {
+  customStorage = storage
+}
+
+function getLocalStorage(): Storage | null {
+  if (customStorage !== undefined) return customStorage
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) return window.localStorage
+    if (typeof localStorage !== 'undefined' && localStorage) return localStorage
+  } catch {
+    // Ignora restrições de ambiente
+  }
+  return null
+}
+
+function readInitialStorageConsent(): boolean {
+  try {
+    const storage = getLocalStorage()
+    if (storage) {
+      return storage.getItem(CONSENT_STORAGE_KEY) === 'true'
+    }
+  } catch {
+    // Ignora erro de acesso inicial
+  }
+  return false
+}
+
+let inMemoryConsent: boolean = readInitialStorageConsent()
+
+function notifyListeners(enabled: boolean): void {
+  for (const listener of listeners) {
+    try {
+      listener(enabled)
+    } catch {
+      // Ignora erros em listeners individuais
+    }
+  }
+}
 
 /**
  * Detecta o fuso horário inicial a partir do dispositivo no primeiro uso (§10, §11).
@@ -32,46 +72,58 @@ export function detectInitialCalendarTimeZone(): TimeZoneId {
 }
 
 /**
- * Lê o estado atual do consentimento de persistência.
+ * Lê o estado atual do consentimento de persistência na sessão ativa.
  * Retorna false por padrão.
  */
 export function getPersistenceConsent(): boolean {
-  try {
-    if (typeof window !== 'undefined' && window.localStorage) {
-      const stored = window.localStorage.getItem(CONSENT_STORAGE_KEY)
-      if (stored !== null) {
-        return stored === 'true'
-      }
-    }
-  } catch {
-    // Ignora erro de acesso a localStorage em sandbox/iframe
-  }
   return inMemoryConsent
 }
 
 /**
- * Atualiza o estado do consentimento de persistência e notifica os listeners inscritos.
+ * Habilita a persistência de dados atomicamente (§10, §11, E6.3).
+ * Captura o estado atual em memória, valida todos os orçamentos e invariantes,
+ * persiste o snapshot no IndexedDB e só então confirma o consentimento no localStorage.
  */
-export function setPersistenceConsent(enabled: boolean): void {
-  inMemoryConsent = enabled
-  try {
-    if (typeof window !== 'undefined' && window.localStorage) {
-      if (enabled) {
-        window.localStorage.setItem(CONSENT_STORAGE_KEY, 'true')
-      } else {
-        window.localStorage.setItem(CONSENT_STORAGE_KEY, 'false')
+export async function enablePersistence(): Promise<void> {
+  return enqueueStorageMutation(async () => {
+    const { enablePersistenceInternal } = await import('./idb')
+    await enablePersistenceInternal()
+
+    const storage = getLocalStorage()
+    if (storage) {
+      try {
+        storage.setItem(CONSENT_STORAGE_KEY, 'true')
+      } catch (err) {
+        throw new Error(`Falha ao gravar consentimento no localStorage: ${err instanceof Error ? err.message : String(err)}`, { cause: err })
       }
     }
-  } catch {
-    // Ignora erro de acesso
-  }
-  for (const listener of listeners) {
-    try {
-      listener(enabled)
-    } catch {
-      // Ignora erro em listener individual
+
+    inMemoryConsent = true
+    notifyListeners(true)
+  })
+}
+
+/**
+ * Desativa a persistência com purge físico obrigatório e seguro (§10, §11, E6.3).
+ * Executa o purge real em todos os stores do IndexedDB antes de persistir a flag false no localStorage.
+ */
+export async function disablePersistenceAndPurge(): Promise<void> {
+  return enqueueStorageMutation(async () => {
+    const { purgePersistentData } = await import('./idb')
+    await purgePersistentData()
+
+    const storage = getLocalStorage()
+    if (storage) {
+      try {
+        storage.setItem(CONSENT_STORAGE_KEY, 'false')
+      } catch (err) {
+        throw new Error(`Falha ao gravar revogação de consentimento no localStorage: ${err instanceof Error ? err.message : String(err)}`, { cause: err })
+      }
     }
-  }
+
+    inMemoryConsent = false
+    notifyListeners(false)
+  })
 }
 
 /**
@@ -85,40 +137,38 @@ export function subscribePersistenceConsent(listener: ConsentListener): () => vo
 }
 
 /**
- * Desativa a persistência com purge físico obrigatório (§10, §11).
- * Executa o purge incondicionalmente no IndexedDB antes de desligar o consentimento.
+ * Helper interno para testes: altera o consentimento diretamente e grava no localStorage.
  */
-export async function disablePersistenceAndPurge(
-  purgeStorageFn: () => Promise<void>,
-): Promise<void> {
-  // 1. Purge físico dos dados persistidos (independente de consentimento)
-  await purgeStorageFn()
-
-  // 2. Desativação explícita do consentimento
-  setPersistenceConsent(false)
-}
-
-/**
- * Helper retrocompatível para desativação com purge.
- */
-export async function disablePersistenceAndClear(
-  clearStorageFn?: () => Promise<void>,
-): Promise<void> {
-  if (clearStorageFn) {
-    await clearStorageFn()
+export function setPersistenceConsentForTesting(enabled: boolean): void {
+  inMemoryConsent = enabled
+  try {
+    const storage = getLocalStorage()
+    if (storage) {
+      storage.setItem(CONSENT_STORAGE_KEY, enabled ? 'true' : 'false')
+    }
+  } catch {
+    // Ignora em ambiente de teste simulado
   }
-  setPersistenceConsent(false)
+  notifyListeners(enabled)
 }
 
 /**
- * Helper para testes: redefine o estado interno e os listeners.
+ * Alias retrocompatível exclusivo para arquivos de teste.
+ * NÃO exportado no barrel público src/storage/index.ts.
+ */
+export const setPersistenceConsent = setPersistenceConsentForTesting
+
+/**
+ * Helper interno para testes: redefine o estado interno e os listeners.
  */
 export function resetPersistenceConsentForTesting(): void {
   inMemoryConsent = false
+  customStorage = undefined
   listeners.clear()
   try {
-    if (typeof window !== 'undefined' && window.localStorage) {
-      window.localStorage.removeItem(CONSENT_STORAGE_KEY)
+    const storage = getLocalStorage()
+    if (storage) {
+      storage.removeItem(CONSENT_STORAGE_KEY)
     }
   } catch {
     // Ignora

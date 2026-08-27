@@ -12,12 +12,12 @@ import {
 import {
   getFromStore,
   loadConfigPayload,
-  purgePersistentData,
   putToStore,
   resetStorageForTesting,
   setCustomIDBFactoryForTesting,
   simulateIDBFailure,
 } from '../../storage/idb'
+
 import { createFaultController, readRawStore } from './idb-faults'
 
 const dummyScenario: Scenario = {
@@ -112,7 +112,7 @@ describe('Consent & TimeZone Detection (§10, §11, E6.1)', () => {
     expect(fetchedBefore).toEqual(dummyScenario)
 
     // 3. Desativar persistência através de disablePersistenceAndPurge
-    await disablePersistenceAndPurge(purgePersistentData)
+    await disablePersistenceAndPurge()
 
     // 4. Consentimento deve ser false
     expect(getPersistenceConsent()).toBe(false)
@@ -131,7 +131,7 @@ describe('Consent & TimeZone Detection (§10, §11, E6.1)', () => {
     await putToStore('scenarios', dummyScenario)
     simulateIDBFailure(true, new Error('purge open failure'))
 
-    await expect(disablePersistenceAndPurge(purgePersistentData)).rejects.toThrow('purge open failure')
+    await expect(disablePersistenceAndPurge()).rejects.toThrow('purge open failure')
     expect(getPersistenceConsent()).toBe(true)
     expect(await getFromStore<Scenario>('scenarios', dummyScenario.id)).toEqual(dummyScenario)
 
@@ -146,9 +146,10 @@ describe('Consent & TimeZone Detection (§10, §11, E6.1)', () => {
     setCustomIDBFactoryForTesting(faults.factory)
     faults.arm({ kind: 'transaction-abort', operation: 'clear', store: 'scenarios' })
 
-    await expect(disablePersistenceAndPurge(purgePersistentData)).rejects.toBeDefined()
+    await expect(disablePersistenceAndPurge()).rejects.toBeDefined()
     expect(getPersistenceConsent()).toBe(true)
     expect(await getFromStore<Scenario>('scenarios', dummyScenario.id)).toEqual(dummyScenario)
     expect(await readRawStore<Scenario>(indexedDB, 'scenarios')).toEqual([dummyScenario])
   })
+
 })

@@ -1,5 +1,5 @@
-// IndexedDB da E6.2: memória autoritativa em degradação, journal de mutações
-// e sucesso persistente reconhecido exclusivamente em transaction.oncomplete.
+// IndexedDB da E6.3: fila global de mutações, isolamento de recovery, copy-in/copy-out,
+// normalização e poda na hidratação, diagnóstico seguro e autoridade da memória em degradação.
 
 import type {
   AppSettings, CalculationRecord, ConfigPayload, CustomProfile, CustomSubstance,
@@ -15,12 +15,14 @@ import { configPayloadSchema } from '../validation/schemas/data-management'
 import { CURRENT_DATASET_VERSION, ENGINE_VERSIONS } from '../domain/version'
 import { SAFETY_LIMITS } from '../validation/limits'
 import { serializedUtf8Bytes } from './bytes'
+import { clonePersistedValue } from './clone'
 import { validateCalculationRecordRuntime, validateHistoricalInvariants } from './history-validation'
 import { detectInitialCalendarTimeZone, getPersistenceConsent } from './consent'
+import { enqueueStorageMutation, resetMutationQueueForTesting } from './queue'
+
 import { validateConfigReferences } from './references'
 
 export const DB_NAME = 'farmakit_v1'
-// O keyPath não mudou; envelopes E6.1 são normalizados após a leitura.
 export const DB_VERSION = 1
 
 export type StoreName = 'scenarios' | 'protocols' | 'history' | 'custom' | 'quarantine'
@@ -91,7 +93,7 @@ class InMemoryStore {
 }
 
 const inMemory = new InMemoryStore()
-const dirtyJournal: DirtyMutation[] = []
+let dirtyJournal: DirtyMutation[] = []
 let isDegradedState = false
 let isRecoveringState = false
 let lastStorageError: Error | null = null
@@ -193,14 +195,16 @@ function applyOperation(target: InMemoryStore, operation: StorageOperation): voi
   }
   if (operation.store === 'custom') {
     if (!operation.key) throw new Error('Custom store put requires a key')
-    target.custom.set(operation.key, operation.value); return
+    target.custom.set(operation.key, clonePersistedValue(operation.value))
+    return
   }
   const value = operation.value as { id?: unknown }
   if (typeof value.id !== 'string') throw new Error(`${operation.store} put requires an id`)
-  if (operation.store === 'scenarios') target.scenarios.set(value.id, operation.value as Scenario)
-  else if (operation.store === 'protocols') target.protocols.set(value.id, operation.value as Protocol)
-  else if (operation.store === 'history') target.history.set(value.id, operation.value as StoredHistoryEntry)
-  else target.quarantine.set(value.id, operation.value as StoredQuarantineEntry)
+  const cloned = clonePersistedValue(operation.value)
+  if (operation.store === 'scenarios') target.scenarios.set(value.id, cloned as Scenario)
+  else if (operation.store === 'protocols') target.protocols.set(value.id, cloned as Protocol)
+  else if (operation.store === 'history') target.history.set(value.id, cloned as StoredHistoryEntry)
+  else target.quarantine.set(value.id, cloned as StoredQuarantineEntry)
 }
 
 function projectedMemory(operations: StorageOperation[]): InMemoryStore {
@@ -270,6 +274,33 @@ async function readRawSnapshot(db: IDBDatabase): Promise<RawDatabaseSnapshot> {
 
 interface CorruptionNotice { raw: unknown; store: StoreName; id?: string }
 
+/**
+ * Serializador defensivo de diagnóstico: nunca lança erro e limita o tamanho gerado (§11, §18, E6.3).
+ */
+export function safeDiagnosticString(value: unknown, maxLen = 4096): string {
+  try {
+    if (value === undefined) return 'undefined'
+    if (value === null) return 'null'
+    if (typeof value === 'string') return value.slice(0, maxLen)
+    const str = JSON.stringify(value)
+    if (str !== undefined) return str.slice(0, maxLen)
+    return String(value).slice(0, maxLen)
+  } catch {
+    try {
+      return String(value).slice(0, maxLen)
+    } catch {
+      return '[UnserializableDiagnosticData]'
+    }
+  }
+}
+
+function generateCompactId(prefix: string): string {
+  const rand = typeof crypto !== 'undefined' && crypto.randomUUID
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+  return `${prefix}-${rand}`
+}
+
 async function recordIdbCorruption(notice: CorruptionNotice): Promise<void> {
   if (notice.store === 'quarantine') {
     lastStorageError = new Error('Corrupted entry found in quarantine store')
@@ -277,13 +308,17 @@ async function recordIdbCorruption(notice: CorruptionNotice): Promise<void> {
   }
   try {
     const { addQuarantineItem } = await import('./quarantine')
-    const rawText = JSON.stringify(notice.raw) || String(notice.raw)
+    const rawExcerpt = safeDiagnosticString(notice.raw, SAFETY_LIMITS.QUARANTINE_ITEM_BYTES_MAX)
+    const rawBytes = new TextEncoder().encode(rawExcerpt).byteLength
+    const safeId = notice.id && notice.id.length <= 100 ? notice.id : generateCompactId('corrupt-entry')
     await addQuarantineItem({
-      id: notice.id, source: 'idb_corruption',
+      id: safeId,
+      source: 'idb_corruption',
       errorCode: `IDB_CORRUPTED_ENTRY_${notice.store.toUpperCase()}`,
-      originalUtf8Bytes: new TextEncoder().encode(rawText).byteLength,
-      rawExcerptUtf8: rawText,
+      originalUtf8Bytes: rawBytes,
+      rawExcerptUtf8: rawExcerpt,
     })
+
   } catch (error) { lastStorageError = asError(error, 'Failed to quarantine corrupted entry') }
 }
 
@@ -330,6 +365,7 @@ async function hydrateMemory(): Promise<void> {
       }
       for (const value of raw.custom) parseCustomEntry(value, next, corruptions)
 
+      // ── Processa e normaliza histórico ──
       const validHistory: StoredHistoryEntry[] = []
       const legacyHistory: CalculationRecord[] = []
       for (const value of raw.history) {
@@ -342,13 +378,47 @@ async function hydrateMemory(): Promise<void> {
           else corruptions.push({ raw: value, store: 'history', id: (value as { id?: string })?.id })
         }
       }
-      let historyOrder = validHistory.reduce((max, entry) => Math.max(max, entry.insertionOrder), 0)
-      for (const entry of validHistory) next.history.set(entry.id, entry)
+
+      // Ordena history existente por insertionOrder crescente
+      validHistory.sort((a, b) => a.insertionOrder - b.insertionOrder)
+
+      // Combina e normaliza para sequência única estrita 1..N
+      const combinedHistoryEntries: StoredHistoryEntry[] = []
+      let hSeq = 0
+      for (const entry of validHistory) {
+        combinedHistoryEntries.push({ id: entry.id, insertionOrder: ++hSeq, record: entry.record })
+      }
       for (const record of legacyHistory) {
-        const entry = { id: record.id, insertionOrder: ++historyOrder, record }
-        next.history.set(entry.id, entry); normalization.push({ kind: 'put', store: 'history', value: entry })
+        combinedHistoryEntries.push({ id: record.id, insertionOrder: ++hSeq, record })
       }
 
+      // Poda na hidratação se histórico exceder caps globais
+      while (
+        combinedHistoryEntries.length > SAFETY_LIMITS.HISTORY_RECORDS_MAX ||
+        serializedUtf8Bytes(combinedHistoryEntries.map((e) => e.record)) > SAFETY_LIMITS.HISTORY_TOTAL_BYTES_MAX
+      ) {
+        combinedHistoryEntries.shift()
+      }
+
+      // Re-indexa insertionOrder após a poda
+      const finalHistoryEntries: StoredHistoryEntry[] = combinedHistoryEntries.map((entry, idx) => ({
+        id: entry.id,
+        insertionOrder: idx + 1,
+        record: entry.record,
+      }))
+
+      for (const entry of finalHistoryEntries) next.history.set(entry.id, entry)
+
+      // Se a lista resultante física divergiu da raw, agenda normalização
+      if (raw.history.length !== finalHistoryEntries.length || legacyHistory.length > 0 ||
+          validHistory.some((v, idx) => v.insertionOrder !== (idx + 1))) {
+        normalization.push({ kind: 'clear', store: 'history' })
+        for (const entry of finalHistoryEntries) {
+          normalization.push({ kind: 'put', store: 'history', value: entry })
+        }
+      }
+
+      // ── Processa e normaliza quarentena ──
       const validQuarantine: StoredQuarantineEntry[] = []
       const legacyQuarantine: QuarantineItem[] = []
       for (const value of raw.quarantine) {
@@ -364,11 +434,39 @@ async function hydrateMemory(): Promise<void> {
           }
         }
       }
-      let quarantineOrder = validQuarantine.reduce((max, entry) => Math.max(max, entry.insertionOrder), 0)
-      for (const entry of validQuarantine) next.quarantine.set(entry.id, entry)
+
+      validQuarantine.sort((a, b) => a.insertionOrder - b.insertionOrder)
+      const combinedQuarantine: StoredQuarantineEntry[] = []
+      let qSeq = 0
+      for (const entry of validQuarantine) {
+        combinedQuarantine.push({ id: entry.id, insertionOrder: ++qSeq, item: entry.item })
+      }
       for (const item of legacyQuarantine) {
-        const entry = { id: item.id, insertionOrder: ++quarantineOrder, item }
-        next.quarantine.set(entry.id, entry); normalization.push({ kind: 'put', store: 'quarantine', value: entry })
+        combinedQuarantine.push({ id: item.id, insertionOrder: ++qSeq, item })
+      }
+
+      // Poda na hidratação se quarentena exceder 5 itens ou 1 MiB total
+      while (
+        combinedQuarantine.length > SAFETY_LIMITS.QUARANTINE_ITEMS_MAX ||
+        serializedUtf8Bytes(combinedQuarantine.map((e) => e.item)) > SAFETY_LIMITS.QUARANTINE_TOTAL_BYTES_MAX
+      ) {
+        combinedQuarantine.shift()
+      }
+
+      const finalQuarantineEntries: StoredQuarantineEntry[] = combinedQuarantine.map((entry, idx) => ({
+        id: entry.id,
+        insertionOrder: idx + 1,
+        item: entry.item,
+      }))
+
+      for (const entry of finalQuarantineEntries) next.quarantine.set(entry.id, entry)
+
+      if (raw.quarantine.length !== finalQuarantineEntries.length || legacyQuarantine.length > 0 ||
+          validQuarantine.some((v, idx) => v.insertionOrder !== (idx + 1))) {
+        normalization.push({ kind: 'clear', store: 'quarantine' })
+        for (const entry of finalQuarantineEntries) {
+          normalization.push({ kind: 'put', store: 'quarantine', value: entry })
+        }
       }
 
       const payload: ConfigPayload = {
@@ -402,7 +500,10 @@ async function hydrateMemory(): Promise<void> {
   try { await hydrationPromise } finally { hydrationPromise = null }
 }
 
-export async function commitStorageOperations(
+/**
+ * Executa internamente as operações de storage sem adquirir lock adicional (unlocked).
+ */
+export async function commitStorageOperationsUnlocked(
   operations: StorageOperation[],
   failurePolicy: FailurePolicy = 'keep-session-change',
 ): Promise<void> {
@@ -431,43 +532,70 @@ export async function commitStorageOperations(
   }
 }
 
+/**
+ * Executa mutações enfileiradas na fila global de storage (§11, E6.3).
+ */
+export async function commitStorageOperations(
+  operations: StorageOperation[],
+  failurePolicy: FailurePolicy = 'keep-session-change',
+): Promise<void> {
+  return enqueueStorageMutation(() => commitStorageOperationsUnlocked(operations, failurePolicy))
+}
+
+/**
+ * Reabre o IndexedDB e sincroniza mutações pendentes com coordenação segura na fila global (§11, §12, E6.3).
+ */
 export async function retryStorageOpen(): Promise<boolean> {
-  if (simulatedFailure) return false
-  isRecoveringState = true
-  try {
-    const db = await openIDB()
-    if (!db) return false
-    const pending = dirtyJournal.flatMap((mutation) => mutation.operations)
-    if (pending.length > 0) await runTransaction(db, pending); else db.close()
-    dirtyJournal.length = 0; hasUnsyncedMemoryChanges = false
-    isDegradedState = false; lastStorageError = null; memoryHydrated = false
-    isRecoveringState = false
-    await hydrateMemory()
-    return !isDegradedState
-  } catch (error) {
-    markDegraded(error, 'IndexedDB recovery failed'); return false
-  } finally { isRecoveringState = false }
+  return enqueueStorageMutation(async () => {
+    if (simulatedFailure) return false
+    isRecoveringState = true
+    try {
+      const db = await openIDB()
+      if (!db) return false
+      const pendingMutations = [...dirtyJournal]
+      const pending = pendingMutations.flatMap((mutation) => mutation.operations)
+      if (pending.length > 0) {
+        await runTransaction(db, pending)
+      } else {
+        db.close()
+      }
+      // Remove somente as mutações que foram sincronizadas com sucesso nesta transação
+      dirtyJournal = dirtyJournal.filter((m) => !pendingMutations.includes(m))
+      hasUnsyncedMemoryChanges = dirtyJournal.length > 0
+      isDegradedState = false; lastStorageError = null; memoryHydrated = false
+      isRecoveringState = false
+      await hydrateMemory()
+      return !isDegradedState
+    } catch (error) {
+      markDegraded(error, 'IndexedDB recovery failed'); return false
+    } finally { isRecoveringState = false }
+  })
 }
 
 function memoryList<T>(store: StoreName): T[] {
-  if (store === 'scenarios') return [...inMemory.scenarios.values()] as T[]
-  if (store === 'protocols') return [...inMemory.protocols.values()] as T[]
-  if (store === 'history') return [...inMemory.history.values()] as T[]
-  if (store === 'quarantine') return [...inMemory.quarantine.values()] as T[]
-  return [...inMemory.custom.entries()].map(([key, value]) => ({ key, value })) as T[]
+  let list: unknown[]
+  if (store === 'scenarios') list = [...inMemory.scenarios.values()]
+  else if (store === 'protocols') list = [...inMemory.protocols.values()]
+  else if (store === 'history') list = [...inMemory.history.values()]
+  else if (store === 'quarantine') list = [...inMemory.quarantine.values()]
+  else list = [...inMemory.custom.entries()].map(([key, value]) => ({ key, value }))
+  return clonePersistedValue(list) as T[]
 }
 
 export async function getAllFromStore<T>(storeName: StoreName): Promise<T[]> {
   if (getStorageMode() === 'persistent-ok') await hydrateMemory()
   return memoryList<T>(storeName)
 }
+
 export async function getFromStore<T>(storeName: StoreName, key: string): Promise<T | undefined> {
   if (getStorageMode() === 'persistent-ok') await hydrateMemory()
-  if (storeName === 'scenarios') return inMemory.scenarios.get(key) as T | undefined
-  if (storeName === 'protocols') return inMemory.protocols.get(key) as T | undefined
-  if (storeName === 'history') return inMemory.history.get(key) as T | undefined
-  if (storeName === 'quarantine') return inMemory.quarantine.get(key) as T | undefined
-  return inMemory.custom.get(key) as T | undefined
+  let val: unknown
+  if (storeName === 'scenarios') val = inMemory.scenarios.get(key)
+  else if (storeName === 'protocols') val = inMemory.protocols.get(key)
+  else if (storeName === 'history') val = inMemory.history.get(key)
+  else if (storeName === 'quarantine') val = inMemory.quarantine.get(key)
+  else val = inMemory.custom.get(key)
+  return val !== undefined ? clonePersistedValue(val as T) : undefined
 }
 
 export async function putToStore<T extends { id?: string }>(storeName: StoreName, value: T, customKey?: string): Promise<void> {
@@ -523,7 +651,7 @@ export async function loadConfigPayload(): Promise<ConfigPayload> {
     settings: getDefaultSettings(), favorites: getDefaultFavorites(), customSubstances: [],
     customProfiles: [], recipes: [], scenarios: [], protocols: [],
   }
-  return parsed.data
+  return clonePersistedValue(parsed.data)
 }
 
 function configOperations(payload: ConfigPayload): StorageOperation[] {
@@ -553,15 +681,18 @@ function assertConfig(payload: ConfigPayload): void {
 
 export async function saveConfigPayload(payload: ConfigPayload): Promise<void> {
   assertConfig(payload)
-  await commitStorageOperations(configOperations(payload), 'rollback-session-change')
+  await commitStorageOperationsUnlocked(configOperations(payload), 'rollback-session-change')
 }
 
 export async function replaceConfigAndPruneHistory(payload: ConfigPayload, evictedHistoryIds: string[]): Promise<void> {
   assertConfig(payload)
-  await commitStorageOperations([
-    ...configOperations(payload),
-    ...evictedHistoryIds.map((key): StorageOperation => ({ kind: 'delete', store: 'history', key })),
-  ], 'rollback-session-change')
+  await commitStorageOperationsUnlocked(
+    [
+      ...configOperations(payload),
+      ...evictedHistoryIds.map((key): StorageOperation => ({ kind: 'delete', store: 'history', key })),
+    ],
+    'rollback-session-change',
+  )
 }
 
 export async function restoreFullBackup(payload: ConfigPayload, history: CalculationRecord[]): Promise<void> {
@@ -584,19 +715,62 @@ export async function restoreFullBackup(payload: ConfigPayload, history: Calcula
     throw new Error('FULL_BACKUP_SIZE_EXCEEDED')
   }
   const entries = history.map((record, index): StoredHistoryEntry => ({
-    id: record.id, insertionOrder: history.length - index, record,
+    id: record.id, insertionOrder: history.length - index, record: clonePersistedValue(record),
   }))
-  await commitStorageOperations([
+  await commitStorageOperationsUnlocked([
     ...configOperations(payload), { kind: 'clear', store: 'history' },
     ...entries.map((value): StorageOperation => ({ kind: 'put', store: 'history', value })),
   ], 'rollback-session-change')
 }
 
+/**
+ * Ativação atômica da persistência no IndexedDB para a sessão corrente (§10, §11, E6.3).
+ */
+export async function enablePersistenceInternal(): Promise<void> {
+  const config = await loadConfigPayload()
+  assertConfig(config)
+  const historyEntries = await getAllFromStore<StoredHistoryEntry>('history')
+  const history = historyEntries.map((e) => e.record)
+  const validation = validateHistoricalInvariants(history)
+  if (!validation.valid) throw new Error(`HISTORICAL_INVARIANTS_FAILED: ${validation.error}`)
+  if (history.length > SAFETY_LIMITS.HISTORY_RECORDS_MAX ||
+      serializedUtf8Bytes(history) > SAFETY_LIMITS.HISTORY_TOTAL_BYTES_MAX ||
+      history.some((record) => serializedUtf8Bytes(record) > SAFETY_LIMITS.CALCULATION_RECORD_BYTES_MAX)) {
+    throw new Error('HISTORY_BUDGET_EXCEEDED')
+  }
+  const quarantineEntries = await getAllFromStore<StoredQuarantineEntry>('quarantine')
+
+  const db = await openIDB()
+  if (!db) throw lastStorageError || new Error('Unable to open IndexedDB to enable persistence')
+
+  const operations: StorageOperation[] = [
+    ...configOperations(config),
+    { kind: 'clear', store: 'history' },
+    ...historyEntries.map((value): StorageOperation => ({ kind: 'put', store: 'history', value })),
+    { kind: 'clear', store: 'quarantine' },
+    ...quarantineEntries.map((value): StorageOperation => ({ kind: 'put', store: 'quarantine', value })),
+  ]
+
+  try {
+    await runTransaction(db, operations)
+    dirtyJournal.length = 0
+    hasUnsyncedMemoryChanges = false
+    isDegradedState = false
+    lastStorageError = null
+    memoryHydrated = true
+  } catch (error) {
+    markDegraded(error, 'Enable persistence transaction failed')
+    throw error
+  }
+}
+
 export function resetStorageSessionForTesting(): void {
+  resetMutationQueueForTesting()
   isDegradedState = false; isRecoveringState = false; lastStorageError = null
   simulatedFailure = null; hasUnsyncedMemoryChanges = false; dirtyJournal.length = 0
   inMemory.clearAll(); memoryHydrated = false; hydrationPromise = null
 }
+
 
 export async function resetStorageForTesting(): Promise<void> {
   resetStorageSessionForTesting()

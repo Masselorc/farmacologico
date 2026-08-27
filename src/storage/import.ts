@@ -13,6 +13,7 @@ import { serializedUtf8Bytes } from './bytes'
 import { restoreFullBackup, saveConfigPayload } from './idb'
 import { validateHistoricalInvariants } from './history-validation'
 import { addQuarantineItem } from './quarantine'
+import { enqueueStorageMutation } from './queue'
 import { validateConfigReferences } from './references'
 
 export { encodeProtocolComponentKey, validateHistoricalInvariants } from './history-validation'
@@ -225,7 +226,9 @@ export async function validateAndPreviewFullBackupImport(
 }
 
 export async function applyImport(preview: ImportPreview): Promise<{ ok: true }> {
-  if (preview.actionKind === 'config') await saveConfigPayload(preview.payload)
-  else await restoreFullBackup(preview.bundle.payload, preview.bundle.history)
-  return { ok: true }
+  return enqueueStorageMutation(async () => {
+    if (preview.actionKind === 'config') await saveConfigPayload(preview.payload)
+    else await restoreFullBackup(preview.bundle.payload, preview.bundle.history)
+    return { ok: true }
+  })
 }

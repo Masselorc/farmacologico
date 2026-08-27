@@ -994,3 +994,63 @@ Corrigir a implementação da camada de persistência, histórico, exports, budg
 ### Commit previsto
 
 - Mensagem: `fix(farmakit): fechar atomicidade e recovery da E6`
+
+## 2026-08-27 — E6.3 — Hardening final da persistência: concorrência, consentimento, encapsulamento, imutabilidade e invariantes de hidratação
+
+### Objetivo
+
+Executar o hardening corretivo definitivo da E6 (§6, §10, §11, §12, §13, §14, §18) no commit-base `36bd0ffa6af28de111cc220d35f3aa2e839e6046`, consolidando:
+1. Mutex assíncrono / fila serializada global para todas as mutações de storage.
+2. Coordenação atômica de recovery com journal de mutações concorrentes.
+3. Consentimento selado e persistência transacional de memória para IndexedDB (`enablePersistence` e `disablePersistenceAndPurge`).
+4. Prevenção estrita de aliasing através de copy-in e copy-out defensivos (`structuredClone`).
+5. Normalização monotônica de envelopes e podas imediatas na hidratação de histórico e quarentena.
+6. IDs compactos e serialização segura de diagnósticos para corrupções físicas de IDB.
+7. Encapsulamento estrito do barrel público `src/storage/index.ts` e isolamento de test hooks em `src/storage/testing.ts`.
+
+### Alterações realizadas
+
+- **Fila Global de Mutações (`src/storage/queue.ts`):** criada fila assíncrona serializada `enqueueStorageMutation()`, garantindo que escritas concorrentes, restaurações, mutações de configuração, adições de cálculo e retries operem em sequência estrita, com desimpedimento automático da fila em caso de rejeição/erro.
+- **Isolamento de Recovery (`src/storage/idb.ts`):** `retryStorageOpen()` integrado à fila serializada, drenando atomicamente apenas as mutações processadas na transação e preservando entradas adicionadas durante a recuperação.
+- **Copy-in / Copy-out Defensivo (`src/storage/clone.ts`):** implementado `clonePersistedValue<T>()` usando `structuredClone` com fallback JSON-safe. Aplicado na recepção de registros (`addCalculationRecord`, `mutateConfigPayload`, `putToStore`, `restoreFullBackup`) e em todas as consultas públicas (`loadConfigPayload`, `getCalculationRecords`, `getCalculationRecordById`, `getQuarantineItems`, `getAllFromStore`, `getFromStore`).
+- **Consentimento Selado e Purge Seguro (`src/storage/consent.ts`):** `enablePersistence()` migra atomicamente todo o estado em memória para o IndexedDB em transação única antes de persistir a flag no `localStorage`. `disablePersistenceAndPurge()` executa o purge físico incondicional em todos os 5 object stores sem callbacks externos arbitrários. Suporte a detecção segura de `localStorage` em ambientes Node e browser.
+- **Hydration Hardening & Invariantes (`src/storage/idb.ts`):** hidratação re-indexa e normaliza `insertionOrder` para sequência inteira única $1, 2, \dots, N$ eliminando duplicatas físicas; aplica podas imediatas de caps globais (quarentena $\le 5$ e $\le 1$ MiB; histórico $\le 500$ e $\le 47$ MiB) e persiste a normalização no IndexedDB.
+- **Diagnóstico Seguro de Quarentena (`src/storage/idb.ts`, `src/storage/quarantine.ts`):** criado `safeDiagnosticString()` que previne exceções e limita o excerpt; `recordIdbCorruption()` garante geração de IDs compactos próprios novos para registros corrompidos com IDs excessivos/gigantescos.
+- **Fronteira Pública Encapsulada (`src/storage/index.ts`, `src/storage/testing.ts`):** removidos do barrel público todos os métodos CRUD raw de baixo nível e test hooks (`commitStorageOperations`, `putToStore`, `deleteFromStore`, `clearStore`, `clearAllStores`, `purgePersistentData`, `saveConfigPayload`, `restoreFullBackup`, `setCustomIDBFactoryForTesting`, `simulateIDBFailure`, `resetStorageForTesting`, `resetStorageSessionForTesting`, `setPersistenceConsentForTesting`, `resetPersistenceConsentForTesting`), centralizados exclusivamente em `src/storage/testing.ts`.
+- **Nova Bateria de Testes (`src/tests/storage/`):** criadas 5 novas suítes de testes cobrindo concorrência, ausência de lost update, 20 mutações simultâneas, aliasing defensivo, ativação atômica de consentimento com falhas de localStorage, podas e normalização de hidratação, e fronteiras de exportação estáticas e em runtime.
+
+### Arquivos principais
+
+- `src/storage/queue.ts`, `src/storage/clone.ts`, `src/storage/testing.ts` (novos)
+- `src/storage/consent.ts`, `src/storage/idb.ts`, `src/storage/history.ts`, `src/storage/config.ts`, `src/storage/quarantine.ts`, `src/storage/import.ts`, `src/storage/index.ts` (modificados)
+- `src/tests/storage/concurrency.test.ts`, `src/tests/storage/aliasing.test.ts`, `src/tests/storage/enable-persistence.test.ts`, `src/tests/storage/hydration-hardening.test.ts`, `src/tests/storage/api-boundary.test.ts` (novos)
+- `src/tests/storage/consent.test.ts` (atualizado)
+- `docs/DIARIO-DE-BORDO.md`
+
+### Validações executadas
+
+- `npm run lint`: PASS (0 erros, 0 avisos).
+- `npm run typecheck`: PASS (0 erros).
+- `npm run type-tests`: PASS.
+- `npm run test:e6`: PASS (21 arquivos, 107 testes).
+- `npm test`: PASS (58 arquivos, 477 testes).
+- `npm run test:e5`: PASS (9 arquivos, 99 testes).
+- `npm run test:e4`: PASS (11 arquivos, 81 testes).
+- `npm run build`: PASS (PWA generateSW, 10 precache entries).
+- `npm run check:build-boundaries`: PASS (9 arquivos em dist, 0 referências externas ou .token-optimizer).
+- `npm run test:e1`: PASS (2 testes Playwright).
+- `git diff --check`: PASS.
+
+### Escopo preservado
+
+- E7 não iniciada; nenhuma migration de produto legado criada.
+- E8–E15 não iniciadas.
+- Nenhum dataset oficial criado.
+- Nenhuma matemática de PK, Bateman, cutoff, recurrence, DST, reconstitution, solver, sampling científico ou tolerância de proporções foi alterada.
+- `README.md` permaneceu intacto.
+- `.token-optimizer` permaneceu intacto e isolado fora de dist/runtime.
+
+### Commit previsto
+
+- Mensagem: `fix(farmakit): endurecer fronteiras da persistencia E6`
+
