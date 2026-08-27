@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 2,
+  "scenarios": [
+    {
+      "id": "basic", "name": "Cenário legado", "color": "#2563eb",
+      "halfLifeValue": 24, "halfLifeUnit": "hours", "tmaxValue": 4, "tmaxUnit": "hours", "displayUnit": "mg",
+      "doses": [{ "id": "d1", "amountMg": 10, "time": "2026-03-08T02:30" }]
+    },
+    {
+      "id": "instant", "name": "Absorção instantânea", "color": "#059669",
+      "halfLifeValue": 1, "halfLifeUnit": "days", "tmaxValue": 0, "tmaxUnit": "minutes", "displayUnit": "mcg", "doses": []
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 2,
+  "savedAt": "2026-08-27T12:00:00Z",
+  "protocols": [
+    { "id": "single", "name": "Protocolo único", "halfLife": 2, "tmax": 0, "dose": 50, "startDate": "2026-08-27", "startTime": "08:00", "type": "single", "color": "#3498db" },
+    { "id": "prop", "groupId": "durateston", "blendName": "Durateston LANDERGOLD", "componentLabel": "Propionato", "name": "Propionato", "halfLife": 2, "tmax": 0.229167, "dose": 20, "startDate": "2026-08-27", "startTime": "08:00", "type": "weekly", "daysOfWeek": [0, 1, 6], "weeksCount": 8, "color": "#1abc9c" },
+    { "id": "fenil", "groupId": "durateston", "blendName": "Durateston LANDERGOLD", "componentLabel": "Fenilpropionato", "name": "Fenilpropionato", "halfLife": 3, "tmax": 2, "dose": 40, "startDate": "2026-08-27", "startTime": "08:00", "type": "weekly", "daysOfWeek": [6, 0, 1, 0, 6], "weeksCount": 8, "color": "#2ecc71" },
+    { "id": "iso", "groupId": "durateston", "blendName": "Durateston LANDERGOLD", "componentLabel": "Isocaproato", "name": "Isocaproato", "halfLife": 8, "tmax": 1.5, "dose": 40, "startDate": "2026-08-27", "startTime": "08:00", "type": "weekly", "daysOfWeek": [0, 1, 6], "weeksCount": 8, "color": "#27ae60" }
+  ]
+}

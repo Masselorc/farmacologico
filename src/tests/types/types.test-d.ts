@@ -12,6 +12,7 @@ import type {
   BackupCounts,
   CalculationRecord,
   CalculationRecordBase,
+  ColorRemapEntry,
   ChartScaleMode,
   ChartSnapshotPoint,
   ChartSnapshotValueKind,
@@ -29,6 +30,7 @@ import type {
   ExportBundle,
   FullBackupBundle,
   IsoWeekday,
+  MigrationReport,
   PkParametersSnapshot,
   PkWarningCode,
   ProfileOrigin,
@@ -54,6 +56,7 @@ import type {
   Syringe,
 } from '../../domain/types'
 import type { LimitsBounds } from '../../validation/bounds'
+import type { LegacyMigratedScenarioSource } from '../../migrations'
 import {
   displayColorSchema,
   doseDraftSchema,
@@ -106,6 +109,26 @@ export type TestExactDose = Expect<Equal<z.infer<typeof doseSchema>, Dose>>
 export type TestExactDoseDraft = Expect<Equal<z.infer<typeof doseDraftSchema>, DoseDraft>>
 export type TestExactSyringe = Expect<Equal<z.infer<typeof syringeSchema>, Syringe>>
 export type TestExactReconstitutionInput = Expect<Equal<z.infer<typeof reconstitutionInputSchema>, ReconstitutionInput>>
+
+export const testMigrationReport: MigrationReport = {
+  sourceKey: 'hormoTrackerProtocols', ranAt: '2026-08-27T12:00:00Z', importedCount: 1,
+  discardedCount: 0, assumedTimeZone: 'UTC', colorRemaps: [], quarantined: false,
+}
+
+export const testColorRemap: ColorRemapEntry = {
+  protocolId: 'p', componentId: 'c', legacyOriginalHex: '#000001', mappedPaletteColor: '#000000',
+}
+
+// @ts-expect-error - sourceKey da migração é união fechada
+export const testInvalidMigrationSource: MigrationReport = { ...testMigrationReport, sourceKey: 'legacy:unknown' }
+
+// @ts-expect-error - remap exige componentId
+export const testInvalidColorRemap: ColorRemapEntry = { protocolId: 'p', legacyOriginalHex: '#000001', mappedPaletteColor: '#000000' }
+
+export const testLegacyMigratedManualSource: LegacyMigratedScenarioSource = { type: 'manual' }
+
+// @ts-expect-error - migração Meia-vida não produz custom_profile
+export const testInvalidLegacyMigratedCustomSource: LegacyMigratedScenarioSource = { type: 'custom_profile', customProfileId: 'x', pkParametersSnapshot: {} as PkParametersSnapshot }
 
 // 3. Exaustividade de Chaves nos Catálogos de Mensagens pt-BR
 export type TestDomainErrorCatalog = Expect<Equal<keyof typeof domainErrorMessages, DomainErrorCode>>

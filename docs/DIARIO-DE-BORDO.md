@@ -1213,3 +1213,84 @@ Executar o fechamento corretivo final da E6 (§6, §10, §11, §12, §13, §14, 
 - A E6.5 foi implementada e validada nos gates automatizados; aprovação externa permanece pendente.
 - Commit previsto: `fix(farmakit): fechar compensacao e snapshots da E6`
 
+## 2026-08-27 — E7 — Migrações legadas assistidas
+
+### Objetivo
+
+Implementar migrações assistidas, explícitas e não destrutivas do HormoTracker e do Comparador Meia-vida para os contratos canônicos `Protocol[]` e `Scenario[]` do FARMakit.
+
+### Alterações realizadas
+
+- Criados parsers puros com sanitização campo a campo para o envelope HormoTracker v2, array legado direto e envelope Meia-vida v2.
+- Implementada canonicalização de doses, parâmetros PK, snapshots, agendas, grupos, componentes e cenários, sempre validada pelos schemas atuais.
+- Implementado o mapeamento de weekday JavaScript para ISO (`0→7`, `1→1`, `6→6`), com deduplicação e ordenação sem deslocar `startDate`.
+- Implementado agrupamento canônico por `groupId`, remoção prévia de siblings com dose inválida, recálculo de proporções e expansão determinística do formato antigo `isBlend/esters`.
+- Criado catálogo de compatibilidade de cores com preservação de cores conhecidas, vizinho mais próximo em sRGB quadrático, desempate lexicográfico e relatório de remaps válidos.
+- Implementada conversão de `datetime-local` do Meia-vida por `civilToInstantIso`, com `assumedTimeZone` explícito e políticas centrais de GAP/OVERLAP.
+- Adicionados os contratos normativos `ColorRemapEntry` e `MigrationReport`, sem campos adicionais.
+- Criadas APIs separadas de leitura, preview pura e aplicação explícita; a aplicação usa somente `mutateConfigPayload()` e `addQuarantineItem()` da fronteira pública E6.
+- Implementados markers duráveis somente com consentimento ativo, marker de sessão, IDs determinísticos, detecção de igualdade/conflito e preservação integral das três chaves legadas.
+- Implementada quarentena compacta para fonte estruturalmente corrompida, grupo Hormo inválido e conflito de ID, sem transportar o conteúdo bruto integral.
+
+### Arquivos principais
+
+- `src/migrations/index.ts`
+- `src/migrations/types.ts`
+- `src/migrations/fromHormoTracker.ts`
+- `src/migrations/fromMeiavida.ts`
+- `src/migrations/registry.ts`
+- `src/migrations/legacyStorage.ts`
+- `src/migrations/colors.ts`
+- `src/migrations/ids.ts`
+- `src/migrations/fixtures/*.json`
+- `src/domain/data-management/types.ts`
+- `src/domain/types.ts`
+- `src/tests/migrations/*.test.ts`
+- `src/tests/types/types.test-d.ts`
+- `package.json`
+
+### Decisões tomadas
+
+- A E7 não possui dataset oficial e não antecipa a E10.
+- A associação com perfil oficial usa resolver opcional e injetável.
+- Zero matches, múltiplos matches, retorno inválido ou falha do resolver resultam em `source: manual`.
+- Nenhum `substanceId`, `profileId`, `datasetVersion` ou outro ID científico é inventado.
+- `tmaxValue: null` do Meia-vida é dado incompleto e descarta o cenário; somente zero explícito representa absorção instantânea.
+- A aplicação não cria uma fila externa à E6, evitando reentrância e deadlock nas APIs públicas de persistência e quarentena.
+
+### Validações executadas
+
+- `npm ci` no workspace OneDrive: FALHA ambiental reproduzida por erro Windows `UNKNOWN/-4094` em ponto de nova análise dentro de `node_modules`.
+- `npm ci` em snapshot integral temporário fora do OneDrive: PASS (511 pacotes, 0 vulnerabilidades reportadas pelo npm).
+- `npm run lint`: PASS (0 erros, 0 avisos).
+- `npm run typecheck`: PASS (0 erros).
+- `npm run type-tests`: PASS (0 erros).
+- `npm run test:e7`: PASS (7 arquivos, 28 testes).
+- `npm run test:e6`: PASS (21 arquivos, 125 testes).
+- `npm run test:e5`: PASS (9 arquivos, 99 testes).
+- `npm run test:e4`: PASS isolado (11 arquivos, 81 testes); uma execução paralela inicial excedeu o timeout de 5 s em propriedade E4 por contenção e foi repetida isoladamente com sucesso.
+- `npm test`: PASS (65 arquivos, 523 testes).
+- `npm run build`: PASS (Vite + PWA generateSW, 10 entradas no precache).
+- `npm run check:build-boundaries`: PASS após o build (9 arquivos em `dist`, zero referências a `.token-optimizer`).
+- `npm run test:e1`: PASS (2 testes Playwright).
+
+### Problemas encontrados
+
+- O OneDrive manteve um ponto de nova análise inválido/bloqueado em diretórios temporários do npm sob `node_modules`, impedindo `unlink`, `mkdir`, remoção e movimentação desses diretórios no workspace.
+- A primeira execução paralela de quatro suites Vitest causou contenção suficiente para um teste de propriedade E4 exceder o timeout, sem falha lógica reproduzível.
+
+### Solução adotada
+
+- Foi criado um snapshot integral e verificável do workspace em diretório temporário local fora do OneDrive; nele, `npm ci` e todos os gates foram executados com as mesmas fontes e lockfile.
+- A suite E4 foi repetida isoladamente e passou integralmente.
+- Mudanças automáticas da ferramenta `.token-optimizer` permanecerão fora do staging e do commit E7.
+
+### Pendências
+
+- A integração de UI para descoberta, preview, confirmação e orientação ao usuário permanece em etapa posterior.
+- A integração com dataset oficial permanece reservada à E10.
+- O ponto de nova análise inválido em `node_modules` do workspace OneDrive é uma pendência ambiental local e não integra o produto nem o commit.
+
+### Commit
+
+- Mensagem prevista: `feat(farmakit): implementar migracoes legadas E7`.

@@ -101,6 +101,23 @@ export interface ConfigPayload {
   protocols: Protocol[]
 }
 
+export interface ColorRemapEntry {
+  protocolId: string
+  componentId: string
+  legacyOriginalHex: string
+  mappedPaletteColor: PaletteColorId
+}
+
+export interface MigrationReport {
+  sourceKey: 'hormoTrackerProtocols' | 'meiavida:v2:data'
+  ranAt: InstantIso
+  importedCount: number
+  discardedCount: number
+  assumedTimeZone: TimeZoneId
+  colorRemaps: ColorRemapEntry[]
+  quarantined: boolean
+}
+
 export interface ConfigExportBundle extends ExportBundleBase {
   bundleKind: 'config'
   payload: ConfigPayload

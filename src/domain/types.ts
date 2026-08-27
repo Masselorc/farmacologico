@@ -230,6 +230,7 @@ export type {
   BackupCounts,
 
   CalculationRecord,
+  ColorRemapEntry,
   CalculationRecordBase,
   ChartScaleMode,
   ChartSnapshotPoint,
@@ -253,6 +254,7 @@ export type {
   FullBackupImportPreview,
   ImportActionKind,
   ImportPreview,
+  MigrationReport,
   PersistedStateV1,
   ProtocolAnalysisSeriesSnapshot,
   ProtocolAnalysisSnapshot,
