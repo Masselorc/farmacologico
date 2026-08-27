@@ -1,8 +1,20 @@
-// Contratos de tipos de exportação, backup e dados de persistência (§6, §11).
-// E5 declara exclusivamente contratos de tipo compiláveis; implementação pertence à E6.
+// Contratos de tipos de exportação, backup, histórico e dados de persistência (§6, §11, §12).
+// E5 declara exclusivamente contratos de tipo compiláveis; implementação pertence à E6/E12.
 
 import type { Duration, DurationRange, DurationValue, InstantIso, TimeZoneId } from '../shared/types.datetime'
-import type { Protocol, ReconstitutionInput, Scenario } from '../types'
+import type {
+  CalculationWindow,
+  DisplayPoint,
+  DisplayWindow,
+  PaletteColorId,
+  PkWarningCode,
+  Protocol,
+  ReconstitutionInput,
+  ReconstitutionResult,
+  Scenario,
+  SimulationInput,
+  SimulationOutput,
+} from '../types'
 
 export interface EngineVersions {
   pk: string
@@ -101,15 +113,120 @@ export interface BackupCounts {
   protocols: number
 }
 
+// ── Histórico / Snapshots (§6) ──────────────────────────────────
+
+export interface RecordDisplayMeta {
+  title: string
+  color: PaletteColorId
+  note?: string
+}
+
 export interface CalculationRecordBase {
   id: string
   createdAt: InstantIso
+  display: RecordDisplayMeta
 }
 
-export type CalculationRecord = CalculationRecordBase & {
-  type: 'pharmacokinetics' | 'reconstitution' | 'protocol-analysis'
-  [key: string]: unknown
+export interface ComparatorScenarioResultSnapshot {
+  scenarioId: string
+  scenarioSnapshot: Scenario
+  simulationInput: SimulationInput
+  resultSnapshot: Pick<
+    SimulationOutput,
+    'currentState' | 'analysisCurve' | 'peak' | 'milestones' | 'warnings' | 'metadata'
+  >
 }
+
+export type ChartScaleMode = 'absolute' | 'normalized'
+
+export type ChartYAxisMode = 'linear' | 'log'
+
+export type ChartSnapshotValueKind = 'mg' | 'normalized_ratio'
+
+export interface ChartSnapshotPoint {
+  timeMs: number
+  value: number
+  valueKind: ChartSnapshotValueKind
+  clippedBelowLogEpsilon?: boolean
+}
+
+export interface ChartViewScenarioSnapshot {
+  scenarioId: string
+  label: string
+  color: PaletteColorId
+  points: ChartSnapshotPoint[]
+}
+
+export interface ChartViewSnapshot {
+  displayWindow: DisplayWindow
+  calendarTimeZone: TimeZoneId
+  scaleMode: ChartScaleMode
+  yAxisMode: ChartYAxisMode
+  displayPointsByScenario: ChartViewScenarioSnapshot[]
+}
+
+export interface ProtocolComponentKey {
+  protocolId: string
+  componentId: string
+}
+
+export interface ProtocolSimulationInputSnapshot {
+  key: ProtocolComponentKey
+  input: SimulationInput
+}
+
+export interface ProtocolAnalysisSeriesSnapshot {
+  key: ProtocolComponentKey
+  label: string
+  color: PaletteColorId
+  displayPoints: DisplayPoint[]
+  state: SimulationOutput['currentState']
+  peak: SimulationOutput['peak']
+  milestones: SimulationOutput['milestones']
+  warnings: PkWarningCode[]
+}
+
+export interface ProtocolAnalysisSnapshot {
+  displayWindow: DisplayWindow
+  calculationWindow: CalculationWindow
+  series: ProtocolAnalysisSeriesSnapshot[]
+}
+
+export interface ProtocolAnalysisVersions {
+  pkEngineVersion: string
+  recurrenceEngineVersion: string
+  datasetVersion: number
+}
+
+export type CalculationRecord = CalculationRecordBase & (
+  | {
+      type: 'pharmacokinetics'
+      versions: {
+        pkEngineVersion: string
+        recurrenceEngineVersion?: string
+        datasetVersion: number
+      }
+      scenarios: ComparatorScenarioResultSnapshot[]
+      chartViewSnapshot: ChartViewSnapshot
+    }
+  | {
+      type: 'reconstitution'
+      versions: {
+        reconstitutionEngineVersion: string
+        datasetVersion: number
+      }
+      input: ReconstitutionInput
+      resultSnapshot: ReconstitutionResult
+    }
+  | {
+      type: 'protocol-analysis'
+      versions: ProtocolAnalysisVersions
+      timeZone: TimeZoneId
+      snapshot: ProtocolAnalysisSnapshot
+      simulationInputs: ProtocolSimulationInputSnapshot[]
+      protocolsSnapshot: Protocol[]
+    }
+)
 
 export interface FullBackupBundle extends ExportBundleBase {
   bundleKind: 'full-backup'

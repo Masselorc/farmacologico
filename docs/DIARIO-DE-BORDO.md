@@ -630,3 +630,83 @@ Fechar as pendências contratuais residuais da E5 identificadas em revisão inde
 ### Commit
 
 - Mensagem: `fix(farmakit): fechar contratos residuais da E5`
+
+## 2026-08-27 — E5.3 — Contrato tipado completo de histórico
+
+### Objetivo
+
+Substituir o placeholder permissivo `[key:string]: unknown` de `CalculationRecord` pela discriminated union estrita e completa da §6 da especificação, assegurando que `FullBackupBundle.history` exija contratos normativos sem permitir registros incompletos, sem implementar runtime de E6 ou E12.
+
+### Problema encontrado
+
+- Na E5.2, `CalculationRecord` havia sido declarado com assinatura de índice aberta `[key: string]: unknown`, permitindo que objetos incompletos compilassem como registros válidos de histórico.
+- Isso enfraquecia o contrato de `FullBackupBundle.history: CalculationRecord[]`, permitindo backups com payloads parciais.
+- Faltavam contratos de tipo formais para os snapshots históricos (`ComparatorScenarioResultSnapshot`, `ChartViewSnapshot`, `ProtocolAnalysisSnapshot`, etc.).
+
+### Correção realizada
+
+- **Remoção do Placeholder Permissivo (`src/domain/data-management/types.ts`)**:
+  - Eliminada qualquer assinatura de índice indexada `[key: string]: unknown`.
+  - Implementada a discriminated union estrita de `CalculationRecord` com as três variantes normativas:
+    1. `pharmacokinetics`: exige `versions: { pkEngineVersion, recurrenceEngineVersion?, datasetVersion }`, `scenarios: ComparatorScenarioResultSnapshot[]`, `chartViewSnapshot: ChartViewSnapshot`.
+    2. `reconstitution`: exige `versions: { reconstitutionEngineVersion, datasetVersion }`, `input: ReconstitutionInput`, `resultSnapshot: ReconstitutionResult`.
+    3. `protocol-analysis`: exige `versions: ProtocolAnalysisVersions`, `timeZone: TimeZoneId`, `snapshot: ProtocolAnalysisSnapshot`, `simulationInputs: ProtocolSimulationInputSnapshot[]`, `protocolsSnapshot: Protocol[]`.
+- **Contratos de Snapshots e Visualização Histórica**:
+  - `RecordDisplayMeta`: `{ title: string; color: PaletteColorId; note?: string }`.
+  - `CalculationRecordBase`: `{ id: string; createdAt: InstantIso; display: RecordDisplayMeta }` com `display` obrigatório.
+  - `ComparatorScenarioResultSnapshot`: `{ scenarioId, scenarioSnapshot, simulationInput, resultSnapshot }`.
+  - `ChartViewSnapshot`: `{ displayWindow, calendarTimeZone, scaleMode, yAxisMode, displayPointsByScenario }` com `calendarTimeZone` obrigatório para reprodução exata.
+  - `ChartSnapshotPoint`: `{ timeMs, value, valueKind: 'mg' | 'normalized_ratio', clippedBelowLogEpsilon? }`.
+  - `ProtocolComponentKey`: chave composta `{ protocolId, componentId }`.
+  - `ProtocolSimulationInputSnapshot`: `{ key, input }`.
+  - `ProtocolAnalysisSeriesSnapshot`: `{ key, label, color, displayPoints, state, peak, milestones, warnings }`.
+  - `ProtocolAnalysisSnapshot`: `{ displayWindow, calculationWindow, series }`.
+  - `ProtocolAnalysisVersions`: `{ pkEngineVersion, recurrenceEngineVersion, datasetVersion }`.
+  - `DisplayPoint`: `{ timeMs, amountMg, clippedBelowLogEpsilon? }` adicionado em `src/domain/types.ts`.
+- **Rastreabilidade Derivada Preservada**:
+  - Nenhum `profileRefs` ou `HistoricalProfileRef` foi adicionado aos contratos persistidos; a rastreabilidade deriva unicamente de `scenarioSnapshot.source` / `protocolsSnapshot[].components[].source`.
+
+### Type-tests
+
+- Adicionados testes positivos de compatibilidade estrutural para todos os tipos de snapshot.
+- Adicionadas fixtures válidas para as três variantes de `CalculationRecord` e para `FullBackupBundle`.
+- Adicionada função de narrowing exaustivo `narrowCalculationRecord(record: CalculationRecord)` sem casts.
+- Adicionados testes negativos em tempo de compilação via `@ts-expect-error` para:
+  - `CalculationRecord` sem `display`.
+  - `pharmacokinetics` incompleto, sem `versions`, sem `scenarios`, ou sem `chartViewSnapshot`.
+  - `reconstitution` sem `versions`, sem `input`, ou sem `resultSnapshot`.
+  - `protocol-analysis` sem `versions`, sem `timeZone`, sem `snapshot`, sem `simulationInputs`, ou sem `protocolsSnapshot`.
+  - Campos cruzados incompatíveis (ex.: `reconstitution` com `scenarios`, `protocol-analysis` com `chartViewSnapshot`).
+  - `FullBackupBundle` com item de histórico incompleto rejeitado em tempo de compilação.
+  - `ChartViewSnapshot` sem `calendarTimeZone`.
+  - `ProtocolComponentKey` sem `protocolId` ou sem `componentId`.
+
+### Escopo
+
+- Zero lógica de persistência, storage, orçamentos, IndexedDB ou import/export runtime da E6.
+- Zero runtime de histórico (save/load/reopen/recalculate) da E12.
+- Apenas contratos e tipos TypeScript estritos e compiláveis.
+
+### Validações executadas
+
+- `npm run lint`: PASS
+- `npm run typecheck`: PASS
+- `npm run type-tests`: PASS
+- `npm test`: PASS (37 arquivos, 370 testes)
+- `npm run test:e5`: PASS (9 arquivos, 99 testes)
+- `npm run test:e4`: PASS (11 arquivos, 81 testes)
+- `npm run build`: PASS
+- `npm run check:build-boundaries`: PASS
+- `npm run test:e1`: PASS
+- `git diff --check`: PASS
+
+### Pendências
+
+- Nenhuma pendência técnica ou contratual remanescente na E5.
+- E5 concluída com conformidade estrita definitiva.
+- Próxima etapa: E6 (Persistência + Exports + Budgets + Quarantine).
+- E0 continua não bloqueante.
+
+### Commit
+
+- Mensagem: `fix(farmakit): tipar historico e full backup da E5`

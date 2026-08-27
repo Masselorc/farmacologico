@@ -134,6 +134,12 @@ export interface SimulationOutput {
   metadata: SimulationMetadata
 }
 
+export interface DisplayPoint {
+  timeMs: number
+  amountMg: number
+  clippedBelowLogEpsilon?: boolean
+}
+
 export interface DisplayWindow {
   startMs: number
   endMs: number
@@ -220,10 +226,25 @@ export interface ReconstitutionResult {
 export type { Duration, DurationRange, DurationValue, InstantIso, LocalDate, LocalTime, MassUnit, TimeUnit, TimeZoneId }
 export type {
   BackupCounts,
+  CalculationRecord,
+  CalculationRecordBase,
+  ChartScaleMode,
+  ChartSnapshotPoint,
+  ChartSnapshotValueKind,
+  ChartViewScenarioSnapshot,
+  ChartViewSnapshot,
+  ChartYAxisMode,
+  ComparatorScenarioResultSnapshot,
   ConfigExportBundle,
   ConfigPayload,
   EngineVersions,
   ExportBundle,
   ExportBundleBase,
   FullBackupBundle,
+  ProtocolAnalysisSeriesSnapshot,
+  ProtocolAnalysisSnapshot,
+  ProtocolAnalysisVersions,
+  ProtocolComponentKey,
+  ProtocolSimulationInputSnapshot,
+  RecordDisplayMeta,
 } from './data-management/types'
