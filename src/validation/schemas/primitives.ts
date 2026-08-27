@@ -3,6 +3,7 @@ import { validationMessages } from '../../app/i18n/pt-BR.messages'
 import { isValidInstantIso, isValidLocalDate, isValidLocalTime, isValidTimeZoneId } from '../../domain/shared/datetime'
 import type {
   DisplayColor,
+  Duration,
   DurationRange,
   DurationValue,
   InstantIso,
@@ -84,6 +85,12 @@ export const durationRangeSchema: z.ZodType<DurationRange> = z
   .refine((range) => compareDurationValues(range.min, range.max) <= 0, {
     message: validationMessages.durationRangeMinMax,
   })
+
+export const durationSchema: z.ZodType<Duration> = z.union([
+  durationValueSchema,
+  durationRangeSchema,
+])
+
 
 export const paletteColorIdSchema: z.ZodType<PaletteColorId> = nonEmptyStringSchema
 

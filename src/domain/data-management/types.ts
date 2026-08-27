@@ -228,6 +228,70 @@ export type CalculationRecord = CalculationRecordBase & (
     }
 )
 
+export interface PersistedStateV1 {
+  schemaVersion: 1
+  settings: AppSettings
+  favorites: Favorites
+  customSubstances: CustomSubstance[]
+  customProfiles: CustomProfile[]
+  recipes: ReconstitutionRecipe[]
+  scenarios: Scenario[]
+  protocols: Protocol[]
+}
+
+// ── Quarentena compacta (store separado; não integra ConfigPayload/FullBackup) ──
+export type QuarantineSource =
+  | 'idb_corruption'
+  | 'config_import'
+  | 'full_backup_import'
+  | 'legacy_migration'
+
+export interface QuarantineItem {
+  id: string
+  createdAt: InstantIso
+  source: QuarantineSource
+  errorCode: string
+  originalUtf8Bytes: number
+  rawExcerptUtf8?: string
+  truncated: boolean
+}
+
+// ── Tipos de Importação e Previews (§11) ──────────────────────────
+export type ImportActionKind = 'config' | 'full-backup'
+
+export interface ConfigImportPreview {
+  actionKind: 'config'
+  bundleKind: 'config'
+  schemaVersion: 1
+  datasetVersion: number
+  exportedAt: InstantIso
+  engineVersions: EngineVersions
+  counts: {
+    scenarios: number
+    protocols: number
+    recipes: number
+    customSubstances: number
+    customProfiles: number
+  }
+  warnings: string[]
+  payload: ConfigPayload
+}
+
+export interface FullBackupImportPreview {
+  actionKind: 'full-backup'
+  bundleKind: 'full-backup'
+  schemaVersion: 1
+  datasetVersion: number
+  exportedAt: InstantIso
+  engineVersions: EngineVersions
+  counts: BackupCounts
+  historyRecordsCount: number
+  warnings: string[]
+  bundle: FullBackupBundle
+}
+
+export type ImportPreview = ConfigImportPreview | FullBackupImportPreview
+
 export interface FullBackupBundle extends ExportBundleBase {
   bundleKind: 'full-backup'
   payload: ConfigPayload

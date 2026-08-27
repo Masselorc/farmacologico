@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { validationMessages } from '../../app/i18n/pt-BR.messages'
-import type { ReconstitutionInput, Syringe } from '../../domain/types'
+import type { ReconstitutionInput, ReconstitutionResult, Syringe } from '../../domain/types'
+
 import { SAFETY_LIMITS } from '../limits'
 import { positiveFiniteNumberSchema } from './primitives'
 
@@ -31,4 +32,23 @@ export const reconstitutionInputSchema: z.ZodType<ReconstitutionInput> = z.stric
   ),
   syringe: syringeSchema,
   label: z.string().optional(),
+})
+
+export const reconstitutionWarningCodeSchema = z.enum([
+  'CAPACITY_EXCEEDED',
+  'LOW_SYRINGE_PRECISION',
+  'THEORETICAL_YIELD',
+])
+
+
+export const reconstitutionResultSchema: z.ZodType<ReconstitutionResult> = z.strictObject({
+  concentrationMcgPerMl: z.number().finite(),
+  doseVolumeMl: z.number().finite(),
+  syringeUnits: z.number().finite(),
+  theoreticalMaxDoses: z.number().finite(),
+  capacityExceeded: z.boolean(),
+  warnings: z.array(reconstitutionWarningCodeSchema),
+  metadata: z.strictObject({
+    reconstitutionEngineVersion: z.string().min(1),
+  }),
 })

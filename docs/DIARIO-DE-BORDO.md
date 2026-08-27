@@ -710,3 +710,108 @@ Substituir o placeholder permissivo `[key:string]: unknown` de `CalculationRecor
 ### Commit
 
 - Mensagem: `fix(farmakit): tipar historico e full backup da E5`
+
+## 2026-08-27 — E6 — Persistência, Exports, Budgets e Quarentena
+
+### Objetivo
+
+Implementar a camada completa de persistência, exportação/importação, orçamentos em bytes UTF-8, histórico com FIFO determinístico e quarentena compacta, conforme as §§ 5, 6, 11, 12, 13, 14, 16, 18 e 20 de `FARMakit-especificacao-final.md`.
+
+### Alterações realizadas
+
+- **Consentimento de Persistência (Opt-in)** (`src/storage/consent.ts`):
+  - Inicia desativado (`false`) por padrão; nenhuma gravação ocorre sem ativação explícita.
+  - Armazenado em chave técnica de localStorage (`fk:v1:persistence-consent`).
+  - Nunca exportado nem restaurado por import (import não ativa persistência).
+  - Fluxo `disablePersistenceAndClear` para revogação e purga segura de dados.
+- **Medição de Bytes & Truncamento Seguro** (`src/storage/bytes.ts`):
+  - Medição canônica `serializedUtf8Bytes` via `new TextEncoder().encode(JSON.stringify(value)).byteLength`.
+  - `truncateUtf8Bytes` truncando de modo byte-aware sem quebrar code points Unicode multibyte.
+- **Motor IndexedDB Resiliente & Degradação em Memória** (`src/storage/idb.ts`):
+  - Banco `farmakit_v1` com stores `scenarios`, `protocols`, `history`, `custom`, `quarantine`.
+  - Fallback automático para modo em memória quando IndexedDB estiver indisponível ou falhar.
+  - Estado observável de degradação (`isStorageDegraded()`, `getLastStorageError()`, `retryStorageOpen()`).
+  - Proibição estrita de descarregar payloads volumosos em `localStorage`.
+- **Validação de Orçamento de ConfigPayload** (`src/storage/config.ts`):
+  - Limite normativo de 15 MiB (`SAFETY_LIMITS.CONFIG_PAYLOAD_BYTES_MAX`).
+  - Mutações atômicas via `mutateConfigPayload`: se exceder 15 MiB, aborta com `CONFIG_STORAGE_LIMIT_EXCEEDED` sem alterar o storage.
+- **Histórico & FIFO Determinístico** (`src/storage/history.ts`):
+  - Validação individual de CalculationRecord até 8 MiB (`CALCULATION_RECORD_BYTES_MAX`); excesso rejeita com `CALCULATION_RECORD_TOO_LARGE` sem podar histórico existente.
+  - Inserção do novo registro como mais novo e poda FIFO dos mais antigos enquanto: records > 500 (`HISTORY_RECORDS_MAX`), total > 47 MiB (`HISTORY_TOTAL_BYTES_MAX`), ou FullBackup projetado > 64 MiB (`FULL_BACKUP_IMPORT_BYTES_MAX`).
+  - Rebalanceamento do histórico `pruneHistoryForConfigMutation` caso mutações no ConfigPayload aumentem o tamanho do FullBackup.
+- **Quarentena Compacta** (`src/storage/quarantine.ts`):
+  - Store local isolado para diagnósticos compactos e excertos UTF-8 truncados.
+  - Limites simultâneos: máx. 5 itens (`QUARANTINE_ITEMS_MAX`), máx. 256 KiB por item (`QUARANTINE_ITEM_BYTES_MAX`), máx. 1 MiB total no store (`QUARANTINE_TOTAL_BYTES_MAX`).
+  - Poda determinística FIFO após inserção.
+- **Construtores de Exportação** (`src/storage/export.ts`):
+  - `buildConfigExport` (bundleKind: 'config') e `buildFullBackup` (bundleKind: 'full-backup').
+  - JSON UTF-8 não comprimido, versionado, sem consentimento e sem dados de quarentena.
+  - Defesa contra limites de arquivo (`EXPORT_SIZE_LIMIT_EXCEEDED`).
+- **Pipeline de Importação em 2 Fases** (`src/storage/import.ts`):
+  - Guarda pré-leitura de `File.size` contra 16 MiB (Config) ou 64 MiB (FullBackup): se exceder, rejeita imediatamente com `IMPORT_FILE_TOO_LARGE` sem chamar `.text()` e sem quarentenar.
+  - Validação de correspondência de `bundleKind` contra ação pretendida (`IMPORT_KIND_MISMATCH`).
+  - Validação Zod runtime estrita via `src/validation/schemas/data-management.ts`.
+  - Validação de invariantes históricas (bijeção ciência↔visual em PK, razões em [0,1], chaves de protocolo).
+  - Preview estruturada (`ImportPreview`) para confirmação explícita antes de aplicar.
+- **Scripts & Suíte de Testes** (`package.json`, `src/tests/storage/`):
+  - Adicionado script `npm run test:e6`.
+  - Suíte completa com 9 arquivos e 37 testes cobrindo bytes, consentimento, IDB, histórico, quarentena, orçamentos, export, import e round-trip same-version.
+
+### Arquivos principais
+
+- `src/domain/version.ts`
+- `src/domain/data-management/types.ts`
+- `src/domain/types.ts`
+- `src/validation/schemas/data-management.ts`
+- `src/validation/schemas/primitives.ts`
+- `src/validation/schemas/reconstitution.ts`
+- `src/validation/index.ts`
+- `src/storage/bytes.ts`
+- `src/storage/consent.ts`
+- `src/storage/idb.ts`
+- `src/storage/config.ts`
+- `src/storage/history.ts`
+- `src/storage/quarantine.ts`
+- `src/storage/export.ts`
+- `src/storage/import.ts`
+- `src/storage/index.ts`
+- `package.json`
+- `src/tests/storage/bytes.test.ts`
+- `src/tests/storage/consent.test.ts`
+- `src/tests/storage/idb.test.ts`
+- `src/tests/storage/config.test.ts`
+- `src/tests/storage/history.test.ts`
+- `src/tests/storage/quarantine.test.ts`
+- `src/tests/storage/export.test.ts`
+- `src/tests/storage/import.test.ts`
+- `src/tests/storage/roundtrip.test.ts`
+- `docs/DIARIO-DE-BORDO.md`
+
+### Decisões tomadas
+
+- Implementado mock IDBFactory para garantir determinismo e isolamento nos testes unitários e de integração em ambiente Node/jsdom.
+- Medição exata via `TextEncoder` sobre `JSON.stringify`, com captura defensiva de `RangeError` para objetos patológicos.
+- Truncamento byte-aware iterando por code points de string JavaScript para preservar surrogate pairs e caracteres multibyte sem corromper Unicode.
+- Preservação estrita da guarda pré-leitura de `File.size` antes de alocar memória em streams ou chamadas a `text()`.
+
+### Validações executadas
+
+- `npm run lint`: PASS (0 erros, 0 warnings)
+- `npm run typecheck`: PASS
+- `npm run type-tests`: PASS
+- `npm run test:e6`: PASS (9 arquivos, 37 testes)
+- `npm test`: PASS (46 arquivos, 407 testes)
+- `npm run test:e5`: PASS (9 arquivos, 99 testes)
+- `npm run test:e4`: PASS (11 arquivos, 81 testes)
+- `npm run build`: PASS (PWA generateSW, 10 precache entries)
+- `npm run check:build-boundaries`: PASS
+- `npm run test:e1`: PASS (2 testes Playwright)
+- `git diff --check`: PASS (0 violações de whitespace)
+
+### Pendências
+
+- E7 (migrações legadas), E8 (UI Reconstituição), E9 (UI Comparador), E10 (dataset oficial), E11 (UI Protocolos), E12 (UI Histórico), E13, E14, E15 continuam não iniciadas.
+
+### Commit
+
+- Mensagem: `feat(farmakit): implementar persistencia e exports da E6`
