@@ -14,7 +14,7 @@ import {
 import { configPayloadSchema } from '../validation/schemas/data-management'
 import { CURRENT_DATASET_VERSION, ENGINE_VERSIONS } from '../domain/version'
 import { SAFETY_LIMITS } from '../validation/limits'
-import { serializedUtf8Bytes } from './bytes'
+import { serializedUtf8Bytes, truncateUtf8Bytes } from './bytes'
 import { clonePersistedValue } from './clone'
 import { validateCalculationRecordRuntime, validateHistoricalInvariants } from './history-validation'
 import { detectInitialCalendarTimeZone, getPersistenceConsent } from './consent'
@@ -292,24 +292,51 @@ async function readRawSnapshot(db: IDBDatabase): Promise<RawDatabaseSnapshot> {
 
 interface CorruptionNotice { raw: unknown; store: StoreName; id?: string }
 
+export interface SafeDiagnosticSnapshot {
+  excerpt: string
+  originalUtf8Bytes: number
+  truncated: boolean
+}
+
+/**
+ * Serializador defensivo de diagnóstico: calcula o tamanho UTF-8 original mensurável antes do truncamento byte-aware (§11, §18, E6.5).
+ */
+export function safeDiagnosticSnapshot(
+  value: unknown,
+  maxBytes: number = SAFETY_LIMITS.QUARANTINE_ITEM_BYTES_MAX,
+): SafeDiagnosticSnapshot {
+  let fullDiagnostic: string
+  try {
+    if (value === undefined) fullDiagnostic = 'undefined'
+    else if (value === null) fullDiagnostic = 'null'
+    else if (typeof value === 'string') fullDiagnostic = value
+    else {
+      const str = JSON.stringify(value)
+      fullDiagnostic = str !== undefined ? str : String(value)
+    }
+  } catch {
+    try {
+      fullDiagnostic = String(value)
+    } catch {
+      fullDiagnostic = '[UnserializableDiagnosticData]'
+    }
+  }
+
+  const originalUtf8Bytes = new TextEncoder().encode(fullDiagnostic).byteLength
+  const truncatedResult = truncateUtf8Bytes(fullDiagnostic, maxBytes)
+
+  return {
+    excerpt: truncatedResult.text,
+    originalUtf8Bytes,
+    truncated: truncatedResult.truncated,
+  }
+}
+
 /**
  * Serializador defensivo de diagnóstico: nunca lança erro e limita o tamanho gerado (§11, §18, E6.4).
  */
 export function safeDiagnosticString(value: unknown, maxLen = 4096): string {
-  try {
-    if (value === undefined) return 'undefined'
-    if (value === null) return 'null'
-    if (typeof value === 'string') return value.slice(0, maxLen)
-    const str = JSON.stringify(value)
-    if (str !== undefined) return str.slice(0, maxLen)
-    return String(value).slice(0, maxLen)
-  } catch {
-    try {
-      return String(value).slice(0, maxLen)
-    } catch {
-      return '[UnserializableDiagnosticData]'
-    }
-  }
+  return safeDiagnosticSnapshot(value, maxLen).excerpt
 }
 
 function generateCompactId(prefix: string): string {
@@ -326,24 +353,24 @@ async function recordIdbCorruption(notice: CorruptionNotice): Promise<void> {
   }
   try {
     const { addQuarantineItemUnlocked } = await import('./quarantine')
-    const rawExcerpt = safeDiagnosticString(notice.raw, SAFETY_LIMITS.QUARANTINE_ITEM_BYTES_MAX)
-    const rawBytes = new TextEncoder().encode(rawExcerpt).byteLength
+    const diagnostic = safeDiagnosticSnapshot(notice.raw, SAFETY_LIMITS.QUARANTINE_ITEM_BYTES_MAX)
     const safeId = generateCompactId('idb-corrupt')
     await addQuarantineItemUnlocked({
       id: safeId,
       source: 'idb_corruption',
       errorCode: `IDB_CORRUPTED_ENTRY_${notice.store.toUpperCase()}`,
-      originalUtf8Bytes: rawBytes,
-      rawExcerptUtf8: rawExcerpt,
+      originalUtf8Bytes: diagnostic.originalUtf8Bytes,
+      rawExcerptUtf8: diagnostic.excerpt,
     })
   } catch (error) {
     lastStorageError = asError(error, 'Failed to quarantine corrupted entry')
   }
 }
 
-function parseCustomEntry(raw: unknown, target: InMemoryStore, corruptions: CorruptionNotice[]): void {
+function parseCustomEntry(raw: unknown, target: InMemoryStore, corruptions: CorruptionNotice[]): boolean {
   if (typeof raw !== 'object' || raw === null || typeof (raw as { key?: unknown }).key !== 'string') {
-    corruptions.push({ raw, store: 'custom' }); return
+    corruptions.push({ raw, store: 'custom' })
+    return false
   }
   const { key, value } = raw as { key: string; value: unknown }
   const schemas = {
@@ -354,10 +381,17 @@ function parseCustomEntry(raw: unknown, target: InMemoryStore, corruptions: Corr
     'fk:v1:recipes': reconstitutionRecipeSchema.array(),
   } as const
   const schema = schemas[key as keyof typeof schemas]
-  if (!schema) { corruptions.push({ raw, store: 'custom', id: key }); return }
+  if (!schema) {
+    corruptions.push({ raw, store: 'custom', id: key })
+    return false
+  }
   const parsed = schema.safeParse(value)
-  if (!parsed.success) { corruptions.push({ raw, store: 'custom', id: key }); return }
+  if (!parsed.success) {
+    corruptions.push({ raw, store: 'custom', id: key })
+    return false
+  }
   target.custom.set(key, parsed.data)
+  return true
 }
 
 async function hydrateMemory(): Promise<void> {
@@ -371,18 +405,32 @@ async function hydrateMemory(): Promise<void> {
       const next = new InMemoryStore()
       const corruptions: CorruptionNotice[] = []
       const normalization: StorageOperation[] = []
+      let configNeedsPhysicalNormalization = false
 
       for (const value of raw.scenarios) {
         const parsed = scenarioSchema.safeParse(value)
-        if (parsed.success) next.scenarios.set(parsed.data.id, parsed.data)
-        else corruptions.push({ raw: value, store: 'scenarios', id: (value as { id?: string })?.id })
+        if (parsed.success) {
+          next.scenarios.set(parsed.data.id, parsed.data)
+        } else {
+          configNeedsPhysicalNormalization = true
+          corruptions.push({ raw: value, store: 'scenarios', id: (value as { id?: string })?.id })
+        }
       }
       for (const value of raw.protocols) {
         const parsed = protocolSchema.safeParse(value)
-        if (parsed.success) next.protocols.set(parsed.data.id, parsed.data)
-        else corruptions.push({ raw: value, store: 'protocols', id: (value as { id?: string })?.id })
+        if (parsed.success) {
+          next.protocols.set(parsed.data.id, parsed.data)
+        } else {
+          configNeedsPhysicalNormalization = true
+          corruptions.push({ raw: value, store: 'protocols', id: (value as { id?: string })?.id })
+        }
       }
-      for (const value of raw.custom) parseCustomEntry(value, next, corruptions)
+      for (const value of raw.custom) {
+        const valid = parseCustomEntry(value, next, corruptions)
+        if (!valid) {
+          configNeedsPhysicalNormalization = true
+        }
+      }
 
       // ── Processa e normaliza histórico (§11, E6.4: validação individual ≤ 8 MiB) ──
       const validHistory: StoredHistoryEntry[] = []
@@ -509,8 +557,8 @@ async function hydrateMemory(): Promise<void> {
         }
       }
 
-      // ── Processa e valida ConfigPayload completo (§11, E6.4: schema + refs + ≤ 15 MiB) ──
-      const payload: ConfigPayload = {
+      // ── Processa e valida ConfigPayload completo (§11, E6.5: schema + refs + ≤ 15 MiB) ──
+      const candidatePayload: ConfigPayload = {
         settings: (next.custom.get('fk:v1:settings') as AppSettings | undefined) || getDefaultSettings(),
         favorites: (next.custom.get('fk:v1:favorites') as Favorites | undefined) || getDefaultFavorites(),
         customSubstances: (next.custom.get('fk:v1:customSubstances') as CustomSubstance[] | undefined) || [],
@@ -519,12 +567,13 @@ async function hydrateMemory(): Promise<void> {
         scenarios: [...next.scenarios.values()],
         protocols: [...next.protocols.values()],
       }
-      const parsedConfig = configPayloadSchema.safeParse(payload)
+      const parsedConfig = configPayloadSchema.safeParse(candidatePayload)
       const references = parsedConfig.success ? validateConfigReferences(parsedConfig.data) : { valid: false as const }
       const configBytes = parsedConfig.success ? serializedUtf8Bytes(parsedConfig.data) : Infinity
 
       if (!parsedConfig.success || !references.valid || configBytes > SAFETY_LIMITS.CONFIG_PAYLOAD_BYTES_MAX) {
-        corruptions.push({ raw: payload, store: 'custom', id: 'fk:v1:config-payload' })
+        configNeedsPhysicalNormalization = true
+        corruptions.push({ raw: candidatePayload, store: 'custom', id: 'fk:v1:config-payload' })
         next.scenarios.clear()
         next.protocols.clear()
         next.custom.set('fk:v1:settings', getDefaultSettings())
@@ -532,6 +581,20 @@ async function hydrateMemory(): Promise<void> {
         next.custom.set('fk:v1:customSubstances', [])
         next.custom.set('fk:v1:customProfiles', [])
         next.custom.set('fk:v1:recipes', [])
+      }
+
+      const activeConfig: ConfigPayload = {
+        settings: (next.custom.get('fk:v1:settings') as AppSettings | undefined) || getDefaultSettings(),
+        favorites: (next.custom.get('fk:v1:favorites') as Favorites | undefined) || getDefaultFavorites(),
+        customSubstances: (next.custom.get('fk:v1:customSubstances') as CustomSubstance[] | undefined) || [],
+        customProfiles: (next.custom.get('fk:v1:customProfiles') as CustomProfile[] | undefined) || [],
+        recipes: (next.custom.get('fk:v1:recipes') as ReconstitutionRecipe[] | undefined) || [],
+        scenarios: [...next.scenarios.values()],
+        protocols: [...next.protocols.values()],
+      }
+
+      if (configNeedsPhysicalNormalization) {
+        normalization.push(...configOperations(activeConfig))
       }
 
       inMemory.replaceWith(next)
@@ -687,16 +750,23 @@ export async function purgePersistentData(): Promise<void> {
 }
 
 /**
- * Limpa fisicamente os stores no IndexedDB sem alterar o estado ativo em memória (§10, E6.4).
+ * Limpa fisicamente os stores no IndexedDB sem alterar o estado ativo em memória (§10, E6.5).
  * Usado exclusivamente na compensação de rollback em caso de falha no localStorage durante enablePersistence.
  */
 export async function purgePhysicalIDBOnly(): Promise<void> {
   const db = await openIDB()
-  if (!db) return
+  if (!db) {
+    throw (
+      lastStorageError ??
+      new Error('Unable to open IndexedDB for compensation purge')
+    )
+  }
   try {
     await runTransaction(db, [
-      { kind: 'clear', store: 'scenarios' }, { kind: 'clear', store: 'protocols' },
-      { kind: 'clear', store: 'history' }, { kind: 'clear', store: 'custom' },
+      { kind: 'clear', store: 'scenarios' },
+      { kind: 'clear', store: 'protocols' },
+      { kind: 'clear', store: 'history' },
+      { kind: 'clear', store: 'custom' },
       { kind: 'clear', store: 'quarantine' },
     ])
   } catch (error) {

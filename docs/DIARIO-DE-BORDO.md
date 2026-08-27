@@ -1138,3 +1138,78 @@ Executar o fechamento corretivo definitivo da E6 (§6, §10, §11, §12, §13, �
 
 - Mensagem: `fix(farmakit): fechar reentrancia e consentimento da E6`
 
+## 2026-08-27 — E6.5 — Fechamento de compensação, snapshots e normalização de corrupção
+
+### Objetivo
+
+Executar o fechamento corretivo final da E6 (§6, §10, §11, §12, §13, §14, §15, §18) no commit-base `a1c94f1c3cac3fc6108e7e60a6a0bb75ce0c7cad`, resolvendo todas as arestas residuais de robustez:
+1. Tornar o rollback de `enablePersistence()` fail-closed e propagar falhas simultâneas via `AggregateError`.
+2. Garantir snapshot síncrono (`clonePersistedValue`) em `applyImport(preview)` antes do enfileiramento assíncrono na fila global de mutações.
+3. Eliminar retenção de alias de entrada nos construtores de export (`buildConfigExport` e `buildFullBackup`).
+4. Implementar medição e serialização de diagnóstico seguro em `safeDiagnosticSnapshot` com `originalUtf8Bytes` representando o tamanho integral mensurável antes do truncamento byte-aware.
+5. Normalização física automática de corrupções nos object stores do Config (`scenarios`, `protocols`, `custom`), garantindo que corrupções sanitizadas não reapareçam a cada reload.
+6. Testes exatos de limites de tamanho na hidratação (15 MiB ConfigPayload, 8 MiB CalculationRecord, 256 KiB QuarantineItem).
+
+### Alterações realizadas
+
+- **Compensação de Consentimento Fail-Closed (`src/storage/idb.ts`, `src/storage/consent.ts`):**
+  - `purgePhysicalIDBOnly()` atualizado para lançar erro caso `openIDB()` retorne `null` ou caso a transação de limpeza física falhe.
+  - `enablePersistence()` atualizado para capturar falha no rollback físico e propagar `AggregateError` com ambas as falhas (`localStorageError` e `compensationError`), mantendo `inMemoryConsent = false` e preservando a memória ativa.
+- **Snapshot Síncrono em `applyImport` (`src/storage/import.ts`):**
+  - `const snapshot = clonePersistedValue(preview)` é executado síncrona e imediatamente na chamada pública antes de passar o controle para `enqueueStorageMutation`.
+- **Isolamento de Alias em Exports (`src/storage/export.ts`):**
+  - `buildConfigExport` e `buildFullBackup` clonam defensivamente o payload e o histórico com `clonePersistedValue`, garantindo que mutações posteriores do chamador não afetem o bundle gerado nem o JSON.
+- **Diagnóstico Seguro e `originalUtf8Bytes` (`src/storage/idb.ts`):**
+  - Implementada a função `safeDiagnosticSnapshot(value, maxBytes)` que calcula `originalUtf8Bytes` sobre a representação integral do dado corrompido antes de truncar em `truncateUtf8Bytes`.
+  - `recordIdbCorruption` consome `safeDiagnosticSnapshot`, permitindo que `QuarantineItem` registre o tamanho original integral com flag `truncated: true`.
+- **Normalização Física de Corrupções de Config (`src/storage/idb.ts`):**
+  - `hydrateMemory()` rastreia `configNeedsPhysicalNormalization = true` sempre que encontra entradas inválidas em `scenarios`, `protocols`, `custom` ou no `ConfigPayload` completo.
+  - Emite operações físicas de `configOperations(activeConfig)` na transação de normalização da hidratação, sobrescrevendo o IDB físico com o estado sanitizado ativo e eliminando reincidência de quarentena em reloads subsequentes.
+- **Testes da E6.5 (`src/tests/storage/`):**
+  - `enable-persistence.test.ts`: teste de falha dupla no localStorage e na compensação com asserção de `AggregateError`, modo degraded e integridade da memória.
+  - `import.test.ts`: testes de TOCTOU para Config e FullBackup provando isolamento contra mutações síncronas imediatas do preview.
+  - `export.test.ts`: testes de isolamento de alias nos builders de export.
+  - `corruption.test.ts`: teste de `originalUtf8Bytes` em objeto corrompido grande (>256 KiB) provando cálculo anterior ao truncamento.
+  - `hydration-hardening.test.ts`: testes exatos de caps (15 MiB exact/+1, 8 MiB exact/+1, 256 KiB exact/+1) e testes de normalização física idempotente em reload.
+
+### Arquivos principais
+
+- `src/storage/consent.ts`
+- `src/storage/import.ts`
+- `src/storage/export.ts`
+- `src/storage/idb.ts`
+- `src/tests/storage/enable-persistence.test.ts`
+- `src/tests/storage/import.test.ts`
+- `src/tests/storage/export.test.ts`
+- `src/tests/storage/corruption.test.ts`
+- `src/tests/storage/hydration-hardening.test.ts`
+- `docs/DIARIO-DE-BORDO.md`
+
+### Validações executadas
+
+- `npm run lint`: PASS (0 erros, 0 avisos).
+- `npm run typecheck`: PASS (0 erros).
+- `npm run type-tests`: PASS (0 erros).
+- `npm run test:e6`: PASS (21 arquivos, 125 testes).
+- `npm test`: PASS (58 arquivos, 495 testes).
+- `npm run test:e5`: PASS (9 arquivos, 99 testes).
+- `npm run test:e4`: PASS (11 arquivos, 81 testes).
+- `npm run build`: PASS (Vite + PWA generateSW, 10 precache entries).
+- `npm run check:build-boundaries`: PASS (9 arquivos em dist, 0 referências a .token-optimizer).
+- `npm run test:e1`: PASS (2 testes Playwright).
+- `git diff --check`: PASS (0 avisos de whitespace/EOF).
+
+### Escopo preservado
+
+- E7 não iniciada; nenhuma migration de produto legado criada.
+- E8–E15 não iniciadas.
+- Nenhum dataset oficial criado.
+- Nenhuma matemática científica alterada.
+- `README.md` permaneceu intacto.
+- `.token-optimizer` permaneceu intacto e isolado fora de dist/runtime.
+
+### Status
+
+- A E6.5 foi implementada e validada nos gates automatizados; aprovação externa permanece pendente.
+- Commit previsto: `fix(farmakit): fechar compensacao e snapshots da E6`
+

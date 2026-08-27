@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { indexedDB } from 'fake-indexeddb'
-import type { CalculationRecord, Scenario, StoredHistoryEntry } from '../../domain/types'
+import type { CalculationRecord, ConfigPayload, Protocol, QuarantineItem, Scenario, StoredHistoryEntry } from '../../domain/types'
 import {
   getCalculationRecords,
   getQuarantineItems,
@@ -8,6 +8,8 @@ import {
 } from '../../storage'
 import {
   type StoredQuarantineEntry,
+  getDefaultFavorites,
+  getDefaultSettings,
   resetStorageForTesting,
   resetStorageSessionForTesting,
   setCustomIDBFactoryForTesting,
@@ -16,6 +18,7 @@ import {
 import { serializedUtf8Bytes } from '../../storage/bytes'
 import { DB_NAME, DB_VERSION } from '../../storage/idb'
 import { SAFETY_LIMITS } from '../../validation/limits'
+import { readRawStore } from './idb-faults'
 
 async function openRawIDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -57,6 +60,102 @@ function createDummyReconRecord(id: string, labelPadding?: string): CalculationR
       metadata: { reconstitutionEngineVersion: '1.0.0' },
     },
   }
+}
+
+function configAtBytes(target: number): ConfigPayload {
+  const payload: ConfigPayload = {
+    settings: getDefaultSettings(),
+    favorites: getDefaultFavorites(),
+    customSubstances: [
+      {
+        id: 'sub-size-target',
+        slug: 'sub-size-target',
+        name: 'Substância Válida',
+        aliases: [''],
+        category: 'other',
+        tags: [],
+        createdAt: '2026-08-27T08:00:00.000Z',
+        updatedAt: '2026-08-27T08:00:00.000Z',
+      },
+    ],
+    customProfiles: [],
+    recipes: [],
+    scenarios: [],
+    protocols: [],
+  }
+  const baseBytes = serializedUtf8Bytes(payload)
+  const needed = target - baseBytes
+  if (needed > 0) {
+    payload.customSubstances[0].aliases = ['A'.repeat(needed)]
+  }
+  while (serializedUtf8Bytes(payload) < target) {
+    payload.customSubstances[0].aliases[0] += 'A'
+  }
+  while (serializedUtf8Bytes(payload) > target) {
+    payload.customSubstances[0].aliases[0] = payload.customSubstances[0].aliases[0].slice(0, -1)
+  }
+  return payload
+}
+
+function recordAtBytes(id: string, target: number): CalculationRecord {
+  const record = createDummyReconRecord(id)
+  const baseBytes = serializedUtf8Bytes(record)
+  const needed = target - baseBytes
+  if (needed > 0) {
+    record.display.note = 'N'.repeat(needed)
+  }
+  while (serializedUtf8Bytes(record) < target) {
+    record.display.note = (record.display.note || '') + 'N'
+  }
+  while (serializedUtf8Bytes(record) > target) {
+    record.display.note = (record.display.note || '').slice(0, -1)
+  }
+  return record
+}
+
+function quarantineItemAtBytes(id: string, target: number): QuarantineItem {
+  const item: QuarantineItem = {
+    id,
+    createdAt: '2026-08-27T08:00:00.000Z',
+    source: 'config_import',
+    errorCode: 'ERR_EXACT',
+    originalUtf8Bytes: 100,
+    rawExcerptUtf8: '',
+    truncated: false,
+  }
+  const baseBytes = serializedUtf8Bytes(item)
+  const needed = target - baseBytes
+  if (needed > 0) {
+    item.rawExcerptUtf8 = 'Q'.repeat(needed)
+  }
+  while (serializedUtf8Bytes(item) < target) {
+    item.rawExcerptUtf8 = (item.rawExcerptUtf8 || '') + 'Q'
+  }
+  while (serializedUtf8Bytes(item) > target) {
+    item.rawExcerptUtf8 = (item.rawExcerptUtf8 || '').slice(0, -1)
+  }
+  return item
+}
+
+async function injectConfigPayloadRaw(db: IDBDatabase, config: ConfigPayload): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(['scenarios', 'protocols', 'custom'], 'readwrite')
+    const customStore = tx.objectStore('custom')
+    customStore.put({ key: 'fk:v1:settings', value: config.settings })
+    customStore.put({ key: 'fk:v1:favorites', value: config.favorites })
+    customStore.put({ key: 'fk:v1:customSubstances', value: config.customSubstances })
+    customStore.put({ key: 'fk:v1:customProfiles', value: config.customProfiles })
+    customStore.put({ key: 'fk:v1:recipes', value: config.recipes })
+
+    const scenarioStore = tx.objectStore('scenarios')
+    for (const sc of config.scenarios) scenarioStore.put(sc)
+
+    const protocolStore = tx.objectStore('protocols')
+    for (const pr of config.protocols) protocolStore.put(pr)
+
+    tx.oncomplete = () => { db.close(); resolve() }
+    tx.onerror = () => reject(tx.error)
+  })
 }
 
 describe('Hydration Invariants & Normalization Hardening (§11, §18, E6.4)', () => {
@@ -212,19 +311,20 @@ describe('Hydration Invariants & Normalization Hardening (§11, §18, E6.4)', ()
     expect(serializedUtf8Bytes(corruptedItem)).toBeLessThanOrEqual(256 * 1024)
   })
 
-  it('G: CalculationRecord > 8 MiB na hidratação é rejeitado e não entra no histórico ativo (§11, E6.4)', async () => {
+  it('G: CalculationRecord em 8 MiB exatos é aceito e 8 MiB + 1 é rejeitado na hidratação (§11, E6.5)', async () => {
     const db = await openRawIDB()
     const tx = db.transaction('history', 'readwrite')
     const store = tx.objectStore('history')
 
-    // Registro válido pequeno
-    const recSmall = createDummyReconRecord('rec-small')
-    store.put({ id: recSmall.id, insertionOrder: 1, record: recSmall })
+    // Registro em 8 MiB exatos
+    const recExact = recordAtBytes('rec-8mib-exact', SAFETY_LIMITS.CALCULATION_RECORD_BYTES_MAX)
+    expect(serializedUtf8Bytes(recExact)).toBe(SAFETY_LIMITS.CALCULATION_RECORD_BYTES_MAX)
+    store.put({ id: recExact.id, insertionOrder: 1, record: recExact })
 
-    // Registro com > 8 MiB (8.5 MiB)
-    const padding = 'Z'.repeat(8.5 * 1024 * 1024)
-    const recGiant = createDummyReconRecord('rec-giant', padding)
-    store.put({ id: recGiant.id, insertionOrder: 2, record: recGiant })
+    // Registro em 8 MiB + 1 byte
+    const recOversized = recordAtBytes('rec-8mib-plus-1', SAFETY_LIMITS.CALCULATION_RECORD_BYTES_MAX + 1)
+    expect(serializedUtf8Bytes(recOversized)).toBe(SAFETY_LIMITS.CALCULATION_RECORD_BYTES_MAX + 1)
+    store.put({ id: recOversized.id, insertionOrder: 2, record: recOversized })
 
     await new Promise<void>((resolve) => {
       tx.oncomplete = () => { db.close(); resolve() }
@@ -234,45 +334,23 @@ describe('Hydration Invariants & Normalization Hardening (§11, §18, E6.4)', ()
     const history = await getCalculationRecords()
 
     expect(history).toHaveLength(1)
-    expect(history[0].id).toBe('rec-small')
+    expect(history[0].id).toBe('rec-8mib-exact')
   })
 
-  it('H: QuarantineItem > 256 KiB na hidratação é descartado/normalizado da quarentena (§11, E6.4)', async () => {
+  it('H: QuarantineItem em 256 KiB exatos é aceito e 256 KiB + 1 é descartado/normalizado (§11, E6.5)', async () => {
     const db = await openRawIDB()
     const tx = db.transaction('quarantine', 'readwrite')
     const store = tx.objectStore('quarantine')
 
-    // Item válido pequeno (10 KiB)
-    const validEntry: StoredQuarantineEntry = {
-      id: 'q-valid-small',
-      insertionOrder: 1,
-      item: {
-        id: 'q-valid-small',
-        createdAt: '2026-08-27T08:00:00.000Z',
-        source: 'config_import',
-        errorCode: 'ERR_SMALL',
-        originalUtf8Bytes: 10 * 1024,
-        rawExcerptUtf8: 'X'.repeat(10 * 1024),
-        truncated: false,
-      },
-    }
-    store.put(validEntry)
+    // Item em 256 KiB exatos
+    const itemExact = quarantineItemAtBytes('q-256k-exact', SAFETY_LIMITS.QUARANTINE_ITEM_BYTES_MAX)
+    expect(serializedUtf8Bytes(itemExact)).toBe(SAFETY_LIMITS.QUARANTINE_ITEM_BYTES_MAX)
+    store.put({ id: itemExact.id, insertionOrder: 1, item: itemExact })
 
-    // Item que excede 256 KiB (300 KiB)
-    const giantEntry = {
-      id: 'q-giant',
-      insertionOrder: 2,
-      item: {
-        id: 'q-giant',
-        createdAt: '2026-08-27T08:00:00.000Z',
-        source: 'config_import',
-        errorCode: 'ERR_GIANT',
-        originalUtf8Bytes: 300 * 1024,
-        rawExcerptUtf8: 'Y'.repeat(300 * 1024),
-        truncated: false,
-      },
-    }
-    store.put(giantEntry)
+    // Item em 256 KiB + 1 byte
+    const itemOversized = quarantineItemAtBytes('q-256k-plus-1', SAFETY_LIMITS.QUARANTINE_ITEM_BYTES_MAX + 1)
+    expect(serializedUtf8Bytes(itemOversized)).toBe(SAFETY_LIMITS.QUARANTINE_ITEM_BYTES_MAX + 1)
+    store.put({ id: itemOversized.id, insertionOrder: 2, item: itemOversized })
 
     await new Promise<void>((resolve) => {
       tx.oncomplete = () => { db.close(); resolve() }
@@ -282,52 +360,46 @@ describe('Hydration Invariants & Normalization Hardening (§11, §18, E6.4)', ()
     const items = await getQuarantineItems()
 
     expect(items).toHaveLength(1)
-    expect(items[0].id).toBe('q-valid-small')
+    expect(items[0].id).toBe('q-256k-exact')
   })
 
-  it('I: ConfigPayload > 15 MiB na hidratação não é publicado e reverte para defaults seguros (§11, E6.4)', async () => {
+  it('I: ConfigPayload em 15 MiB exatos é aceito na hidratação (§11, E6.5)', async () => {
+    const config15Mib = configAtBytes(SAFETY_LIMITS.CONFIG_PAYLOAD_BYTES_MAX)
+    expect(serializedUtf8Bytes(config15Mib)).toBe(SAFETY_LIMITS.CONFIG_PAYLOAD_BYTES_MAX)
+
     const db = await openRawIDB()
-    const tx = db.transaction('scenarios', 'readwrite')
-    const store = tx.objectStore('scenarios')
-
-    // Injeta cenário com doses suficientes para exceder 15 MiB
-    const largeDoses = Array.from({ length: 350_000 }, (_, i) => ({
-      id: `d-${i}`,
-      amountMg: 50,
-      time: '2026-08-27T08:00:00.000Z',
-    }))
-    const hugeScenario: Scenario = {
-      id: 'sc-giant',
-      name: 'Giant Scenario',
-      color: 'blue-500',
-      source: {
-        type: 'manual',
-        pkParametersSnapshot: { halfLife: { value: 12, unit: 'hours' }, tmax: null },
-      },
-      displayUnit: 'mg',
-      selectedPkParameters: { halfLifeMs: 43200000, tmaxMs: null },
-      doses: largeDoses,
-    }
-    expect(serializedUtf8Bytes(hugeScenario)).toBeGreaterThan(SAFETY_LIMITS.CONFIG_PAYLOAD_BYTES_MAX)
-    store.put(hugeScenario)
-
-    await new Promise<void>((resolve) => {
-      tx.oncomplete = () => { db.close(); resolve() }
-    })
+    await injectConfigPayloadRaw(db, config15Mib)
 
     resetStorageSessionForTesting()
     const config = await loadConfigPayload()
 
-    // Config reverteu para defaults seguros vazios
-    expect(config.scenarios).toHaveLength(0)
-    expect(config.protocols).toHaveLength(0)
+    expect(config.customSubstances).toHaveLength(1)
+    expect(config.customSubstances[0].id).toBe('sub-size-target')
+    expect(serializedUtf8Bytes(config)).toBe(SAFETY_LIMITS.CONFIG_PAYLOAD_BYTES_MAX)
 
-    // Corrupção foi registrada na quarentena
+    const quarantine = await getQuarantineItems()
+    expect(quarantine).toHaveLength(0)
+  })
+
+  it('J: ConfigPayload em 15 MiB + 1 byte é sanitizado para defaults seguros (§11, E6.5)', async () => {
+    const configOversized = configAtBytes(SAFETY_LIMITS.CONFIG_PAYLOAD_BYTES_MAX + 1)
+    expect(serializedUtf8Bytes(configOversized)).toBe(SAFETY_LIMITS.CONFIG_PAYLOAD_BYTES_MAX + 1)
+
+    const db = await openRawIDB()
+    await injectConfigPayloadRaw(db, configOversized)
+
+    resetStorageSessionForTesting()
+    const config = await loadConfigPayload()
+
+    // Reverteu para defaults seguros
+    expect(config.customSubstances).toHaveLength(0)
+    expect(config.scenarios).toHaveLength(0)
+
     const quarantine = await getQuarantineItems()
     expect(quarantine.length).toBeGreaterThanOrEqual(1)
   })
 
-  it('J: duas corrupções com mesmo ID original em stores distintas geram IDs únicos na quarentena sem colidir (§11, E6.4)', async () => {
+  it('K: duas corrupções com mesmo ID original em stores distintas geram IDs únicos na quarentena (§11, E6.4)', async () => {
     const db = await openRawIDB()
     const tx = db.transaction(['scenarios', 'protocols'], 'readwrite')
     tx.objectStore('scenarios').put({ id: 'same-corrupt-id', badField: 1 })
@@ -347,5 +419,85 @@ describe('Hydration Invariants & Normalization Hardening (§11, §18, E6.4)', ()
     expect(quarantine[0].id).not.toBe(quarantine[1].id)
     expect(quarantine[0].id).not.toBe('same-corrupt-id')
     expect(quarantine[1].id).not.toBe('same-corrupt-id')
+  })
+
+  it('L: corrupções de cenários/protocolos/custom são normalizadas fisicamente e não reaparecem no reload (§11, E6.5)', async () => {
+    const validScenario: Scenario = {
+      id: 'sc-valid-stay',
+      name: 'Cenário Válido Que Fica',
+      color: 'blue-500',
+      source: { type: 'manual', pkParametersSnapshot: { halfLife: { value: 12, unit: 'hours' }, tmax: null } },
+      displayUnit: 'mg',
+      selectedPkParameters: { halfLifeMs: 43200000, tmaxMs: null },
+      doses: [],
+    }
+
+    const db = await openRawIDB()
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(['scenarios', 'protocols', 'custom'], 'readwrite')
+      tx.objectStore('scenarios').put(validScenario)
+      tx.objectStore('scenarios').put({ id: 'sc-corrupt-x', invalid: 123 })
+      tx.objectStore('protocols').put({ id: 'pr-corrupt-y', invalid: 456 })
+      tx.objectStore('custom').put({ key: 'fk:v1:unknown-key-z', value: { bad: true } })
+      tx.oncomplete = () => { db.close(); resolve() }
+      tx.onerror = () => reject(tx.error)
+    })
+
+    // 1ª hidratação: sanitiza e grava normalização física
+    resetStorageSessionForTesting()
+    const config1 = await loadConfigPayload()
+    expect(config1.scenarios).toHaveLength(1)
+    expect(config1.scenarios[0].id).toBe('sc-valid-stay')
+
+    // Verifica que IDB físico foi limpo das entradas corruptas
+    const rawScenarios = await readRawStore<Scenario>(indexedDB, 'scenarios')
+    expect(rawScenarios).toHaveLength(1)
+    expect(rawScenarios[0].id).toBe('sc-valid-stay')
+
+    const rawProtocols = await readRawStore<Protocol>(indexedDB, 'protocols')
+    expect(rawProtocols).toHaveLength(0)
+
+    const rawCustom = await readRawStore<{ key: string }>(indexedDB, 'custom')
+    expect(rawCustom.some((c) => c.key === 'fk:v1:unknown-key-z')).toBe(false)
+
+    const quarantineBefore = await getQuarantineItems()
+    const quarantineIdsBefore = quarantineBefore.map((q) => q.id)
+    expect(quarantineIdsBefore.length).toBeGreaterThanOrEqual(1)
+
+    // 2ª hidratação (novo reload/sessão): nenhuma nova corrupção deve ser detectada
+    resetStorageSessionForTesting()
+    const config2 = await loadConfigPayload()
+    expect(config2.scenarios).toHaveLength(1)
+
+    const quarantineAfter = await getQuarantineItems()
+    const quarantineIdsAfter = quarantineAfter.map((q) => q.id)
+    expect(quarantineIdsAfter).toEqual(quarantineIdsBefore)
+  })
+
+  it('M: ConfigPayload > 15 MiB é normalizado fisicamente no IDB e não re-quarentena no reload (§11, E6.5)', async () => {
+    const configOversized = configAtBytes(SAFETY_LIMITS.CONFIG_PAYLOAD_BYTES_MAX + 1)
+    const db = await openRawIDB()
+    await injectConfigPayloadRaw(db, configOversized)
+
+    // 1ª hidratação
+    resetStorageSessionForTesting()
+    const config1 = await loadConfigPayload()
+    expect(config1.customSubstances).toHaveLength(0)
+
+    // O store custom físico não pode mais conter o array gigante
+    const rawCustom = await readRawStore<{ key: string; value: unknown }>(indexedDB, 'custom')
+    const substancesEntry = rawCustom.find((c) => c.key === 'fk:v1:customSubstances')
+    expect(substancesEntry?.value).toEqual([])
+
+    const quarantineBefore = await getQuarantineItems()
+    const quarantineCountBefore = quarantineBefore.length
+    expect(quarantineCountBefore).toBeGreaterThanOrEqual(1)
+
+    // 2ª hidratação: quarentena não cresce
+    resetStorageSessionForTesting()
+    await loadConfigPayload()
+
+    const quarantineAfter = await getQuarantineItems()
+    expect(quarantineAfter.length).toBe(quarantineCountBefore)
   })
 })

@@ -131,4 +131,51 @@ describe('Export Bundles Builder (§6, §11, §15)', () => {
       expect(res.error.code).toBe('EXPORT_SIZE_LIMIT_EXCEEDED')
     }
   })
+
+  it('buildConfigExport: mutações no payload após a construção não alteram o bundle nem o JSON (§11, §15, E6.5)', () => {
+    const payload = structuredClone(baseConfig)
+    const result = buildConfigExport(payload)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    // Mutação profunda imediata do payload original após a chamada
+    payload.settings.theme = 'light'
+    payload.scenarios[0].name = 'NOME_MUTADO_DEPOIS_DO_BUILD'
+
+    // Asserções de isolamento
+    expect(result.bundle.payload.settings.theme).toBe('dark')
+    expect(result.bundle.payload.scenarios[0].name).toBe('Cenário Export')
+    expect(JSON.stringify(result.bundle)).toBe(result.json)
+    expect(result.json).toContain('"Cenário Export"')
+    expect(result.json).not.toContain('NOME_MUTADO_DEPOIS_DO_BUILD')
+  })
+
+  it('buildFullBackup: mutações no payload ou no history após a construção não alteram o bundle nem o JSON (§11, §15, E6.5)', () => {
+    const payload = structuredClone(baseConfig)
+    const history = structuredClone([dummyRecord])
+    const result = buildFullBackup(payload, history)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    // Mutações profundas imediatas após a chamada
+    payload.settings.theme = 'light'
+    payload.scenarios[0].name = 'SCENARIO_MUTADO'
+    history[0].display.title = 'TITULO_MUTADO'
+    if (history[0].type === 'reconstitution') {
+      history[0].resultSnapshot.concentrationMcgPerMl = 999999
+    }
+
+    // Asserções de isolamento
+    expect(result.bundle.payload.settings.theme).toBe('dark')
+    expect(result.bundle.payload.scenarios[0].name).toBe('Cenário Export')
+    expect(result.bundle.history[0].display.title).toBe('Cálculo Export')
+    if (result.bundle.history[0].type === 'reconstitution') {
+      expect(result.bundle.history[0].resultSnapshot.concentrationMcgPerMl).toBe(5000)
+    }
+    expect(JSON.stringify(result.bundle)).toBe(result.json)
+    expect(result.json).toContain('"Cálculo Export"')
+    expect(result.json).not.toContain('TITULO_MUTADO')
+  })
 })

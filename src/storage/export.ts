@@ -18,6 +18,7 @@ import {
 } from '../validation/schemas/data-management'
 import { SAFETY_LIMITS } from '../validation/limits'
 import { serializedUtf8Bytes } from './bytes'
+import { clonePersistedValue } from './clone'
 import { getCalculationRecords } from './history'
 import { validateHistoricalInvariants } from './history-validation'
 import { loadConfigPayload } from './idb'
@@ -46,8 +47,11 @@ export function buildConfigExport(
     }
   }
 
+  // Snapshot isolado defensivo (§11, §15, E6.5)
+  const payloadSnapshot = clonePersistedValue(parsedPayload.data)
+
   // 2. Validação de integridade referencial
-  const refCheck = validateConfigReferences(payload)
+  const refCheck = validateConfigReferences(payloadSnapshot)
   if (!refCheck.valid) {
     return {
       ok: false,
@@ -59,7 +63,7 @@ export function buildConfigExport(
   }
 
   // 3. Validação de budget do payload
-  const payloadBytes = serializedUtf8Bytes(payload)
+  const payloadBytes = serializedUtf8Bytes(payloadSnapshot)
   if (payloadBytes > SAFETY_LIMITS.CONFIG_PAYLOAD_BYTES_MAX) {
     return {
       ok: false,
@@ -76,7 +80,7 @@ export function buildConfigExport(
     exportedAt: exportedAt || (new Date().toISOString() as InstantIso),
     datasetVersion: CURRENT_DATASET_VERSION,
     engineVersions: ENGINE_VERSIONS,
-    payload,
+    payload: payloadSnapshot,
   }
 
   // 4. Validação do schema do bundle completo
@@ -130,7 +134,11 @@ export function buildFullBackup(
     }
   }
 
-  const refCheck = validateConfigReferences(payload)
+  // Snapshots isolados defensivos (§11, §15, E6.5)
+  const payloadSnapshot = clonePersistedValue(parsedPayload.data)
+  const historySnapshot = clonePersistedValue(history)
+
+  const refCheck = validateConfigReferences(payloadSnapshot)
   if (!refCheck.valid) {
     return {
       ok: false,
@@ -142,17 +150,17 @@ export function buildFullBackup(
   }
 
   // 2. Validações de limites de histórico
-  if (history.length > SAFETY_LIMITS.HISTORY_RECORDS_MAX) {
+  if (historySnapshot.length > SAFETY_LIMITS.HISTORY_RECORDS_MAX) {
     return {
       ok: false,
       error: dataManagementError('EXPORT_SIZE_LIMIT_EXCEEDED', {
-        bytes: serializedUtf8Bytes(history),
+        bytes: serializedUtf8Bytes(historySnapshot),
         maxBytes: SAFETY_LIMITS.FULL_BACKUP_IMPORT_BYTES_MAX,
       }),
     }
   }
 
-  for (const record of history) {
+  for (const record of historySnapshot) {
     const b = serializedUtf8Bytes(record)
     if (b > SAFETY_LIMITS.CALCULATION_RECORD_BYTES_MAX) {
       return {
@@ -165,7 +173,7 @@ export function buildFullBackup(
     }
   }
 
-  const totalHistoryBytes = serializedUtf8Bytes(history)
+  const totalHistoryBytes = serializedUtf8Bytes(historySnapshot)
   if (totalHistoryBytes > SAFETY_LIMITS.HISTORY_TOTAL_BYTES_MAX) {
     return {
       ok: false,
@@ -176,7 +184,7 @@ export function buildFullBackup(
     }
   }
 
-  const historical = validateHistoricalInvariants(history)
+  const historical = validateHistoricalInvariants(historySnapshot)
   if (!historical.valid) {
     return {
       ok: false,
@@ -193,13 +201,13 @@ export function buildFullBackup(
     exportedAt: exportedAt || (new Date().toISOString() as InstantIso),
     datasetVersion: CURRENT_DATASET_VERSION,
     engineVersions: ENGINE_VERSIONS,
-    payload,
-    history,
+    payload: payloadSnapshot,
+    history: historySnapshot,
     counts: {
-      records: history.length,
-      recipes: payload.recipes.length,
-      scenarios: payload.scenarios.length,
-      protocols: payload.protocols.length,
+      records: historySnapshot.length,
+      recipes: payloadSnapshot.recipes.length,
+      scenarios: payloadSnapshot.scenarios.length,
+      protocols: payloadSnapshot.protocols.length,
     },
   }
 
@@ -214,8 +222,6 @@ export function buildFullBackup(
       }),
     }
   }
-
-
 
   const bytes = serializedUtf8Bytes(bundle)
   if (bytes > SAFETY_LIMITS.FULL_BACKUP_IMPORT_BYTES_MAX) {

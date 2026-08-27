@@ -183,4 +183,34 @@ describe('IDB Read-Validation & Corruption Quarantine (§11, E6.1)', () => {
     expect((await loadConfigPayload()).scenarios).toEqual([])
     expect((await getQuarantineItems()).some((item) => item.source === 'idb_corruption')).toBe(true)
   })
+
+  it('originalUtf8Bytes reflete o tamanho real do objeto corrompido antes do truncamento (§11, §18, E6.5)', async () => {
+    const rawCorrupt = {
+      id: 'corrupt-size-test',
+      invalidField: '🔥'.repeat(70_000), // ~280 KiB UTF-8
+    }
+    const expectedOriginalBytes = new TextEncoder().encode(JSON.stringify(rawCorrupt)).byteLength
+    expect(expectedOriginalBytes).toBeGreaterThan(SAFETY_LIMITS.QUARANTINE_ITEM_BYTES_MAX)
+
+    const db = await openRawIDB()
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction('scenarios', 'readwrite')
+      tx.objectStore('scenarios').put(rawCorrupt)
+      tx.oncomplete = () => { db.close(); resolve() }
+      tx.onerror = () => reject(tx.error)
+    })
+
+    await loadConfigPayload()
+
+    const items = await getQuarantineItems()
+    const item = items.find((i) => i.rawExcerptUtf8?.includes('corrupt-size-test'))
+    expect(item).toBeDefined()
+    if (!item) return
+
+    expect(item.originalUtf8Bytes).toBe(expectedOriginalBytes)
+    const excerptBytes = new TextEncoder().encode(item.rawExcerptUtf8 || '').byteLength
+    expect(excerptBytes).toBeLessThan(item.originalUtf8Bytes)
+    expect(item.truncated).toBe(true)
+    expect(serializedUtf8Bytes(item)).toBeLessThanOrEqual(SAFETY_LIMITS.QUARANTINE_ITEM_BYTES_MAX)
+  })
 })

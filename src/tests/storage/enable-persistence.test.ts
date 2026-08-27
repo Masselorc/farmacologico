@@ -6,8 +6,10 @@ import {
   disablePersistenceAndPurge,
   enablePersistence,
   getCalculationRecords,
+  getLastStorageError,
   getPersistenceConsent,
   getStorageMode,
+  isStorageDegraded,
   loadConfigPayload,
   mutateConfigPayload,
 } from '../../storage'
@@ -18,6 +20,7 @@ import {
   resetStorageSessionForTesting,
   setCustomIDBFactoryForTesting,
   setCustomStorageForTesting,
+  simulateIDBFailure,
 } from '../../storage/testing'
 import { createFaultController, readRawStore } from './idb-faults'
 
@@ -263,5 +266,54 @@ describe('Enable Persistence & LocalStorage Fault Resilience (§10, §11, E6.4)'
     // IDB físico foi purgado com sucesso
     const raw = await readRawStore<Scenario>(indexedDB, 'scenarios')
     expect(raw).toHaveLength(0)
+  })
+
+  it('falha simultânea no localStorage e no rollback físico propaga AggregateError observável (§10, §11, E6.5)', async () => {
+    expect(getPersistenceConsent()).toBe(false)
+    await putToStore('scenarios', dummyScenario)
+    await addCalculationRecord(dummyRecord)
+
+    // Configura storage com setItem que bloqueia o IDB e depois falha
+    const failingStorage: Storage = {
+      length: 0,
+      clear: () => {},
+      getItem: () => null,
+      key: () => null,
+      removeItem: () => {},
+      setItem: () => {
+        simulateIDBFailure(true, new Error('IDB unavailable during compensation'))
+        throw new Error('localStorage write failed')
+      },
+    }
+    setCustomStorageForTesting(failingStorage)
+
+    let caughtError: unknown = null
+    try {
+      await enablePersistence()
+    } catch (err) {
+      caughtError = err
+    }
+
+    expect(caughtError).toBeInstanceOf(AggregateError)
+    const agg = caughtError as AggregateError
+    expect(agg.errors).toHaveLength(2)
+    expect(agg.errors[0].message).toContain('localStorage write failed')
+    expect(agg.errors[1].message).toContain('IDB unavailable during compensation')
+
+    // Invariantes fundamentais
+    expect(getPersistenceConsent()).toBe(false)
+    expect(isStorageDegraded()).toBe(true)
+    expect(getLastStorageError()).not.toBeNull()
+
+    // Memória ativa não foi perdida
+    const memConfig = await loadConfigPayload()
+    expect(memConfig.scenarios).toHaveLength(1)
+    const memHistory = await getCalculationRecords()
+    expect(memHistory).toHaveLength(1)
+
+    // Desativa falha simulada apenas para inspeção física direta
+    simulateIDBFailure(false)
+    const rawScenarios = await readRawStore<Scenario>(indexedDB, 'scenarios')
+    expect(rawScenarios.length).toBeGreaterThanOrEqual(1)
   })
 })

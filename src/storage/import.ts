@@ -10,6 +10,7 @@ import { CURRENT_DATASET_VERSION } from '../domain/version'
 import { SAFETY_LIMITS } from '../validation/limits'
 import { configExportBundleSchema, fullBackupBundleSchema } from '../validation/schemas/data-management'
 import { serializedUtf8Bytes } from './bytes'
+import { clonePersistedValue } from './clone'
 import { restoreFullBackup, saveConfigPayload } from './idb'
 import { validateHistoricalInvariants } from './history-validation'
 import { addQuarantineItem } from './quarantine'
@@ -226,9 +227,10 @@ export async function validateAndPreviewFullBackupImport(
 }
 
 export async function applyImport(preview: ImportPreview): Promise<{ ok: true }> {
+  const snapshot = clonePersistedValue(preview)
   return enqueueStorageMutation(async () => {
-    if (preview.actionKind === 'config') await saveConfigPayload(preview.payload)
-    else await restoreFullBackup(preview.bundle.payload, preview.bundle.history)
+    if (snapshot.actionKind === 'config') await saveConfigPayload(snapshot.payload)
+    else await restoreFullBackup(snapshot.bundle.payload, snapshot.bundle.history)
     return { ok: true }
   })
 }

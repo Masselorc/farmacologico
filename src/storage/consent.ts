@@ -80,10 +80,11 @@ export function getPersistenceConsent(): boolean {
 }
 
 /**
- * Habilita a persistência de dados atomicamente com compensação (§10, §11, E6.4).
+ * Habilita a persistência de dados atomicamente com compensação (§10, §11, E6.5).
  * Captura o estado atual em memória, valida todos os orçamentos e invariantes,
  * persiste o snapshot no IndexedDB e confirma o consentimento no localStorage.
  * Se o localStorage falhar, executa compensação física no IndexedDB e mantém inMemoryConsent=false.
+ * Se a compensação física também falhar, lança AggregateError observável contendo ambas as falhas.
  */
 export async function enablePersistence(): Promise<void> {
   return enqueueStorageMutation(async () => {
@@ -94,17 +95,26 @@ export async function enablePersistence(): Promise<void> {
     if (storage) {
       try {
         storage.setItem(CONSENT_STORAGE_KEY, 'true')
-      } catch (err) {
-        // Compensação atômica: remove dados persistidos no IDB para não deixar resíduo silencioso
+      } catch (localStorageError) {
+        inMemoryConsent = false
+
         try {
           await purgePhysicalIDBOnly()
-        } catch {
-          // Silencia erro de compensação secundário
+        } catch (compensationError) {
+          throw new AggregateError(
+            [localStorageError, compensationError],
+            'Falha ao habilitar persistência e ao executar rollback físico',
+            { cause: compensationError },
+          )
         }
-        inMemoryConsent = false
+
         throw new Error(
-          `Falha ao gravar consentimento no localStorage: ${err instanceof Error ? err.message : String(err)}`,
-          { cause: err },
+          `Falha ao gravar consentimento no localStorage: ${
+            localStorageError instanceof Error
+              ? localStorageError.message
+              : String(localStorageError)
+          }`,
+          { cause: localStorageError },
         )
       }
     }

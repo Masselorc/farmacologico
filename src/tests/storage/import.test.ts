@@ -7,6 +7,7 @@ import { getCalculationRecords } from '../../storage/history'
 import {
   getDefaultFavorites,
   getDefaultSettings,
+  loadConfigPayload,
   resetStorageForTesting,
   setCustomIDBFactoryForTesting,
 } from '../../storage/idb'
@@ -286,5 +287,105 @@ describe('Import Pipeline, Guards & Invariants (§11, §16, §17, E6.1)', () => 
     const history = await getCalculationRecords()
     expect(history).toHaveLength(1)
     expect(history[0].id).toBe('rec-applied')
+  })
+
+  it('TOCTOU Config: mutações em preview após applyImport não afetam o payload gravado (§11, E6.5)', async () => {
+    const originalConfig = {
+      ...baseConfig,
+      settings: { ...getDefaultSettings(), theme: 'system' as const },
+      scenarios: [
+        {
+          id: 'sc-orig-1',
+          name: 'Cenário Original',
+          color: 'blue-500',
+          source: { type: 'manual' as const, pkParametersSnapshot: { halfLife: { value: 12, unit: 'hours' as const }, tmax: null } },
+          displayUnit: 'mg' as const,
+          selectedPkParameters: { halfLifeMs: 43200000, tmaxMs: null },
+          doses: [],
+        },
+      ],
+    }
+
+    const configExport = buildConfigExport(originalConfig)
+    expect(configExport.ok).toBe(true)
+    if (!configExport.ok) return
+
+    const previewRes = await validateAndPreviewConfigImport({
+      name: 'config-orig.json',
+      content: configExport.json,
+    })
+    expect(previewRes.ok).toBe(true)
+    if (!previewRes.ok) return
+
+    const preview = previewRes.preview
+    const promise = applyImport(preview)
+
+    // Modificações síncronas imediatas estruturalmente válidas antes do await
+    preview.payload.settings.theme = 'dark'
+    preview.payload.scenarios[0].name = 'NOME_ALTERADO_DEPOIS_DA_CHAMADA'
+
+    await promise
+
+    const loaded = await loadConfigPayload()
+    expect(loaded.settings.theme).toBe('system')
+    expect(loaded.scenarios[0].name).toBe('Cenário Original')
+  })
+
+  it('TOCTOU FullBackup: mutações em preview após applyImport não afetam o backup gravado (§11, E6.5)', async () => {
+    const originalBackup = buildFullBackup(
+      {
+        ...baseConfig,
+        settings: { ...getDefaultSettings(), theme: 'system' as const },
+      },
+      [
+        {
+          id: 'rec-orig-1',
+          createdAt: '2026-08-27T08:00:00.000Z',
+          display: { title: 'Título Original', color: 'blue-500' },
+          type: 'reconstitution',
+          versions: { reconstitutionEngineVersion: '1.0.0', datasetVersion: 1 },
+          input: {
+            vialMassMg: 10,
+            diluentVolumeMl: 2,
+            desiredDoseMcg: 100,
+            syringe: { family: 'U-100', capacityUnits: 100, unitsPerMl: 100, graduationUnits: 1 },
+          },
+          resultSnapshot: {
+            concentrationMcgPerMl: 5000,
+            doseVolumeMl: 0.02,
+            syringeUnits: 2,
+            theoreticalMaxDoses: 100,
+            capacityExceeded: false,
+            warnings: [],
+            metadata: { reconstitutionEngineVersion: '1.0.0' },
+          },
+        },
+      ],
+    )
+
+    expect(originalBackup.ok).toBe(true)
+    if (!originalBackup.ok) return
+
+    const previewRes = await validateAndPreviewFullBackupImport({
+      name: 'fullbackup-orig.json',
+      content: originalBackup.json,
+    })
+    expect(previewRes.ok).toBe(true)
+    if (!previewRes.ok) return
+
+    const preview = previewRes.preview
+    const promise = applyImport(preview)
+
+    // Modificações síncronas imediatas antes do await
+    preview.bundle.payload.settings.theme = 'dark'
+    preview.bundle.history[0].display.title = 'TITULO_ALTERADO_DEPOIS_DA_CHAMADA'
+
+    await promise
+
+    const loadedConfig = await loadConfigPayload()
+    expect(loadedConfig.settings.theme).toBe('system')
+
+    const loadedHistory = await getCalculationRecords()
+    expect(loadedHistory[0].display.title).toBe('Título Original')
   })
 })
