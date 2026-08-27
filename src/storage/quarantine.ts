@@ -1,14 +1,12 @@
-// Store de quarentena compacta (§11, §14).
-// Limites simultâneos:
-// - máx. 5 itens (QUARANTINE_ITEMS_MAX)
-// - máx. 256 KiB por item (QUARANTINE_ITEM_BYTES_MAX)
-// - máx. 1 MiB total no store (QUARANTINE_TOTAL_BYTES_MAX)
-// FIFO determinístico por ordem de inserção: podar os mais antigos enquanto qualquer limite for violado.
+// Quarentena compacta com envelope FIFO persistido e mutação atômica única.
 
 import type { InstantIso, QuarantineItem, QuarantineSource } from '../domain/types'
 import { SAFETY_LIMITS } from '../validation/limits'
-import { serializedUtf8Bytes, truncateUtf8Bytes } from './bytes'
-import { deleteFromStore, getAllFromStore, putToStore } from './idb'
+import { serializedUtf8Bytes } from './bytes'
+import {
+  commitStorageOperations, getAllFromStore,
+  type StorageOperation, type StoredQuarantineEntry,
+} from './idb'
 
 export interface AddQuarantineOptions {
   source: QuarantineSource
@@ -25,129 +23,89 @@ export interface AddQuarantineResult {
   evictedBytes: number
 }
 
-function calculateTotalQuarantineBytes(items: QuarantineItem[]): number {
-  return items.reduce((acc, item) => acc + serializedUtf8Bytes(item), 0)
+function newId(): string {
+  return typeof crypto !== 'undefined' && crypto.randomUUID
+    ? crypto.randomUUID()
+    : `quarantine-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
 }
 
-// Ordem de inserção interna mantida em memória para controle da fila FIFO
-const quarantineInsertionOrder = new Map<string, number>()
-let quarantineCounter = 0
+function fitItem(options: AddQuarantineOptions, id: string, createdAt: InstantIso): QuarantineItem {
+  const base = { id, createdAt, source: options.source, errorCode: options.errorCode,
+    originalUtf8Bytes: options.originalUtf8Bytes }
+  const raw = options.rawExcerptUtf8
+  if (raw === undefined) return { ...base, truncated: false }
+  let low = 0
+  // Nenhum excerto pode conter mais code units do que o próprio cap em bytes.
+  let high = Math.min(raw.length, SAFETY_LIMITS.QUARANTINE_ITEM_BYTES_MAX)
+  let best = ''
+  while (low <= high) {
+    const middle = Math.floor((low + high) / 2)
+    let end = middle
+    if (end > 0 && end < raw.length) {
+      const previous = raw.charCodeAt(end - 1)
+      const next = raw.charCodeAt(end)
+      if (previous >= 0xd800 && previous <= 0xdbff && next >= 0xdc00 && next <= 0xdfff) end -= 1
+    }
+    const excerpt = raw.slice(0, end)
+    const candidate: QuarantineItem = {
+      ...base, rawExcerptUtf8: excerpt, truncated: end < raw.length,
+    }
+    if (serializedUtf8Bytes(candidate) <= SAFETY_LIMITS.QUARANTINE_ITEM_BYTES_MAX) {
+      best = excerpt; low = Math.max(middle + 1, end + 1)
+    } else high = middle - 1
+  }
+  const suppliedBytes = new TextEncoder().encode(raw).byteLength
+  return {
+    ...base,
+    rawExcerptUtf8: best,
+    truncated: best !== raw || options.originalUtf8Bytes > suppliedBytes,
+  }
+}
 
-/**
- * Adiciona um novo registro à quarentena compacta, aplicando truncamento byte-aware
- * e poda FIFO determinística sobre itens mais antigos.
- */
+function quarantineBytes(entries: StoredQuarantineEntry[]): number {
+  return serializedUtf8Bytes(entries.map((entry) => entry.item))
+}
+
 export async function addQuarantineItem(options: AddQuarantineOptions): Promise<AddQuarantineResult> {
-  const id = options.id || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `quarantine-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`)
+  const id = options.id || newId()
   const createdAt = options.createdAt || (new Date().toISOString() as InstantIso)
-
-  // Monta item preliminar
-  let excerpt = options.rawExcerptUtf8
-  let truncated = false
-
-  if (excerpt !== undefined) {
-    // Estimativa de envelope sem excerto
-    const envelopeWithoutExcerpt: QuarantineItem = {
-      id,
-      createdAt,
-      source: options.source,
-      errorCode: options.errorCode,
-      originalUtf8Bytes: options.originalUtf8Bytes,
-      truncated: false,
-    }
-    const baseBytes = serializedUtf8Bytes(envelopeWithoutExcerpt)
-    const maxExcerptBytes = Math.max(0, SAFETY_LIMITS.QUARANTINE_ITEM_BYTES_MAX - baseBytes - 50)
-
-    const truncResult = truncateUtf8Bytes(excerpt, maxExcerptBytes)
-    excerpt = truncResult.text
-    truncated = truncResult.truncated || options.originalUtf8Bytes > maxExcerptBytes
+  const item = fitItem(options, id, createdAt)
+  if (serializedUtf8Bytes(item) > SAFETY_LIMITS.QUARANTINE_ITEM_BYTES_MAX) {
+    throw new Error('Quarantine item exceeds the individual byte budget')
   }
 
-  const newItem: QuarantineItem = {
-    id,
-    createdAt,
-    source: options.source,
-    errorCode: options.errorCode,
-    originalUtf8Bytes: options.originalUtf8Bytes,
-    ...(excerpt !== undefined ? { rawExcerptUtf8: excerpt } : {}),
-    truncated,
-  }
-
-  // Garante que o item individual satisfaz o limite
-  const itemBytes = serializedUtf8Bytes(newItem)
-  if (itemBytes > SAFETY_LIMITS.QUARANTINE_ITEM_BYTES_MAX) {
-    const forcedTrunc = truncateUtf8Bytes(excerpt || '', 100)
-    newItem.rawExcerptUtf8 = forcedTrunc.text
-    newItem.truncated = true
-  }
-
-  // Registra ordem de inserção do novo item
-  quarantineCounter++
-  quarantineInsertionOrder.set(newItem.id, quarantineCounter)
-
-  // Carrega itens existentes ordenados pela ordem de inserção (mais antigos primeiro)
-  const existing = await getAllFromStore<QuarantineItem>('quarantine')
-  existing.sort((a, b) => {
-    const orderA = quarantineInsertionOrder.get(a.id) ?? 0
-    const orderB = quarantineInsertionOrder.get(b.id) ?? 0
-    if (orderA !== orderB) {
-      return orderA - orderB
-    }
-    return a.createdAt.localeCompare(b.createdAt)
-  })
-
-  // Adiciona o novo item à lista
-  const updatedList = [...existing, newItem]
-  await putToStore('quarantine', newItem)
-
-  // Poda FIFO dos mais antigos enquanto contagem > 5 ou totalBytes > 1 MiB
+  const entries = await getAllFromStore<StoredQuarantineEntry>('quarantine')
+  entries.sort((a, b) => a.insertionOrder - b.insertionOrder)
+  const insertionOrder = entries.reduce((max, entry) => Math.max(max, entry.insertionOrder), 0) + 1
+  const newest: StoredQuarantineEntry = { id, insertionOrder, item }
+  const retained = [...entries.filter((entry) => entry.id !== id), newest]
   let evictedCount = 0
   let evictedBytes = 0
 
-  while (
-    updatedList.length > 1 &&
-    (updatedList.length > SAFETY_LIMITS.QUARANTINE_ITEMS_MAX ||
-      calculateTotalQuarantineBytes(updatedList) > SAFETY_LIMITS.QUARANTINE_TOTAL_BYTES_MAX)
-  ) {
-    const oldest = updatedList[0]
-    if (oldest.id === newItem.id) {
-      break
-    }
-    const b = serializedUtf8Bytes(oldest)
-    await deleteFromStore('quarantine', oldest.id)
-    quarantineInsertionOrder.delete(oldest.id)
-    updatedList.shift()
-    evictedCount++
-    evictedBytes += b
+  while (retained.length > 1 &&
+    (retained.length > SAFETY_LIMITS.QUARANTINE_ITEMS_MAX ||
+      quarantineBytes(retained) > SAFETY_LIMITS.QUARANTINE_TOTAL_BYTES_MAX)) {
+    const oldest = retained[0]
+    if (oldest.id === newest.id) break
+    retained.shift(); evictedCount += 1; evictedBytes += serializedUtf8Bytes(oldest.item)
   }
 
-  return {
-    item: newItem,
-    evictedCount,
-    evictedBytes,
-  }
+  const retainedIds = new Set(retained.map((entry) => entry.id))
+  const operations: StorageOperation[] = [
+    { kind: 'put', store: 'quarantine', value: newest },
+    ...entries.filter((entry) => !retainedIds.has(entry.id))
+      .map((entry): StorageOperation => ({ kind: 'delete', store: 'quarantine', key: entry.id })),
+  ]
+  await commitStorageOperations(operations)
+  return { item, evictedCount, evictedBytes }
 }
 
-/**
- * Retorna todos os itens da quarentena.
- */
 export async function getQuarantineItems(): Promise<QuarantineItem[]> {
-  const items = await getAllFromStore<QuarantineItem>('quarantine')
-  items.sort((a, b) => {
-    const orderA = quarantineInsertionOrder.get(a.id) ?? 0
-    const orderB = quarantineInsertionOrder.get(b.id) ?? 0
-    if (orderA !== orderB) {
-      return orderB - orderA // Mais recentes primeiro
-    }
-    return b.createdAt.localeCompare(a.createdAt)
-  })
-  return items
+  const entries = await getAllFromStore<StoredQuarantineEntry>('quarantine')
+  entries.sort((a, b) => b.insertionOrder - a.insertionOrder)
+  return entries.map((entry) => entry.item)
 }
 
-/**
- * Remove um item específico da quarentena.
- */
 export async function deleteQuarantineItem(id: string): Promise<void> {
-  quarantineInsertionOrder.delete(id)
-  await deleteFromStore('quarantine', id)
+  await commitStorageOperations([{ kind: 'delete', store: 'quarantine', key: id }])
 }

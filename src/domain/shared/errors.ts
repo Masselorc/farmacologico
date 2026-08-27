@@ -36,11 +36,19 @@ export type DataManagementErrorCode =
 export interface DataManagementError {
   code: DataManagementErrorCode
   params?: Record<string, number | string>
+  /** Motivo interno não normativo; nunca substitui o catálogo público de códigos. */
+  internalReason?: string
+  validationDetails?: string
 }
 
 export function dataManagementError(
   code: DataManagementErrorCode,
   params?: Record<string, number | string>,
+  diagnostics?: Pick<DataManagementError, 'internalReason' | 'validationDetails'>,
 ): DataManagementError {
-  return params === undefined ? { code } : { code, params }
+  return {
+    code,
+    ...(params === undefined ? {} : { params }),
+    ...(diagnostics || {}),
+  }
 }

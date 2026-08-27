@@ -12,6 +12,8 @@ import {
   setCustomIDBFactoryForTesting,
 } from '../../storage/idb'
 import { getQuarantineItems } from '../../storage/quarantine'
+import { serializedUtf8Bytes } from '../../storage/bytes'
+import { SAFETY_LIMITS } from '../../validation/limits'
 
 async function openRawIDB(): Promise<IDBDatabase> {
   return new Promise<IDBDatabase>((resolve, reject) => {
@@ -125,5 +127,60 @@ describe('IDB Read-Validation & Corruption Quarantine (§11, E6.1)', () => {
     // A leitura de quarentena deve ignorar o item corrompido sem disparar nova inserção
     const items = await getQuarantineItems()
     expect(items.find((i) => i.id === 'q-corrupt-recursive')).toBeUndefined()
+  })
+
+  it('valida customSubstances, customProfiles e recipes como coleções completas', async () => {
+    const db = await openRawIDB()
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction('custom', 'readwrite')
+      tx.objectStore('custom').put({ key: 'fk:v1:customSubstances', value: [{ id: 123 }] })
+      tx.objectStore('custom').put({ key: 'fk:v1:customProfiles', value: [{ id: 'p', owner: null }] })
+      tx.objectStore('custom').put({ key: 'fk:v1:recipes', value: [{ id: 'r', input: 'invalid' }] })
+      tx.oncomplete = () => { db.close(); resolve() }
+      tx.onerror = () => reject(tx.error)
+    })
+
+    const config = await loadConfigPayload()
+    expect(config.customSubstances).toEqual([])
+    expect(config.customProfiles).toEqual([])
+    expect(config.recipes).toEqual([])
+    const quarantine = await getQuarantineItems()
+    expect(quarantine.filter((item) => item.source === 'idb_corruption')).toHaveLength(3)
+  })
+
+  it('submete muitas corrupções IDB à política global de 5 itens e budgets', async () => {
+    const db = await openRawIDB()
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction('scenarios', 'readwrite')
+      for (let index = 0; index < 10; index += 1) {
+        tx.objectStore('scenarios').put({ id: `corrupt-${index}`, invalid: 'x'.repeat(300_000) })
+      }
+      tx.oncomplete = () => { db.close(); resolve() }
+      tx.onerror = () => reject(tx.error)
+    })
+
+    expect(await getAllFromStore<Scenario>('scenarios')).toEqual([])
+    const items = await getQuarantineItems()
+    expect(items.length).toBeLessThanOrEqual(SAFETY_LIMITS.QUARANTINE_ITEMS_MAX)
+    expect(serializedUtf8Bytes(items)).toBeLessThanOrEqual(SAFETY_LIMITS.QUARANTINE_TOTAL_BYTES_MAX)
+    expect(items.every((item) => serializedUtf8Bytes(item) <= SAFETY_LIMITS.QUARANTINE_ITEM_BYTES_MAX)).toBe(true)
+    expect(items.some((item) => item.id === 'corrupt-9')).toBe(true)
+  })
+
+  it('valida referências cruzadas ao montar o ConfigPayload lido', async () => {
+    const db = await openRawIDB()
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction('scenarios', 'readwrite')
+      tx.objectStore('scenarios').put({
+        id: 'orphan-read', name: 'Órfão', color: 'blue-500', displayUnit: 'mg', doses: [],
+        selectedPkParameters: { halfLifeMs: 43_200_000, tmaxMs: null },
+        source: { type: 'custom_profile', customProfileId: 'missing',
+          pkParametersSnapshot: { halfLife: { value: 12, unit: 'hours' }, tmax: null } },
+      })
+      tx.oncomplete = () => { db.close(); resolve() }
+      tx.onerror = () => reject(tx.error)
+    })
+    expect((await loadConfigPayload()).scenarios).toEqual([])
+    expect((await getQuarantineItems()).some((item) => item.id === 'fk:v1:config-references')).toBe(true)
   })
 })

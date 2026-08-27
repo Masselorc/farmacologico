@@ -16,7 +16,9 @@ import {
   putToStore,
   resetStorageForTesting,
   setCustomIDBFactoryForTesting,
+  simulateIDBFailure,
 } from '../../storage/idb'
+import { createFaultController, readRawStore } from './idb-faults'
 
 const dummyScenario: Scenario = {
   id: 'sc-purge-test',
@@ -122,5 +124,31 @@ describe('Consent & TimeZone Detection (§10, §11, E6.1)', () => {
 
     const config = await loadConfigPayload()
     expect(config.scenarios).toHaveLength(0)
+  })
+
+  it('mantém consentimento e memória quando a abertura para purge falha', async () => {
+    setPersistenceConsent(true)
+    await putToStore('scenarios', dummyScenario)
+    simulateIDBFailure(true, new Error('purge open failure'))
+
+    await expect(disablePersistenceAndPurge(purgePersistentData)).rejects.toThrow('purge open failure')
+    expect(getPersistenceConsent()).toBe(true)
+    expect(await getFromStore<Scenario>('scenarios', dummyScenario.id)).toEqual(dummyScenario)
+
+    simulateIDBFailure(false)
+    expect(await readRawStore<Scenario>(indexedDB, 'scenarios')).toEqual([dummyScenario])
+  })
+
+  it('mantém consentimento, memória e IDB quando a transaction de purge aborta', async () => {
+    setPersistenceConsent(true)
+    await putToStore('scenarios', dummyScenario)
+    const faults = createFaultController(indexedDB)
+    setCustomIDBFactoryForTesting(faults.factory)
+    faults.arm({ kind: 'transaction-abort', operation: 'clear', store: 'scenarios' })
+
+    await expect(disablePersistenceAndPurge(purgePersistentData)).rejects.toBeDefined()
+    expect(getPersistenceConsent()).toBe(true)
+    expect(await getFromStore<Scenario>('scenarios', dummyScenario.id)).toEqual(dummyScenario)
+    expect(await readRawStore<Scenario>(indexedDB, 'scenarios')).toEqual([dummyScenario])
   })
 })

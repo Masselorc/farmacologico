@@ -19,6 +19,7 @@ import {
 import { SAFETY_LIMITS } from '../validation/limits'
 import { serializedUtf8Bytes } from './bytes'
 import { getCalculationRecords } from './history'
+import { validateHistoricalInvariants } from './history-validation'
 import { loadConfigPayload } from './idb'
 import { validateConfigReferences } from './references'
 
@@ -41,7 +42,7 @@ export function buildConfigExport(
       error: dataManagementError('EXPORT_SIZE_LIMIT_EXCEEDED', {
         bytes: 0,
         maxBytes: SAFETY_LIMITS.CONFIG_IMPORT_BYTES_MAX,
-      }),
+      }, { internalReason: 'STRUCTURAL_VALIDATION_FAILED', validationDetails: parsedPayload.error.message }),
     }
   }
 
@@ -53,7 +54,7 @@ export function buildConfigExport(
       error: dataManagementError('EXPORT_SIZE_LIMIT_EXCEEDED', {
         bytes: 0,
         maxBytes: SAFETY_LIMITS.CONFIG_IMPORT_BYTES_MAX,
-      }),
+      }, { internalReason: 'REFERENCE_VALIDATION_FAILED', validationDetails: refCheck.error }),
     }
   }
 
@@ -65,7 +66,7 @@ export function buildConfigExport(
       error: dataManagementError('EXPORT_SIZE_LIMIT_EXCEEDED', {
         bytes: payloadBytes,
         maxBytes: SAFETY_LIMITS.CONFIG_IMPORT_BYTES_MAX,
-      }),
+      }, { internalReason: 'PAYLOAD_SIZE_EXCEEDED' }),
     }
   }
 
@@ -125,7 +126,7 @@ export function buildFullBackup(
       error: dataManagementError('EXPORT_SIZE_LIMIT_EXCEEDED', {
         bytes: 0,
         maxBytes: SAFETY_LIMITS.FULL_BACKUP_IMPORT_BYTES_MAX,
-      }),
+      }, { internalReason: 'STRUCTURAL_VALIDATION_FAILED', validationDetails: parsedPayload.error.message }),
     }
   }
 
@@ -136,7 +137,7 @@ export function buildFullBackup(
       error: dataManagementError('EXPORT_SIZE_LIMIT_EXCEEDED', {
         bytes: 0,
         maxBytes: SAFETY_LIMITS.FULL_BACKUP_IMPORT_BYTES_MAX,
-      }),
+      }, { internalReason: 'REFERENCE_VALIDATION_FAILED', validationDetails: refCheck.error }),
     }
   }
 
@@ -151,7 +152,6 @@ export function buildFullBackup(
     }
   }
 
-  let totalHistoryBytes = 0
   for (const record of history) {
     const b = serializedUtf8Bytes(record)
     if (b > SAFETY_LIMITS.CALCULATION_RECORD_BYTES_MAX) {
@@ -163,15 +163,26 @@ export function buildFullBackup(
         }),
       }
     }
-    totalHistoryBytes += b
   }
 
+  const totalHistoryBytes = serializedUtf8Bytes(history)
   if (totalHistoryBytes > SAFETY_LIMITS.HISTORY_TOTAL_BYTES_MAX) {
     return {
       ok: false,
       error: dataManagementError('EXPORT_SIZE_LIMIT_EXCEEDED', {
         bytes: totalHistoryBytes,
         maxBytes: SAFETY_LIMITS.FULL_BACKUP_IMPORT_BYTES_MAX,
+      }),
+    }
+  }
+
+  const historical = validateHistoricalInvariants(history)
+  if (!historical.valid) {
+    return {
+      ok: false,
+      error: dataManagementError('EXPORT_SIZE_LIMIT_EXCEEDED', undefined, {
+        internalReason: historical.internalReason,
+        validationDetails: historical.error,
       }),
     }
   }

@@ -5,9 +5,10 @@
 import type { ConfigMutationResult, ConfigPayload, StoredHistoryEntry } from '../domain/types'
 import { dataManagementError, type DataManagementError } from '../domain/shared/errors'
 import { SAFETY_LIMITS } from '../validation/limits'
+import { configPayloadSchema } from '../validation/schemas/data-management'
 import { serializedUtf8Bytes } from './bytes'
 import { calculateProjectedFullBackupBytes } from './history'
-import { deleteFromStore, getAllFromStore, loadConfigPayload, saveConfigPayload } from './idb'
+import { getAllFromStore, loadConfigPayload, replaceConfigAndPruneHistory } from './idb'
 import { validateConfigReferences } from './references'
 
 export type { ConfigMutationResult }
@@ -18,25 +19,36 @@ export type { ConfigMutationResult }
 export function validateProjectedConfigPayload(
   payload: ConfigPayload,
 ): { ok: true; bytes: number } | { ok: false; error: DataManagementError; bytes: number } {
+  const structural = configPayloadSchema.safeParse(payload)
   const bytes = serializedUtf8Bytes(payload)
+  if (!structural.success) {
+    return {
+      ok: false,
+      error: dataManagementError('CONFIG_STORAGE_LIMIT_EXCEEDED', undefined, {
+        internalReason: 'STRUCTURAL_VALIDATION_FAILED',
+        validationDetails: structural.error.message,
+      }),
+      bytes,
+    }
+  }
   if (bytes > SAFETY_LIMITS.CONFIG_PAYLOAD_BYTES_MAX) {
     return {
       ok: false,
       error: dataManagementError('CONFIG_STORAGE_LIMIT_EXCEEDED', {
         bytes,
         maxBytes: SAFETY_LIMITS.CONFIG_PAYLOAD_BYTES_MAX,
-      }),
+      }, { internalReason: 'PAYLOAD_SIZE_EXCEEDED' }),
       bytes,
     }
   }
 
-  const refCheck = validateConfigReferences(payload)
+  const refCheck = validateConfigReferences(structural.data)
   if (!refCheck.valid) {
     return {
       ok: false,
-      error: dataManagementError('CONFIG_STORAGE_LIMIT_EXCEEDED', {
-        bytes,
-        maxBytes: SAFETY_LIMITS.CONFIG_PAYLOAD_BYTES_MAX,
+      error: dataManagementError('CONFIG_STORAGE_LIMIT_EXCEEDED', undefined, {
+        internalReason: 'REFERENCE_VALIDATION_FAILED',
+        validationDetails: refCheck.error,
       }),
       bytes,
     }
@@ -67,6 +79,7 @@ export async function mutateConfigPayload(
 
   let evictedHistoryCount = 0
   let evictedHistoryBytes = 0
+  const evictedHistoryIds: string[] = []
 
   while (
     entries.length > 0 &&
@@ -77,13 +90,13 @@ export async function mutateConfigPayload(
   ) {
     const oldest = entries[0]
     const b = serializedUtf8Bytes(oldest.record)
-    await deleteFromStore('history', oldest.id)
     entries.shift()
+    evictedHistoryIds.push(oldest.id)
     evictedHistoryCount++
     evictedHistoryBytes += b
   }
 
-  await saveConfigPayload(projected)
+  await replaceConfigAndPruneHistory(projected, evictedHistoryIds)
 
   return {
     ok: true,

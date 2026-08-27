@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { indexedDB } from 'fake-indexeddb'
 import type { CalculationRecord, ConfigPayload, Scenario } from '../../domain/types'
 import { setPersistenceConsent } from '../../storage/consent'
-import { exportCurrentConfig, exportCurrentFullBackup } from '../../storage/export'
+import { buildFullBackup, exportCurrentConfig, exportCurrentFullBackup } from '../../storage/export'
 import { addCalculationRecord } from '../../storage/history'
 import {
   getDefaultFavorites,
@@ -59,6 +59,35 @@ const reconRecord: CalculationRecord = {
   },
 }
 
+function pkRecord(id: string, scaleMode: 'absolute' | 'normalized'): CalculationRecord {
+  return {
+    id, createdAt: '2026-08-27T08:15:00.000Z', display: { title: `PK ${scaleMode}`, color: 'emerald-500' },
+    type: 'pharmacokinetics', versions: { pkEngineVersion: '1.0.0', recurrenceEngineVersion: '1.0.0', datasetVersion: 1 },
+    scenarios: [{
+      scenarioId: dummyScenario.id, scenarioSnapshot: dummyScenario,
+      simulationInput: { halfLifeMs: 64_800_000, tmaxMs: null,
+        doses: [{ id: 'd1', amountMg: 250, timeMs: 0 }], nowMs: 0 },
+      resultSnapshot: {
+        currentState: { administeredMg: 250, centralMg: 250, depotMg: 0, eliminatedMg: 0,
+          administeredCount: 1, plannedCount: 1, centralPercent: 100, depotPercent: 0, eliminatedPercent: 0 },
+        analysisCurve: [{ timeMs: 0, amountMg: 250 }], peak: { timeMs: 0, amountMg: 250 },
+        milestones: [], warnings: [], metadata: { pkEngineVersion: '1.0.0',
+          kePerMs: 0.00000001, kaPerMs: null, terminalHalfLifeMs: 64_800_000,
+          horizonEndMs: 86_400_000, analysisCurveSteps: 100, contributionCutoffHalfLives: 44,
+          contributionCutoffAgeMs: 2_851_200_000 },
+      },
+    }],
+    chartViewSnapshot: {
+      displayWindow: { startMs: 0, endMs: 86_400_000 }, calendarTimeZone: 'America/Sao_Paulo',
+      scaleMode, yAxisMode: 'log', displayPointsByScenario: [{
+        scenarioId: dummyScenario.id, label: dummyScenario.name, color: 'emerald-500',
+        points: [{ timeMs: 0, value: scaleMode === 'absolute' ? 250 : 1,
+          valueKind: scaleMode === 'absolute' ? 'mg' : 'normalized_ratio', clippedBelowLogEpsilon: false }],
+      }],
+    },
+  }
+}
+
 const protoRecord: CalculationRecord = {
   id: 'rec-rt-proto',
   createdAt: '2026-08-27T08:30:00.000Z',
@@ -86,11 +115,17 @@ const protoRecord: CalculationRecord = {
         {
           id: 'comp:rt:1',
           label: 'Componente RT',
-          proportion: 1,
+          proportion: 0.5,
           source: { type: 'manual' },
           selectedPkParameters: { halfLifeMs: 86400000, tmaxMs: null },
           pkParametersSnapshot: { halfLife: { value: 24, unit: 'hours' }, tmax: null },
           displayColor: { paletteColor: 'purple-500' },
+        },
+        {
+          id: 'comp:rt:2', label: 'Componente RT 2', proportion: 0.5,
+          source: { type: 'manual' }, selectedPkParameters: { halfLifeMs: 43_200_000, tmaxMs: null },
+          pkParametersSnapshot: { halfLife: { value: 12, unit: 'hours' }, tmax: null },
+          displayColor: { paletteColor: 'blue-500' },
         },
       ],
 
@@ -103,6 +138,13 @@ const protoRecord: CalculationRecord = {
     displayWindow: { startMs: 0, endMs: 86400000 },
     calculationWindow: { startMs: 0, endMs: 86400000 },
     series: [
+      {
+        key: { protocolId: 'proto:rt:1', componentId: 'comp:rt:2' },
+        label: 'Série RT 2', color: 'blue-500', displayPoints: [{ timeMs: 0, amountMg: 50 }],
+        state: { administeredMg: 50, centralMg: 50, depotMg: 0, eliminatedMg: 0,
+          administeredCount: 1, plannedCount: 1, centralPercent: 100, depotPercent: 0, eliminatedPercent: 0 },
+        peak: { timeMs: 0, amountMg: 50 }, milestones: [], warnings: [],
+      },
       {
         key: { protocolId: 'proto:rt:1', componentId: 'comp:rt:1' },
         label: 'Série RT',
@@ -134,6 +176,11 @@ const protoRecord: CalculationRecord = {
         doses: [{ id: 'd1', amountMg: 100, timeMs: 0 }],
         nowMs: 0,
       },
+    },
+    {
+      key: { protocolId: 'proto:rt:1', componentId: 'comp:rt:2' },
+      input: { halfLifeMs: 43_200_000, tmaxMs: null,
+        doses: [{ id: 'd2', amountMg: 50, timeMs: 0 }], nowMs: 0 },
     },
   ],
 }
@@ -186,6 +233,18 @@ describe('Same-Version Round-Trip Integrity (§11, E6.1)', () => {
     expect(reExportRes.bundle).toEqual(exportRes.bundle)
   })
 
+  it('buildFullBackup rejeita invariantes históricas inválidas antes de exportar', () => {
+    const invalid = pkRecord('invalid-normalized', 'normalized')
+    if (invalid.type !== 'pharmacokinetics') return
+    invalid.chartViewSnapshot.displayPointsByScenario[0].points[0].value = 1.01
+    const result = buildFullBackup({
+      settings: { theme: 'light', calendarTimeZone: 'UTC' }, favorites: getDefaultFavorites(),
+      customSubstances: [], customProfiles: [], recipes: [], scenarios: [], protocols: [],
+    }, [invalid])
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error.internalReason).toBe('STRUCTURAL_VALIDATION_FAILED')
+  })
+
   it('CORREÇÃO 16: preserva igualdade estrutural no round-trip de FullBackup incluindo protocol-analysis e reconstitution', async () => {
     const originalConfig: ConfigPayload = {
       settings: { theme: 'light', calendarTimeZone: 'America/Sao_Paulo' },
@@ -199,6 +258,8 @@ describe('Same-Version Round-Trip Integrity (§11, E6.1)', () => {
 
     await saveConfigPayload(originalConfig)
     await addCalculationRecord(reconRecord)
+    await addCalculationRecord(pkRecord('rec-rt-pk-absolute', 'absolute'))
+    await addCalculationRecord(pkRecord('rec-rt-pk-normalized', 'normalized'))
     await addCalculationRecord(protoRecord)
 
     // 1. Exporta

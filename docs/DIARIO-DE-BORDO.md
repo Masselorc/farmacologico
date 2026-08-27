@@ -911,3 +911,86 @@ Corrigir a implementação da camada de persistência, histórico, exports, budg
 ### Commit
 
 - Mensagem: `fix(farmakit): corrigir persistencia e invariantes da E6`
+
+## 2026-08-27 — E6.2 — Fechamento corretivo da persistência
+
+### Fundamento e problemas remanescentes da E6.1
+
+- Fonte normativa relida: `FARMakit-especificacao-final.md`, especialmente os contratos de `PersistedStateV1`, `ConfigPayload`, `CalculationRecord`, `FullBackup`, consentimento, IndexedDB, fallback em memória, budgets, FIFO, quarentena, imports e round-trip same-version.
+- Base confirmada antes da edição: branch `main`, SHA `3a59bf08ebf5a78a31240e6e5d35c1a9cf330da3`, pai direto `7c4aac198415e93c2b1f2966045a381b4bac3d7f`, igual a `origin/main` após `git fetch origin --prune`.
+- A E6.1 ainda permitia purge silencioso quando o IDB não abria, leitura de dado stale durante degradação, recovery destrutivo por `clear-all`, mutação não atômica de Config + history, split-brain de memória no restore, casts sem validação nas coleções custom, versão do bundle como autoridade, quarentena de corrupção fora dos budgets e FIFO não persistido.
+- O fallback de histórico direto ainda convertia `createdAt` em ordem FIFO, o que contrariava a ordem de inserção persistida.
+
+### Arquitetura de recovery adotada
+
+- Implementado journal de mutações dirty em `src/storage/idb.ts`, formado por operações `put`, `delete` e `clear`, agrupadas por mutação lógica.
+- Antes da primeira operação persistente da sessão, todos os stores são hidratados em uma única transação readonly. Isso garante snapshot coerente caso a operação seguinte provoque degradação; readers normais nunca misturam IDB e memória durante `degraded-memory`.
+- Em degradação, a memória é autoritativa e as mutações são registradas no journal. `retryStorageOpen()` é a única operação que reabre o IDB, reaplica exclusivamente o journal em uma transação e só limpa dirty state em `transaction.oncomplete`.
+- O recovery não executa mais `clear-all + memória`. Registros físicos não participantes da mutação permanecem no IDB; o teste de recovery preserva Scenario B e history não consultado pela aplicação ao alterar somente Scenario A.
+- Depois do retry concluído, a sessão é reidratada e o IDB volta a ser a fonte persistente; falha/abort mantém `degraded-memory`, journal e erro observável.
+
+### Correções implementadas
+
+1. **Purge:** `purgePersistentData()` não altera memória nem dirty state antes do commit físico; ausência, erro, bloqueio ou abort de abertura/transação rejeitam. `disablePersistenceAndPurge()` só desliga o consentimento após sucesso.
+2. **Degraded reads:** `getFromStore`, `getAllFromStore`, `loadConfigPayload`, history, exports e quarentena usam exclusivamente a memória autoritativa durante degradação.
+3. **Request/transaction failures:** sucesso persistente é reconhecido somente em `transaction.oncomplete`; request error e `transaction.onabort` tornam o estado observavelmente degradado. Writes simples mantêm a mudança lógica da sessão e a registram no journal; Config/restore com transação iniciada preservam o estado anterior em rollback.
+4. **Config + history:** `mutateConfigPayload()` projeta Config e FIFO sem tocar no storage e envia Config final + deleções de history para uma única transação sobre `scenarios`, `protocols`, `custom` e `history`.
+5. **Restore:** `restoreFullBackup()` valida Config, referências, invariantes e budgets, constrói o estado seguinte fora da memória ativa e só o publica após commit. Em degradação, registra a substituição completa como operação dirty atômica.
+6. **Validação histórica única:** criado `src/storage/history-validation.ts`, usado por `addCalculationRecord`, `buildFullBackup`, import e restore. A validação cobre schema estrito, versões futuras, PK ciência↔display, escalas/valores, protocol keys/bijeção e IDs duplicados.
+7. **Custom read-validation:** `settings`, `favorites`, `customSubstances`, `customProfiles` e `recipes` são validados como coleções completas. O `ConfigPayload` montado também passa por validação cruzada de referências; corrupção recebe fallback seguro e quarentena.
+8. **Dataset version:** `CURRENT_DATASET_VERSION` é a autoridade do runtime para bundle, favorites, Scenario library, ProtocolComponent library e CalculationRecord.
+9. **Quarentena unificada:** imports e `idb_corruption` usam `addQuarantineItem()`, com limite individual, total, quantidade, preservação do newest e truncamento UTF-8/JSON byte-aware. O truncamento limita o trabalho ao máximo possível de 256 KiB mesmo diante de arquivo inválido de 64 MiB.
+10. **FIFO persistido da quarentena:** cada item usa envelope interno `{id,insertionOrder,item}`. Entradas diretas E6.1 são reconhecidas, recebem ordem determinística pela sequência de normalização e são regravadas como envelope; `createdAt` não participa do FIFO.
+11. **Envelope legado do histórico:** `CalculationRecord` direto é normalizado deterministicamente conforme a ordem de leitura do store, recebe `insertionOrder` monotônica e é persistido como `StoredHistoryEntry`; `Date.parse(createdAt)` foi removido.
+12. **Bytes canônicos:** history e FullBackup são medidos pela serialização real do array/objeto com `JSON.stringify` + `TextEncoder`, incluindo colchetes, vírgulas e envelope.
+13. **Semântica de erros:** causas estruturais, referenciais, duplicidade, versão futura, contagens e invariantes usam `internalReason`/`validationDetails`; `IMPORT_KIND_MISMATCH` ficou restrito à divergência real de ação versus `bundleKind`.
+14. **Round-trip:** Config e FullBackup passam export → preview → apply → export com igualdade estrutural; o FullBackup cobre reconstitution, PK absolute, PK normalized, fuso, log, clipping, versions, IDs com `:`, ProtocolComponentKey e arrays protocol-analysis em ordens distintas.
+
+### Nota normativa sobre 15 + 47 + 64 MiB
+
+- A fixture solicitada com `ConfigPayload <= 15 MiB`, `history <= 47 MiB` e `FullBackup > 64 MiB` é matematicamente impossível sob a serialização canônica: os subcaps somam 62 MiB e o envelope é muito menor que a margem restante de 2 MiB.
+- A própria especificação declara essa margem. O teste antigo de ~13 MiB + ~4,5 MiB foi removido como falsa premissa.
+- O teste substituto materializa Config em 15 MiB exatos e history em 47 MiB exatos, confirma FullBackup abaixo de 64 MiB e mede margem superior a 2.000.000 bytes. O código de poda por FullBackup permanece defensivo para estados físicos anômalos/corrompidos, e sua atomicidade é testada com rollback de Config + deleção de history na mesma transação.
+
+### Testes adicionados ou ampliados
+
+- Purge happy path, falha de abertura e abort de transaction.
+- Put request error real, put com request sucedido + transaction abort, delete failure e clear failure.
+- Degraded read sem retorno ao IDB stale; recovery preservando Scenario B e history não consultado pela aplicação.
+- Recovery round-trip antes/depois de retry e restore dirty em modo degradado.
+- Rollback de `saveConfigPayload`, `mutateConfigPayload`, Config + history e `restoreFullBackup`, validando memória e leitura física do fake-indexeddb.
+- Rejeição pré-storage de CalculationRecord inválido e duplicidade com `internalReason='DUPLICATE_HISTORY_ID'`.
+- Rejeição de export com invariantes históricas inválidas e round-trip dos três tipos de CalculationRecord.
+- Corrupção de `customSubstances`, `customProfiles`, `recipes` e referências cruzadas.
+- Rejeição de versões futuras no bundle, favorite, Scenario, ProtocolComponent e CalculationRecord.
+- Dez corrupções IDB passando pela mesma política global de quarentena.
+- Reload de FIFO da quarentena e normalização dos envelopes E6.1 de quarantine/history sem `createdAt`.
+- Fronteiras exatas e +1 para ConfigPayload 15 MiB, CalculationRecord 8 MiB, history 47 MiB, files Config 16 MiB/FullBackup 64 MiB, 500/501 registros, QuarantineItem 256 KiB e quarantine total 1 MiB; 1200/1201 pontos já permanecem cobertos.
+
+### Validações executadas
+
+- `npm ci`: PASS em cópia temporária limpa da árvore atual (511 pacotes; 0 vulnerabilidades). No diretório OneDrive original, três tentativas falharam antes da instalação por placeholder/reparse point corrompido em `node_modules/json-stable-stringify-without-jsonify/test`; `npm install` restaurou as dependências do checkout (0 vulnerabilidades), mas reportou a mesma limitação apenas na limpeza dos placeholders temporários.
+- `npm run lint`: PASS.
+- `npm run typecheck`: PASS.
+- `npm run type-tests`: PASS.
+- `npm run test:e6`: PASS (16 arquivos, 86 testes).
+- `npm test`: PASS (53 arquivos, 456 testes).
+- `npm run test:e5`: PASS (9 arquivos, 99 testes).
+- `npm run test:e4`: PASS (11 arquivos, 81 testes).
+- `npm run build`: PASS (PWA generateSW; 10 precache entries).
+- `npm run check:build-boundaries`: PASS (9 arquivos em `dist`; zero referências a `.token-optimizer`).
+- `npm run test:e1`: PASS (2 testes Playwright).
+- `git diff --check`: PASS.
+
+### Escopo preservado
+
+- E7 não iniciada; nenhuma migration de produto legado criada.
+- E8–E15 não iniciadas.
+- Nenhum dataset oficial criado.
+- Nenhuma matemática de PK, Bateman, cutoff, recurrence, DST, reconstitution, solver, sampling científico ou tolerância de proporções foi alterada.
+- `README.md` permaneceu exatamente no placeholder existente.
+- `.token-optimizer` não foi importada em runtime, movida, apagada, ignorada nem incluída em `dist`/precache; arquivos internos de métricas já modificados no checkout foram mantidos fora do escopo do commit.
+
+### Commit previsto
+
+- Mensagem: `fix(farmakit): fechar atomicidade e recovery da E6`

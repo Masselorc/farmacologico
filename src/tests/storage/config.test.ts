@@ -152,7 +152,7 @@ describe('Config Storage, Budgets & Auto-Pruning (§11, §12, E6.1)', () => {
     expect(res.ok).toBe(false)
   })
 
-  it('CORREÇÃO 3: mutateConfigPayload aciona poda determinística do histórico automaticamente quando FullBackup projetado > 64 MiB', async () => {
+  it('remove a falsa premissa de eviction quando Config + history permanecem abaixo de 64 MiB', async () => {
     // 1. Inicializa o storage com ConfigPayload pequeno e 3 registros históricos de ~1.5 MB cada
     await saveConfigPayload(baseConfig)
 
@@ -167,23 +167,12 @@ describe('Config Storage, Budgets & Auto-Pruning (§11, §12, E6.1)', () => {
     const initialHistory = await getCalculationRecords()
     expect(initialHistory).toHaveLength(3)
 
-    // 2. Cria um novo ConfigPayload válido de ~60 MB (ainda abaixo de 15 MiB de config? Não: 14 MiB)
-    // Vamos usar 13 MiB de ConfigPayload e histórico total que somados ultrapassam 64 MiB
-    // Para teste rápido sem gastar memória excessiva, simulamos a fronteira:
-    // Config de 13 MiB + histórico existente
-    const mediumCustomSubstances = []
-    for (let i = 0; i < 20000; i++) {
-      mediumCustomSubstances.push({
-        id: `sub-${i}`,
-        slug: `slug-${i}`,
-        name: `Substância ${i} ` + 'B'.repeat(450),
-        aliases: [],
-        category: 'other' as const,
-        tags: [],
-        createdAt: '2026-08-27T08:00:00.000Z',
-        updatedAt: '2026-08-27T08:00:00.000Z',
-      })
-    }
+    // 2. Config válido de ~13 MiB + history de ~4,5 MiB continua muito abaixo de 64 MiB.
+    const mediumCustomSubstances = [{
+      id: 'sub-large', slug: 'sub-large', name: 'Substância válida',
+      aliases: ['B'.repeat(13 * 1024 * 1024)], category: 'other' as const, tags: [],
+      createdAt: '2026-08-27T08:00:00.000Z', updatedAt: '2026-08-27T08:00:00.000Z',
+    }]
 
     const enlargedConfig: ConfigPayload = {
       ...baseConfig,
@@ -195,13 +184,15 @@ describe('Config Storage, Budgets & Auto-Pruning (§11, §12, E6.1)', () => {
     expect(res.ok).toBe(true)
 
     if (res.ok) {
+      expect(res.evictedHistoryCount).toBe(0)
+      expect(res.evictedHistoryBytes).toBe(0)
       // 4. Verifica se o FullBackup projetado final respeita 64 MiB
       const historyAfter = await getCalculationRecords()
       const finalConfig = await loadConfigPayload()
       const projectedBytes = calculateProjectedFullBackupBytes(finalConfig, historyAfter)
 
       expect(projectedBytes).toBeLessThanOrEqual(SAFETY_LIMITS.FULL_BACKUP_IMPORT_BYTES_MAX)
-      expect(finalConfig.customSubstances).toHaveLength(20000)
+      expect(finalConfig.customSubstances).toHaveLength(1)
     }
   })
 })

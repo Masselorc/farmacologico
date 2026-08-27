@@ -11,8 +11,10 @@ import type { CalculationRecord, ConfigPayload, FullBackupBundle, StoredHistoryE
 import { dataManagementError, type DataManagementError } from '../domain/shared/errors'
 import { CURRENT_DATASET_VERSION, ENGINE_VERSIONS } from '../domain/version'
 import { SAFETY_LIMITS } from '../validation/limits'
+import { calculationRecordSchema } from '../validation/schemas/data-management'
 import { serializedUtf8Bytes } from './bytes'
-import { deleteFromStore, getAllFromStore, getFromStore, loadConfigPayload, putToStore } from './idb'
+import { commitStorageOperations, deleteFromStore, getAllFromStore, getFromStore, loadConfigPayload } from './idb'
+import { validateCalculationRecordRuntime } from './history-validation'
 
 export type AddCalculationRecordResult =
   | {
@@ -58,6 +60,21 @@ export function calculateProjectedFullBackupBytes(
 export async function addCalculationRecord(
   record: CalculationRecord,
 ): Promise<AddCalculationRecordResult> {
+  // Objetos TypeScript também cruzam uma fronteira de confiança em runtime.
+  const parsedRecord = calculationRecordSchema.safeParse(record)
+  const runtimeValidation = validateCalculationRecordRuntime(record)
+  if (!parsedRecord.success || !runtimeValidation.valid) {
+    return {
+      ok: false,
+      error: dataManagementError('CALCULATION_RECORD_TOO_LARGE', undefined, {
+        internalReason: runtimeValidation.valid ? 'STRUCTURAL_VALIDATION_FAILED' : runtimeValidation.internalReason,
+        validationDetails: runtimeValidation.valid
+          ? (!parsedRecord.success ? parsedRecord.error.message : 'CalculationRecord inválido')
+          : runtimeValidation.error,
+      }),
+    }
+  }
+
   // 1. Serializar e verificar tamanho individual
   const recordBytes = serializedUtf8Bytes(record)
   if (recordBytes > SAFETY_LIMITS.CALCULATION_RECORD_BYTES_MAX) {
@@ -75,9 +92,9 @@ export async function addCalculationRecord(
   if (existing) {
     return {
       ok: false,
-      error: dataManagementError('CALCULATION_RECORD_TOO_LARGE', {
-        bytes: recordBytes,
-        maxBytes: SAFETY_LIMITS.CALCULATION_RECORD_BYTES_MAX,
+      error: dataManagementError('CALCULATION_RECORD_TOO_LARGE', undefined, {
+        internalReason: 'DUPLICATE_HISTORY_ID',
+        validationDetails: `CalculationRecord.id já existe: ${record.id}`,
       }),
     }
   }
@@ -122,14 +139,18 @@ export async function addCalculationRecord(
       break
     }
     const b = serializedUtf8Bytes(oldest.record)
-    await deleteFromStore('history', oldest.id)
     updatedEntries.shift()
     evictedCount++
     evictedBytes += b
   }
 
-  // Grava a nova entrada após as evicções
-  await putToStore('history', newEntry)
+  // Evicções e inserção formam uma única mutação lógica/transação.
+  const retainedIds = new Set(updatedEntries.map((entry) => entry.id))
+  const evictedIds = entries.filter((entry) => !retainedIds.has(entry.id)).map((entry) => entry.id)
+  await commitStorageOperations([
+    ...evictedIds.map((key) => ({ kind: 'delete' as const, store: 'history' as const, key })),
+    { kind: 'put', store: 'history', value: newEntry },
+  ])
 
   return {
     ok: true,
@@ -150,6 +171,7 @@ export async function pruneHistoryForConfigMutation(
 
   let evictedCount = 0
   let evictedBytes = 0
+  const evictedIds: string[] = []
 
   while (
     entries.length > 0 &&
@@ -160,11 +182,15 @@ export async function pruneHistoryForConfigMutation(
   ) {
     const oldest = entries[0]
     const b = serializedUtf8Bytes(oldest.record)
-    await deleteFromStore('history', oldest.id)
     entries.shift()
+    evictedIds.push(oldest.id)
     evictedCount++
     evictedBytes += b
   }
+
+  await commitStorageOperations(
+    evictedIds.map((key) => ({ kind: 'delete' as const, store: 'history' as const, key })),
+  )
 
   return { evictedCount, evictedBytes }
 }

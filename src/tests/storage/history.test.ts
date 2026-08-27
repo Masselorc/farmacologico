@@ -8,8 +8,10 @@ import {
   getCalculationRecordById,
   getCalculationRecords,
 } from '../../storage/history'
-import { resetStorageForTesting, setCustomIDBFactoryForTesting } from '../../storage/idb'
+import { resetStorageForTesting, resetStorageSessionForTesting, setCustomIDBFactoryForTesting } from '../../storage/idb'
 import { SAFETY_LIMITS } from '../../validation/limits'
+import { openRawDatabase, readRawStore } from './idb-faults'
+import type { StoredHistoryEntry } from '../../domain/types'
 
 function createSampleRecord(id: string, createdAt: string, paddingChars = 0): CalculationRecord {
   return {
@@ -66,6 +68,17 @@ describe('History Storage, Insertion-Order FIFO & ID Immutability (§11, §13, E
     const records = await getCalculationRecords()
     expect(records).toHaveLength(1)
     expect(records[0].id).toBe('rec-valid')
+  })
+
+  it('rejeita CalculationRecord estruturalmente inválido antes de inserir ou evictar', async () => {
+    const valid = createSampleRecord('valid-before-invalid', '2026-08-27T08:00:00.000Z')
+    await addCalculationRecord(valid)
+    const invalid = { ...createSampleRecord('invalid-record', '2026-08-27T09:00:00.000Z'),
+      resultSnapshot: { invalid: true } } as unknown as CalculationRecord
+    const result = await addCalculationRecord(invalid)
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error.internalReason).toBe('STRUCTURAL_VALIDATION_FAILED')
+    expect(await getCalculationRecords()).toEqual([valid])
   })
 
   it('CORREÇÃO 4: FIFO determinístico usa insertionOrder persistida e NÃO usa createdAt', async () => {
@@ -130,6 +143,7 @@ describe('History Storage, Insertion-Order FIFO & ID Immutability (§11, §13, E
 
     const res = await addCalculationRecord(duplicate)
     expect(res.ok).toBe(false)
+    if (!res.ok) expect(res.error.internalReason).toBe('DUPLICATE_HISTORY_ID')
 
     const fetched = await getCalculationRecordById('immutable-id')
     expect(fetched?.display.title).toBe('Título Original')
@@ -170,4 +184,30 @@ describe('History Storage, Insertion-Order FIFO & ID Immutability (§11, §13, E
     },
     30000,
   )
+
+  it('normaliza CalculationRecord direto sem usar createdAt como autoridade FIFO', async () => {
+    const database = await openRawDatabase(indexedDB)
+    await new Promise<void>((resolve, reject) => {
+      const tx = database.transaction('history', 'readwrite')
+      const store = tx.objectStore('history')
+      for (let index = 0; index < SAFETY_LIMITS.HISTORY_RECORDS_MAX; index += 1) {
+        const id = `legacy-${String(index).padStart(3, '0')}`
+        store.put(createSampleRecord(
+          id,
+          index === 0 ? '2099-01-01T00:00:00.000Z' : '2020-01-01T00:00:00.000Z',
+        ))
+      }
+      tx.oncomplete = () => { database.close(); resolve() }
+      tx.onerror = () => reject(tx.error)
+    })
+
+    resetStorageSessionForTesting()
+    await addCalculationRecord(createSampleRecord('newest', '1900-01-01T00:00:00.000Z'))
+    const ids = (await getCalculationRecords()).map((entry) => entry.id)
+    expect(ids).not.toContain('legacy-000')
+    expect(ids).toContain('legacy-001')
+    expect(ids[0]).toBe('newest')
+    const raw = await readRawStore<StoredHistoryEntry>(indexedDB, 'history')
+    expect(raw.every((entry) => typeof entry.insertionOrder === 'number' && 'record' in entry)).toBe(true)
+  })
 })
