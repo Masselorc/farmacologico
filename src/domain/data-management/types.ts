@@ -300,3 +300,28 @@ export interface FullBackupBundle extends ExportBundleBase {
 }
 
 export type ExportBundle = ConfigExportBundle | FullBackupBundle
+
+// ── Modos Formais de Storage e Envelopes Internos (§11, E6.1) ────
+export type StorageMode =
+  | 'persistent-ok'
+  | 'degraded-memory'
+  | 'memory-only-consent-off'
+  | 'recovering'
+
+export interface StoredHistoryEntry {
+  id: string
+  insertionOrder: number
+  record: CalculationRecord
+}
+
+export type ConfigMutationResult =
+  | {
+      ok: true
+      payload: ConfigPayload
+      evictedHistoryCount: number
+      evictedHistoryBytes: number
+    }
+  | {
+      ok: false
+      error: import('../shared/errors').DataManagementError
+    }

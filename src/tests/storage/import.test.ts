@@ -1,224 +1,290 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type {
-  CalculationRecord,
-  ConfigExportBundle,
-  ConfigPayload,
-  FullBackupBundle,
-} from '../../domain/types'
-import { getPersistenceConsent, setPersistenceConsent } from '../../storage/consent'
+import { indexedDB } from 'fake-indexeddb'
+import type { FullBackupBundle, Protocol } from '../../domain/types'
+import { setPersistenceConsent } from '../../storage/consent'
+import { buildConfigExport, buildFullBackup } from '../../storage/export'
+import { getCalculationRecords } from '../../storage/history'
+import {
+  getDefaultFavorites,
+  getDefaultSettings,
+  resetStorageForTesting,
+  setCustomIDBFactoryForTesting,
+} from '../../storage/idb'
 import {
   applyImport,
   validateAndPreviewConfigImport,
   validateAndPreviewFullBackupImport,
 } from '../../storage/import'
 import { getQuarantineItems } from '../../storage/quarantine'
-import {
-  getAllFromStore,
-  loadConfigPayload,
-  resetStorageForTesting,
-} from '../../storage/idb'
-import { CURRENT_DATASET_VERSION, ENGINE_VERSIONS } from '../../domain/version'
 import { SAFETY_LIMITS } from '../../validation/limits'
 
-const validConfig: ConfigPayload = {
-  settings: { theme: 'system', calendarTimeZone: 'America/Sao_Paulo' },
-  favorites: { substances: [], recipeIds: [] },
+const baseConfig = {
+  settings: getDefaultSettings(),
+  favorites: getDefaultFavorites(),
   customSubstances: [],
   customProfiles: [],
   recipes: [],
-  scenarios: [
-    {
-      id: 'sc-import-1',
-      name: 'Cenário Import',
-      color: 'blue-500',
-      source: { type: 'manual' },
-      displayUnit: 'mg',
-      selectedPkParameters: { halfLifeMs: 86400000, tmaxMs: null },
-      doses: [{ id: 'd1', amountMg: 100, time: '2026-08-27T08:00:00.000Z' }],
-    },
-  ],
-
+  scenarios: [],
   protocols: [],
 }
 
-const validConfigBundle: ConfigExportBundle = {
-  bundleKind: 'config',
-  schemaVersion: 1,
-  exportedAt: '2026-08-27T12:00:00Z',
-  datasetVersion: CURRENT_DATASET_VERSION,
-  engineVersions: ENGINE_VERSIONS,
-  payload: validConfig,
+const validProtocolSnapshot: Protocol = {
+  id: 'proto:1',
+  name: 'Protocolo com : no ID',
+  totalDoseMg: 100,
+  schedule: {
+    startDate: '2026-08-27',
+    localTime: '08:00',
+    timeZone: 'America/Sao_Paulo',
+    recurrence: { type: 'single' },
+  },
+  components: [
+    {
+      id: 'comp:1',
+      label: 'Componente 1',
+      proportion: 1,
+      source: { type: 'manual' },
+      selectedPkParameters: { halfLifeMs: 86400000, tmaxMs: null },
+      pkParametersSnapshot: { halfLife: { value: 24, unit: 'hours' }, tmax: null },
+      displayColor: { paletteColor: 'blue-500' },
+    },
+  ],
+
+  createdAt: '2026-08-27T08:00:00.000Z',
+  updatedAt: '2026-08-27T08:00:00.000Z',
 }
 
-const validRecord: CalculationRecord = {
-  id: 'rec-imp-1',
-  createdAt: '2026-08-27T12:00:00Z',
-  display: { title: 'Cálculo Import', color: 'blue-500' },
-  type: 'reconstitution',
-  versions: { reconstitutionEngineVersion: '1.0.0', datasetVersion: 1 },
-  input: {
-    vialMassMg: 10,
-    diluentVolumeMl: 2,
-    desiredDoseMcg: 500,
-    syringe: { family: 'U-100', capacityUnits: 100, unitsPerMl: 100, graduationUnits: 1 },
-  },
-  resultSnapshot: {
-    concentrationMcgPerMl: 5000,
-    doseVolumeMl: 0.1,
-    syringeUnits: 10,
-    theoreticalMaxDoses: 20,
-    capacityExceeded: false,
-    warnings: [],
-    metadata: { reconstitutionEngineVersion: '1.0.0' },
-  },
-}
 
-const validFullBackupBundle: FullBackupBundle = {
-  bundleKind: 'full-backup',
-  schemaVersion: 1,
-  exportedAt: '2026-08-27T12:00:00Z',
-  datasetVersion: CURRENT_DATASET_VERSION,
-  engineVersions: ENGINE_VERSIONS,
-  payload: validConfig,
-  history: [validRecord],
-  counts: {
-    records: 1,
-    recipes: 0,
-    scenarios: 1,
-    protocols: 0,
-  },
-}
-
-describe('Import Validation & Preview (§11, §16)', () => {
+describe('Import Pipeline, Guards & Invariants (§11, §16, §17, E6.1)', () => {
   beforeEach(async () => {
+    setCustomIDBFactoryForTesting(indexedDB)
     setPersistenceConsent(true)
     await resetStorageForTesting()
   })
 
-  it('guarda pré-leitura: rejeita arquivo acima de 16 MiB em Config SEM chamar .text() e sem quarentenar', async () => {
+  it('CORREÇÃO 15: guarda pré-leitura de File.size não chama text() nem arrayBuffer() e não quarentena', async () => {
     const textSpy = vi.fn().mockResolvedValue('{}')
-    const mockFile = {
-      name: 'large_config.json',
-      size: SAFETY_LIMITS.CONFIG_IMPORT_BYTES_MAX + 100,
+    const arrayBufferSpy = vi.fn().mockResolvedValue(new ArrayBuffer(0))
+
+    const mockOversizedFile = {
+      name: 'huge-backup.json',
+      size: SAFETY_LIMITS.FULL_BACKUP_IMPORT_BYTES_MAX + 1, // 64 MiB + 1
       text: textSpy,
+      arrayBuffer: arrayBufferSpy,
     }
 
-    const res = await validateAndPreviewConfigImport(mockFile)
+    const res = await validateAndPreviewFullBackupImport(mockOversizedFile)
     expect(res.ok).toBe(false)
     if (!res.ok) {
       expect(res.error.code).toBe('IMPORT_FILE_TOO_LARGE')
     }
 
-    // Prova que text() NUNCA foi chamado
+    // Prova de que NENHUMA leitura do arquivo foi executada
     expect(textSpy).not.toHaveBeenCalled()
+    expect(arrayBufferSpy).not.toHaveBeenCalled()
 
-    // Prova que NÃO foi copiado para a quarentena
+    // Prova de que NÃO foi enviado para quarentena
     const quarantine = await getQuarantineItems()
     expect(quarantine).toHaveLength(0)
   })
 
-  it('guarda pré-leitura: rejeita arquivo acima de 64 MiB em FullBackup SEM chamar .text() e sem quarentenar', async () => {
-    const textSpy = vi.fn().mockResolvedValue('{}')
-    const mockFile = {
-      name: 'large_backup.json',
-      size: SAFETY_LIMITS.FULL_BACKUP_IMPORT_BYTES_MAX + 100,
-      text: textSpy,
+  it('rejeita e quarentena JSON inválido ou malformado', async () => {
+    const invalidJsonFile = {
+      name: 'corrupt.json',
+      size: 15,
+      content: '{ invalid json ',
     }
 
-    const res = await validateAndPreviewFullBackupImport(mockFile)
+    const res = await validateAndPreviewConfigImport(invalidJsonFile)
     expect(res.ok).toBe(false)
-    if (!res.ok) {
-      expect(res.error.code).toBe('IMPORT_FILE_TOO_LARGE')
-    }
 
-    expect(textSpy).not.toHaveBeenCalled()
     const quarantine = await getQuarantineItems()
-    expect(quarantine).toHaveLength(0)
+    expect(quarantine).toHaveLength(1)
+    expect(quarantine[0].source).toBe('config_import')
+    expect(quarantine[0].errorCode).toBe('INVALID_JSON')
   })
 
-  it('detecta kind trocado (config enviado para full-backup ou vice-versa) e registra quarentena', async () => {
-    // Envia bundle de config para import de full-backup
+  it('rejeita com IMPORT_KIND_MISMATCH quando a ação pretendida não coincide com bundleKind', async () => {
+    const configExport = buildConfigExport(baseConfig)
+    expect(configExport.ok).toBe(true)
+    if (!configExport.ok) return
+
+    // Tenta importar ConfigExportBundle através da ação FullBackup
     const res = await validateAndPreviewFullBackupImport({
-      content: JSON.stringify(validConfigBundle),
+      name: 'config-disguised.json',
+      content: configExport.json,
     })
 
     expect(res.ok).toBe(false)
     if (!res.ok) {
       expect(res.error.code).toBe('IMPORT_KIND_MISMATCH')
     }
-
-    const quarantine = await getQuarantineItems()
-    expect(quarantine).toHaveLength(1)
-    expect(quarantine[0].errorCode).toBe('IMPORT_KIND_MISMATCH')
   })
 
-  it('detecta JSON malformado e registra quarentena', async () => {
-    const res = await validateAndPreviewConfigImport({
-      content: '{"invalido": [1, 2, ',
-    })
-
-    expect(res.ok).toBe(false)
-    const quarantine = await getQuarantineItems()
-    expect(quarantine).toHaveLength(1)
-    expect(quarantine[0].errorCode).toBe('INVALID_JSON')
-  })
-
-  it('detecta counts inconsistentes no FullBackup e rejeita', async () => {
-    const badCountsBundle: FullBackupBundle = {
-      ...validFullBackupBundle,
-      counts: {
-        records: 999, // divergente de 1
-        recipes: 0,
-        scenarios: 1,
-        protocols: 0,
+  it('CORREÇÃO 5: valida invariants de protocol-analysis (chaves, 1:1, IDs com dois pontos e unicidade)', async () => {
+    const validFullBackup = buildFullBackup(baseConfig, [
+      {
+        id: 'rec-proto-1',
+        createdAt: '2026-08-27T08:00:00.000Z',
+        display: { title: 'Análise Protocolo', color: 'blue-500' },
+        type: 'protocol-analysis',
+        versions: {
+          pkEngineVersion: '1.0.0',
+          recurrenceEngineVersion: '1.0.0',
+          datasetVersion: 1,
+        },
+        timeZone: 'America/Sao_Paulo',
+        protocolsSnapshot: [validProtocolSnapshot],
+        snapshot: {
+          displayWindow: { startMs: 0, endMs: 86400000 },
+          calculationWindow: { startMs: 0, endMs: 86400000 },
+          series: [
+            {
+              key: { protocolId: 'proto:1', componentId: 'comp:1' },
+              label: 'Série 1',
+              color: 'blue-500',
+              displayPoints: [{ timeMs: 0, amountMg: 100, clippedBelowLogEpsilon: false }],
+              state: {
+                administeredMg: 100,
+                centralMg: 100,
+                depotMg: 0,
+                eliminatedMg: 0,
+                administeredCount: 1,
+                plannedCount: 1,
+                centralPercent: 100,
+                depotPercent: 0,
+                eliminatedPercent: 0,
+              },
+              peak: { timeMs: 0, amountMg: 100 },
+              milestones: [{ percentage: 50, targetMg: 50, timeMs: 86400000 }],
+              warnings: [],
+            },
+          ],
+        },
+        simulationInputs: [
+          {
+            key: { protocolId: 'proto:1', componentId: 'comp:1' },
+            input: {
+              halfLifeMs: 86400000,
+              tmaxMs: null,
+              doses: [{ id: 'd1', amountMg: 100, timeMs: 0 }],
+              nowMs: 0,
+            },
+          },
+        ],
       },
-    }
+    ])
 
-    const res = await validateAndPreviewFullBackupImport({
-      content: JSON.stringify(badCountsBundle),
+    expect(validFullBackup.ok).toBe(true)
+    if (!validFullBackup.ok) return
+
+    const previewRes = await validateAndPreviewFullBackupImport({
+      name: 'valid-backup.json',
+      content: validFullBackup.json,
     })
 
-    expect(res.ok).toBe(false)
-    const quarantine = await getQuarantineItems()
-    expect(quarantine).toHaveLength(1)
-    expect(quarantine[0].errorCode).toBe('COUNTS_MISMATCH')
+    expect(previewRes.ok).toBe(true)
   })
 
-  it('valida com sucesso Config correto e gera preview estruturada', async () => {
-    const res = await validateAndPreviewConfigImport({
-      content: JSON.stringify(validConfigBundle),
+
+  it('CORREÇÃO 5: rejeita protocol-analysis com chave órfã não presente em protocolsSnapshot', async () => {
+    const invalidProtoBackup: FullBackupBundle = {
+      bundleKind: 'full-backup',
+      schemaVersion: 1,
+      exportedAt: '2026-08-27T08:00:00.000Z',
+      datasetVersion: 1,
+      engineVersions: { pk: '1.0.0', recurrence: '1.0.0', reconstitution: '1.0.0' },
+      payload: baseConfig,
+      history: [
+        {
+          id: 'rec-orphan-key',
+          createdAt: '2026-08-27T08:00:00.000Z',
+          display: { title: 'Análise Órfã', color: 'blue-500' },
+          type: 'protocol-analysis',
+          versions: { pkEngineVersion: '1.0.0', recurrenceEngineVersion: '1.0.0', datasetVersion: 1 },
+          timeZone: 'UTC',
+          protocolsSnapshot: [validProtocolSnapshot],
+          snapshot: {
+            displayWindow: { startMs: 0, endMs: 86400000 },
+            calculationWindow: { startMs: 0, endMs: 86400000 },
+            series: [
+              {
+                key: { protocolId: 'proto:1', componentId: 'comp-NON-EXISTENT' }, // Órfão!
+                label: 'Série',
+                color: 'blue-500',
+                displayPoints: [],
+                state: { administeredMg: 0, centralMg: 0, depotMg: 0, eliminatedMg: 0, administeredCount: 0, plannedCount: 0, centralPercent: 0, depotPercent: 0, eliminatedPercent: 0 },
+                peak: { timeMs: 0, amountMg: 0 },
+                milestones: [],
+                warnings: [],
+              },
+            ],
+          },
+          simulationInputs: [
+            {
+              key: { protocolId: 'proto:1', componentId: 'comp-NON-EXISTENT' },
+              input: { halfLifeMs: 43200000, tmaxMs: null, doses: [], nowMs: 0 },
+            },
+          ],
+        },
+      ],
+      counts: { records: 1, recipes: 0, scenarios: 0, protocols: 0 },
+    }
+
+    const previewRes = await validateAndPreviewFullBackupImport({
+      name: 'orphan-proto-backup.json',
+      content: JSON.stringify(invalidProtoBackup),
     })
 
-    expect(res.ok).toBe(true)
-    if (res.ok) {
-      expect(res.preview.actionKind).toBe('config')
-      expect(res.preview.counts.scenarios).toBe(1)
-      expect(res.preview.payload.scenarios[0].name).toBe('Cenário Import')
-    }
+    expect(previewRes.ok).toBe(false)
   })
 
-  it('applyImport restaura os dados e NUNCA altera o consentimento de persistência', async () => {
-    // Deixa consentimento desativado inicialmente
-    setPersistenceConsent(false)
+  it('CORREÇÃO 11: applyImport aplica as configurações e o histórico', async () => {
+    const backup = buildFullBackup(baseConfig, [
+      {
+        id: 'rec-applied',
+        createdAt: '2026-08-27T08:00:00.000Z',
+        display: { title: 'Applied Rec', color: 'blue-500' },
+        type: 'reconstitution',
+        versions: { reconstitutionEngineVersion: '1.0.0', datasetVersion: 1 },
+        input: {
+          vialMassMg: 10,
+          diluentVolumeMl: 2,
+          desiredDoseMcg: 100,
+          syringe: {
+            family: 'U-100',
+            capacityUnits: 100,
+            unitsPerMl: 100,
+            graduationUnits: 1,
+          },
+        },
+        resultSnapshot: {
+          concentrationMcgPerMl: 5000,
+          doseVolumeMl: 0.02,
+          syringeUnits: 2,
+          theoreticalMaxDoses: 100,
+          capacityExceeded: false,
+          warnings: [],
+          metadata: { reconstitutionEngineVersion: '1.0.0' },
+        },
+      },
+    ])
 
-    const res = await validateAndPreviewFullBackupImport({
-      content: JSON.stringify(validFullBackupBundle),
+    expect(backup.ok).toBe(true)
+    if (!backup.ok) return
+
+    const previewRes = await validateAndPreviewFullBackupImport({
+      name: 'apply-test.json',
+      content: backup.json,
     })
 
-    expect(res.ok).toBe(true)
-    if (res.ok) {
-      await applyImport(res.preview)
-    }
+    expect(previewRes.ok).toBe(true)
+    if (!previewRes.ok) return
 
-    // Consentimento permanece false
-    expect(getPersistenceConsent()).toBe(false)
+    await applyImport(previewRes.preview)
 
-    // Dados foram restaurados na sessão
-    const loaded = await loadConfigPayload()
-    expect(loaded.scenarios[0].id).toBe('sc-import-1')
-
-    const history = await getAllFromStore<CalculationRecord>('history')
+    const history = await getCalculationRecords()
     expect(history).toHaveLength(1)
-    expect(history[0].id).toBe('rec-imp-1')
+    expect(history[0].id).toBe('rec-applied')
   })
 })

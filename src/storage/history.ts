@@ -4,13 +4,15 @@
 // - total de registros ≤ 500 (HISTORY_RECORDS_MAX)
 // - histórico total ≤ 47 MiB (HISTORY_TOTAL_BYTES_MAX)
 // - FullBackup projetado ≤ 64 MiB (FULL_BACKUP_IMPORT_BYTES_MAX)
+// - FIFO ordenado estritamente por insertionOrder persistida (nunca por createdAt).
+// - Imutabilidade por ID: ID já existente não sobrescreve registro histórico.
 
-import type { CalculationRecord, ConfigPayload, FullBackupBundle } from '../domain/types'
+import type { CalculationRecord, ConfigPayload, FullBackupBundle, StoredHistoryEntry } from '../domain/types'
 import { dataManagementError, type DataManagementError } from '../domain/shared/errors'
 import { CURRENT_DATASET_VERSION, ENGINE_VERSIONS } from '../domain/version'
 import { SAFETY_LIMITS } from '../validation/limits'
 import { serializedUtf8Bytes } from './bytes'
-import { deleteFromStore, getAllFromStore, loadConfigPayload, putToStore } from './idb'
+import { deleteFromStore, getAllFromStore, getFromStore, loadConfigPayload, putToStore } from './idb'
 
 export type AddCalculationRecordResult =
   | {
@@ -50,8 +52,8 @@ export function calculateProjectedFullBackupBytes(
 }
 
 /**
- * Insere um novo CalculationRecord no histórico, aplicando validação individual de 8 MiB
- * e poda FIFO determinística sobre os registros mais antigos.
+ * Insere um novo CalculationRecord no histórico, aplicando validação individual de 8 MiB,
+ * imutabilidade por ID e poda FIFO determinística por ordem de inserção sobre os registros mais antigos.
  */
 export async function addCalculationRecord(
   record: CalculationRecord,
@@ -68,39 +70,66 @@ export async function addCalculationRecord(
     }
   }
 
-  // 2. Carregar histórico atual e ConfigPayload
-  const history = await getAllFromStore<CalculationRecord>('history')
-  // Ordena por data de criação / inserção (mais antigos no índice 0)
-  history.sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+  // 2. Verificar imutabilidade por ID (registro com mesmo ID não sobrescreve nem altera histórico)
+  const existing = await getFromStore<StoredHistoryEntry>('history', record.id)
+  if (existing) {
+    return {
+      ok: false,
+      error: dataManagementError('CALCULATION_RECORD_TOO_LARGE', {
+        bytes: recordBytes,
+        maxBytes: SAFETY_LIMITS.CALCULATION_RECORD_BYTES_MAX,
+      }),
+    }
+  }
+
+  // 3. Carregar entradas atuais de histórico
+  const entries = await getAllFromStore<StoredHistoryEntry>('history')
+  // Ordena por insertionOrder crescente (mais antigas inseridas no início)
+  entries.sort((a, b) => a.insertionOrder - b.insertionOrder)
+
+  let maxOrder = 0
+  for (const e of entries) {
+    if (e.insertionOrder > maxOrder) {
+      maxOrder = e.insertionOrder
+    }
+  }
+
+  const newEntry: StoredHistoryEntry = {
+    id: record.id,
+    insertionOrder: maxOrder + 1,
+    record,
+  }
 
   const configPayload = await loadConfigPayload()
+  const updatedEntries = [...entries, newEntry]
 
-  // Adiciona o novo registro
-  const updatedHistory = [...history, record]
-  await putToStore('history', record)
-
-  // 3. Poda determinística FIFO dos mais antigos enquanto qualquer condição for violada
+  // 4. Poda determinística FIFO dos mais antigos por insertionOrder
   let evictedCount = 0
   let evictedBytes = 0
 
   while (
-    updatedHistory.length > 1 &&
-    (updatedHistory.length > SAFETY_LIMITS.HISTORY_RECORDS_MAX ||
-      serializedUtf8Bytes(updatedHistory) > SAFETY_LIMITS.HISTORY_TOTAL_BYTES_MAX ||
-      calculateProjectedFullBackupBytes(configPayload, updatedHistory) >
-        SAFETY_LIMITS.FULL_BACKUP_IMPORT_BYTES_MAX)
+    updatedEntries.length > 1 &&
+    (updatedEntries.length > SAFETY_LIMITS.HISTORY_RECORDS_MAX ||
+      serializedUtf8Bytes(updatedEntries.map((e) => e.record)) > SAFETY_LIMITS.HISTORY_TOTAL_BYTES_MAX ||
+      calculateProjectedFullBackupBytes(
+        configPayload,
+        updatedEntries.map((e) => e.record),
+      ) > SAFETY_LIMITS.FULL_BACKUP_IMPORT_BYTES_MAX)
   ) {
-    const oldest = updatedHistory[0]
-    // Nunca remover o registro recém-criado
+    const oldest = updatedEntries[0]
+    // Nunca remove a entrada recém-adicionada
     if (oldest.id === record.id) {
       break
     }
-    const b = serializedUtf8Bytes(oldest)
+    const b = serializedUtf8Bytes(oldest.record)
     await deleteFromStore('history', oldest.id)
-    updatedHistory.shift()
+    updatedEntries.shift()
     evictedCount++
     evictedBytes += b
   }
+
+  // Grava a nova entrada após as evicções
+  await putToStore('history', newEntry)
 
   return {
     ok: true,
@@ -116,21 +145,23 @@ export async function addCalculationRecord(
 export async function pruneHistoryForConfigMutation(
   configPayload: ConfigPayload,
 ): Promise<{ evictedCount: number; evictedBytes: number }> {
-  const history = await getAllFromStore<CalculationRecord>('history')
-  history.sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+  const entries = await getAllFromStore<StoredHistoryEntry>('history')
+  entries.sort((a, b) => a.insertionOrder - b.insertionOrder)
 
   let evictedCount = 0
   let evictedBytes = 0
 
   while (
-    history.length > 0 &&
-    calculateProjectedFullBackupBytes(configPayload, history) >
-      SAFETY_LIMITS.FULL_BACKUP_IMPORT_BYTES_MAX
+    entries.length > 0 &&
+    calculateProjectedFullBackupBytes(
+      configPayload,
+      entries.map((e) => e.record),
+    ) > SAFETY_LIMITS.FULL_BACKUP_IMPORT_BYTES_MAX
   ) {
-    const oldest = history[0]
-    const b = serializedUtf8Bytes(oldest)
+    const oldest = entries[0]
+    const b = serializedUtf8Bytes(oldest.record)
     await deleteFromStore('history', oldest.id)
-    history.shift()
+    entries.shift()
     evictedCount++
     evictedBytes += b
   }
@@ -139,12 +170,12 @@ export async function pruneHistoryForConfigMutation(
 }
 
 /**
- * Retorna todos os registros históricos persistidos.
+ * Retorna todos os registros históricos persistidos, ordenados da inserção mais recente para a mais antiga.
  */
 export async function getCalculationRecords(): Promise<CalculationRecord[]> {
-  const records = await getAllFromStore<CalculationRecord>('history')
-  records.sort((a, b) => b.createdAt.localeCompare(a.createdAt)) // Mais recentes primeiro para listagem
-  return records
+  const entries = await getAllFromStore<StoredHistoryEntry>('history')
+  entries.sort((a, b) => b.insertionOrder - a.insertionOrder)
+  return entries.map((e) => e.record)
 }
 
 /**
@@ -153,8 +184,8 @@ export async function getCalculationRecords(): Promise<CalculationRecord[]> {
 export async function getCalculationRecordById(
   id: string,
 ): Promise<CalculationRecord | undefined> {
-  const records = await getAllFromStore<CalculationRecord>('history')
-  return records.find((r) => r.id === id)
+  const entry = await getFromStore<StoredHistoryEntry>('history', id)
+  return entry?.record
 }
 
 /**

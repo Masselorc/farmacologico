@@ -3,7 +3,7 @@
 // - máx. 5 itens (QUARANTINE_ITEMS_MAX)
 // - máx. 256 KiB por item (QUARANTINE_ITEM_BYTES_MAX)
 // - máx. 1 MiB total no store (QUARANTINE_TOTAL_BYTES_MAX)
-// FIFO determinístico: podar os mais antigos enquanto qualquer limite for violado.
+// FIFO determinístico por ordem de inserção: podar os mais antigos enquanto qualquer limite for violado.
 
 import type { InstantIso, QuarantineItem, QuarantineSource } from '../domain/types'
 import { SAFETY_LIMITS } from '../validation/limits'
@@ -28,6 +28,10 @@ export interface AddQuarantineResult {
 function calculateTotalQuarantineBytes(items: QuarantineItem[]): number {
   return items.reduce((acc, item) => acc + serializedUtf8Bytes(item), 0)
 }
+
+// Ordem de inserção interna mantida em memória para controle da fila FIFO
+const quarantineInsertionOrder = new Map<string, number>()
+let quarantineCounter = 0
 
 /**
  * Adiciona um novo registro à quarentena compacta, aplicando truncamento byte-aware
@@ -72,15 +76,25 @@ export async function addQuarantineItem(options: AddQuarantineOptions): Promise<
   // Garante que o item individual satisfaz o limite
   const itemBytes = serializedUtf8Bytes(newItem)
   if (itemBytes > SAFETY_LIMITS.QUARANTINE_ITEM_BYTES_MAX) {
-    // Trunca ainda mais agressivamente o excerto
     const forcedTrunc = truncateUtf8Bytes(excerpt || '', 100)
     newItem.rawExcerptUtf8 = forcedTrunc.text
     newItem.truncated = true
   }
 
-  // Carrega itens existentes ordenados por createdAt (mais antigos primeiro)
+  // Registra ordem de inserção do novo item
+  quarantineCounter++
+  quarantineInsertionOrder.set(newItem.id, quarantineCounter)
+
+  // Carrega itens existentes ordenados pela ordem de inserção (mais antigos primeiro)
   const existing = await getAllFromStore<QuarantineItem>('quarantine')
-  existing.sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+  existing.sort((a, b) => {
+    const orderA = quarantineInsertionOrder.get(a.id) ?? 0
+    const orderB = quarantineInsertionOrder.get(b.id) ?? 0
+    if (orderA !== orderB) {
+      return orderA - orderB
+    }
+    return a.createdAt.localeCompare(b.createdAt)
+  })
 
   // Adiciona o novo item à lista
   const updatedList = [...existing, newItem]
@@ -95,13 +109,13 @@ export async function addQuarantineItem(options: AddQuarantineOptions): Promise<
     (updatedList.length > SAFETY_LIMITS.QUARANTINE_ITEMS_MAX ||
       calculateTotalQuarantineBytes(updatedList) > SAFETY_LIMITS.QUARANTINE_TOTAL_BYTES_MAX)
   ) {
-    // O item mais antigo é o primeiro da fila (índice 0), desde que não seja o recém-inserido
     const oldest = updatedList[0]
     if (oldest.id === newItem.id) {
       break
     }
     const b = serializedUtf8Bytes(oldest)
     await deleteFromStore('quarantine', oldest.id)
+    quarantineInsertionOrder.delete(oldest.id)
     updatedList.shift()
     evictedCount++
     evictedBytes += b
@@ -119,7 +133,14 @@ export async function addQuarantineItem(options: AddQuarantineOptions): Promise<
  */
 export async function getQuarantineItems(): Promise<QuarantineItem[]> {
   const items = await getAllFromStore<QuarantineItem>('quarantine')
-  items.sort((a, b) => b.createdAt.localeCompare(a.createdAt)) // Mais recentes primeiro para exibição
+  items.sort((a, b) => {
+    const orderA = quarantineInsertionOrder.get(a.id) ?? 0
+    const orderB = quarantineInsertionOrder.get(b.id) ?? 0
+    if (orderA !== orderB) {
+      return orderB - orderA // Mais recentes primeiro
+    }
+    return b.createdAt.localeCompare(a.createdAt)
+  })
   return items
 }
 
@@ -127,5 +148,6 @@ export async function getQuarantineItems(): Promise<QuarantineItem[]> {
  * Remove um item específico da quarentena.
  */
 export async function deleteQuarantineItem(id: string): Promise<void> {
+  quarantineInsertionOrder.delete(id)
   await deleteFromStore('quarantine', id)
 }

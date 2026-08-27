@@ -1,34 +1,40 @@
 import { beforeEach, describe, expect, it } from 'vitest'
+import { indexedDB } from 'fake-indexeddb'
 import type { CalculationRecord } from '../../domain/types'
 import { setPersistenceConsent } from '../../storage/consent'
 import {
   addCalculationRecord,
+  deleteCalculationRecord,
+  getCalculationRecordById,
   getCalculationRecords,
-  pruneHistoryForConfigMutation,
 } from '../../storage/history'
-import { resetStorageForTesting } from '../../storage/idb'
+import { resetStorageForTesting, setCustomIDBFactoryForTesting } from '../../storage/idb'
 import { SAFETY_LIMITS } from '../../validation/limits'
 
-
-function createDummyCalculationRecord(id: string, customSize = 0): CalculationRecord {
-  const extraPadding = customSize > 0 ? new Array(customSize).fill('z').join('') : undefined
+function createSampleRecord(id: string, createdAt: string, paddingChars = 0): CalculationRecord {
   return {
     id,
-    createdAt: new Date(Date.now() + parseInt(id.replace(/\D/g, '') || '0') * 1000).toISOString(),
-    display: { title: `Cálculo ${id}`, color: 'blue-500', note: extraPadding },
+    createdAt,
+    display: { title: `Registro ${id}`, color: 'emerald-500', note: 'x'.repeat(paddingChars) },
     type: 'reconstitution',
     versions: { reconstitutionEngineVersion: '1.0.0', datasetVersion: 1 },
     input: {
       vialMassMg: 10,
       diluentVolumeMl: 2,
-      desiredDoseMcg: 500,
-      syringe: { family: 'U-100', capacityUnits: 100, unitsPerMl: 100, graduationUnits: 1 },
+      desiredDoseMcg: 100,
+      syringe: {
+        family: 'U-100',
+        capacityUnits: 100,
+        unitsPerMl: 100,
+        graduationUnits: 1,
+      },
     },
+
     resultSnapshot: {
       concentrationMcgPerMl: 5000,
-      doseVolumeMl: 0.1,
-      syringeUnits: 10,
-      theoreticalMaxDoses: 20,
+      doseVolumeMl: 0.02,
+      syringeUnits: 2,
+      theoreticalMaxDoses: 100,
       capacityExceeded: false,
       warnings: [],
       metadata: { reconstitutionEngineVersion: '1.0.0' },
@@ -36,97 +42,132 @@ function createDummyCalculationRecord(id: string, customSize = 0): CalculationRe
   }
 }
 
-describe('History Storage & Deterministic FIFO (§11, §13)', () => {
+describe('History Storage, Insertion-Order FIFO & ID Immutability (§11, §13, E6.1)', () => {
   beforeEach(async () => {
+    setCustomIDBFactoryForTesting(indexedDB)
     setPersistenceConsent(true)
     await resetStorageForTesting()
   })
 
-  it('insere CalculationRecord válido abaixo de 8 MiB', async () => {
-    const record = createDummyCalculationRecord('rec-1')
-    const res = await addCalculationRecord(record)
+  it('rejeita gravação de registro individual maior que 8 MiB sem podar histórico existente', async () => {
+    const validRec = createSampleRecord('rec-valid', '2026-08-27T08:00:00.000Z', 100)
+    await addCalculationRecord(validRec)
 
-    expect(res.ok).toBe(true)
-    if (res.ok) {
-      expect(res.evictedCount).toBe(0)
-    }
-
-    const records = await getCalculationRecords()
-    expect(records).toHaveLength(1)
-    expect(records[0].id).toBe('rec-1')
-  })
-
-  it('rejeita CalculationRecord acima de 8 MiB com CALCULATION_RECORD_TOO_LARGE sem evictar histórico antigo', async () => {
-    // Insere um registro válido inicial
-    await addCalculationRecord(createDummyCalculationRecord('rec-valid'))
-
-    // Cria registro com mais de 8 MiB (8_388_608 B)
-    const hugeRecord = createDummyCalculationRecord('rec-huge', SAFETY_LIMITS.CALCULATION_RECORD_BYTES_MAX + 100)
-    const res = await addCalculationRecord(hugeRecord)
+    // Cria registro de ~9 MiB
+    const oversizedRec = createSampleRecord('rec-oversized', '2026-08-27T08:01:00.000Z', 9 * 1024 * 1024)
+    const res = await addCalculationRecord(oversizedRec)
 
     expect(res.ok).toBe(false)
     if (!res.ok) {
       expect(res.error.code).toBe('CALCULATION_RECORD_TOO_LARGE')
     }
 
-    // O registro válido anterior deve continuar preservado intacto
+    // O registro válido anterior deve permanecer intocado
     const records = await getCalculationRecords()
     expect(records).toHaveLength(1)
     expect(records[0].id).toBe('rec-valid')
   })
 
-  it('aplica poda FIFO determinística ao ultrapassar 500 registros', async () => {
-    // Insere 500 registros
-    for (let i = 1; i <= 500; i++) {
-      await addCalculationRecord(createDummyCalculationRecord(`rec-${i}`))
+  it('CORREÇÃO 4: FIFO determinístico usa insertionOrder persistida e NÃO usa createdAt', async () => {
+    // Cada registro individual tem 7 MB (abaixo do teto de 8 MiB).
+    // Total de 7 registros = 49 MB (> 47 MiB do HISTORY_TOTAL_BYTES_MAX).
+    // rec-A: inserido 1º, mas com createdAt NOVO (2026-08-27)
+    // rec-B: inserido 2º, mas com createdAt ANTIGO (2025-01-01)
+    const recA = createSampleRecord('rec-A', '2026-08-27T12:00:00.000Z', 7 * 1024 * 1024)
+    const recB = createSampleRecord('rec-B', '2025-01-01T00:00:00.000Z', 7 * 1024 * 1024)
+
+    await addCalculationRecord(recA)
+    await addCalculationRecord(recB)
+
+    for (let i = 3; i <= 6; i++) {
+      const rec = createSampleRecord(`rec-${i}`, '2026-08-27T08:00:00.000Z', 7 * 1024 * 1024)
+      await addCalculationRecord(rec)
     }
 
-    let records = await getCalculationRecords()
-    expect(records).toHaveLength(500)
+    // 7º registro: total ultrapassa 47 MiB
+    // A poda FIFO por insertionOrder DEVE remover o registro rec-A (inserido primeiro),
+    // mesmo que o createdAt de A seja mais recente que o createdAt de B!
+    const rec7 = createSampleRecord('rec-7', '2026-08-27T13:00:00.000Z', 7 * 1024 * 1024)
+    const res7 = await addCalculationRecord(rec7)
+    expect(res7.ok).toBe(true)
 
-    // Insere o 501º registro
-    const res501 = await addCalculationRecord(createDummyCalculationRecord('rec-501'))
-    expect(res501.ok).toBe(true)
-    if (res501.ok) {
-      expect(res501.evictedCount).toBe(1)
-    }
+    const remaining = await getCalculationRecords()
+    const remainingIds = remaining.map((r) => r.id)
 
-    records = await getCalculationRecords()
-    expect(records).toHaveLength(500)
-    // O mais recente 'rec-501' está presente
-    expect(records.some((r) => r.id === 'rec-501')).toBe(true)
-    // O mais antigo 'rec-1' foi evictado
-    expect(records.some((r) => r.id === 'rec-1')).toBe(false)
+    // A deve ter sido evictado porque foi inserido primeiro
+    expect(remainingIds).not.toContain('rec-A')
+    expect(remainingIds).toContain('rec-B')
+    expect(remainingIds).toContain('rec-7')
   })
 
-  it('pruneHistoryForConfigMutation poda histórico se ConfigPayload fizer FullBackup ultrapassar 64 MiB', async () => {
-    // Insere registros no histórico
-    for (let i = 1; i <= 5; i++) {
-      await addCalculationRecord(createDummyCalculationRecord(`rec-${i}`, 200000))
+  it('suporta registros com createdAt idênticos preservando a ordem de inserção', async () => {
+    const sameDate = '2026-08-27T10:00:00.000Z'
+    for (let i = 1; i <= 6; i++) {
+      const rec = createSampleRecord(`same-${i}`, sameDate, 7 * 1024 * 1024)
+      await addCalculationRecord(rec)
     }
 
-    // Simula mutação de ConfigPayload muito grande
-    const largeStr = new Array(5000000).fill('a').join('')
-    const largeConfig = {
-      settings: { theme: 'system' as const, calendarTimeZone: 'America/Sao_Paulo' },
-      favorites: { substances: [], recipeIds: [] },
-      customSubstances: [],
-      customProfiles: [],
-      recipes: [],
-      scenarios: Array.from({ length: 10 }, (_, i) => ({
-        id: `s-${i}`,
-        name: `Cenário ${largeStr}`,
-        color: 'blue-500' as const,
-        source: { type: 'manual' as const },
-        displayUnit: 'mg' as const,
-        selectedPkParameters: { halfLifeMs: 86400000, tmaxMs: null },
-        doses: [{ id: 'd1', amountMg: 100, time: '2026-08-27T08:00:00.000Z' }],
-      })),
-      protocols: [],
-    }
+    const rec7 = createSampleRecord('same-7', sameDate, 7 * 1024 * 1024)
+    await addCalculationRecord(rec7)
 
+    const remaining = await getCalculationRecords()
+    const ids = remaining.map((r) => r.id)
 
-    const { evictedCount } = await pruneHistoryForConfigMutation(largeConfig)
-    expect(evictedCount).toBeGreaterThanOrEqual(0)
+    // same-1 foi o primeiro inserido e deve ter sido evictado
+    expect(ids).not.toContain('same-1')
+    expect(ids).toContain('same-2')
+    expect(ids).toContain('same-7')
   })
+
+
+  it('CORREÇÃO 4: imutabilidade por ID não sobrescreve registro histórico com mesmo ID', async () => {
+    const original = createSampleRecord('immutable-id', '2026-08-27T08:00:00.000Z', 100)
+    original.display.title = 'Título Original'
+    await addCalculationRecord(original)
+
+    const duplicate = createSampleRecord('immutable-id', '2026-08-27T09:00:00.000Z', 100)
+    duplicate.display.title = 'Título Modificado Que Deve Ser Rejeitado'
+
+    const res = await addCalculationRecord(duplicate)
+    expect(res.ok).toBe(false)
+
+    const fetched = await getCalculationRecordById('immutable-id')
+    expect(fetched?.display.title).toBe('Título Original')
+  })
+
+  it('permite consulta por ID e deleção individual de registro', async () => {
+    const rec = createSampleRecord('rec-crud', '2026-08-27T08:00:00.000Z')
+    await addCalculationRecord(rec)
+
+    const fetched = await getCalculationRecordById('rec-crud')
+    expect(fetched).toBeDefined()
+    expect(fetched?.id).toBe('rec-crud')
+
+    await deleteCalculationRecord('rec-crud')
+    const afterDelete = await getCalculationRecordById('rec-crud')
+    expect(afterDelete).toBeUndefined()
+  })
+
+  it(
+    'aplica poda FIFO determinística ao ultrapassar 500 registros',
+    async () => {
+      // Insere 505 registros pequenos
+      for (let i = 1; i <= 505; i++) {
+        const rec = createSampleRecord(`rec-cnt-${i}`, '2026-08-27T08:00:00.000Z')
+        await addCalculationRecord(rec)
+      }
+
+      const records = await getCalculationRecords()
+      expect(records.length).toBeLessThanOrEqual(SAFETY_LIMITS.HISTORY_RECORDS_MAX)
+      expect(records.length).toBe(500)
+
+      // Os registros 1 a 5 devem ter sido evictados
+      const ids = new Set(records.map((r) => r.id))
+      expect(ids.has('rec-cnt-1')).toBe(false)
+      expect(ids.has('rec-cnt-5')).toBe(false)
+      expect(ids.has('rec-cnt-6')).toBe(true)
+      expect(ids.has('rec-cnt-505')).toBe(true)
+    },
+    30000,
+  )
 })

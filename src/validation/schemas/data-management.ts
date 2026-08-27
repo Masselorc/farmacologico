@@ -301,7 +301,7 @@ export const chartViewScenarioSnapshotSchema = z
     scenarioId: z.string().min(1),
     label: z.string().min(1),
     color: paletteColorIdSchema,
-    points: z.array(chartSnapshotPointSchema),
+    points: z.array(chartSnapshotPointSchema).max(SAFETY_LIMITS.DISPLAY_POINTS_PER_SERIES_MAX),
   })
   .strict()
 
@@ -314,6 +314,38 @@ export const chartViewSnapshotSchema = z
     displayPointsByScenario: z.array(chartViewScenarioSnapshotSchema),
   })
   .strict()
+  .superRefine((snapshot, ctx) => {
+    for (let sIdx = 0; sIdx < snapshot.displayPointsByScenario.length; sIdx++) {
+      const scenario = snapshot.displayPointsByScenario[sIdx]
+      for (let pIdx = 0; pIdx < scenario.points.length; pIdx++) {
+        const point = scenario.points[pIdx]
+        if (snapshot.scaleMode === 'absolute') {
+          if (point.valueKind !== 'mg') {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: `Ponto na escala absolute deve ter valueKind='mg'`,
+              path: ['displayPointsByScenario', sIdx, 'points', pIdx, 'valueKind'],
+            })
+          }
+        } else if (snapshot.scaleMode === 'normalized') {
+          if (point.valueKind !== 'normalized_ratio') {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: `Ponto na escala normalized deve ter valueKind='normalized_ratio'`,
+              path: ['displayPointsByScenario', sIdx, 'points', pIdx, 'valueKind'],
+            })
+          }
+          if (point.value < 0 || point.value > 1) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: `Valor normalizado deve estar estritamente no intervalo [0, 1]`,
+              path: ['displayPointsByScenario', sIdx, 'points', pIdx, 'value'],
+            })
+          }
+        }
+      }
+    }
+  })
 
 export const protocolComponentKeySchema = z
   .object({
@@ -334,7 +366,7 @@ export const protocolAnalysisSeriesSnapshotSchema = z
     key: protocolComponentKeySchema,
     label: z.string().min(1),
     color: paletteColorIdSchema,
-    displayPoints: z.array(displayPointSchema),
+    displayPoints: z.array(displayPointSchema).max(SAFETY_LIMITS.DISPLAY_POINTS_PER_SERIES_MAX),
     state: pkStateSchema,
     peak: z.object({ timeMs: z.number().finite(), amountMg: z.number().finite() }).strict(),
     milestones: z.array(
@@ -349,6 +381,7 @@ export const protocolAnalysisSeriesSnapshotSchema = z
     warnings: z.array(pkWarningCodeSchema),
   })
   .strict()
+
 
 export const protocolAnalysisSnapshotSchema = z
   .object({
@@ -419,6 +452,15 @@ export const calculationRecordSchema = z.discriminatedUnion('type', [
   reconCalculationRecordSchema,
   protocolAnalysisCalculationRecordSchema,
 ])
+
+export const storedHistoryEntrySchema = z
+  .object({
+    id: z.string().min(1),
+    insertionOrder: z.number().int().nonnegative(),
+    record: calculationRecordSchema,
+  })
+  .strict()
+
 
 // ── Export / FullBackup Bundles ──────────────────────────────────
 

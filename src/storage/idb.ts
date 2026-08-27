@@ -1,4 +1,4 @@
-// Infraestrutura de armazenamento IndexedDB com degradação resiliente em memória (§11).
+// Infraestrutura de armazenamento IndexedDB com degradação resiliente em memória (§11, §12).
 // Stores normativos: scenarios | protocols | history | custom | quarantine.
 // Chaves/namespaces: fk:v1:*.
 
@@ -13,22 +13,39 @@ import type {
   QuarantineItem,
   ReconstitutionRecipe,
   Scenario,
+  StoredHistoryEntry,
+  StorageMode,
 } from '../domain/types'
-import { getPersistenceConsent } from './consent'
+import {
+  appSettingsSchema,
+  calculationRecordSchema,
+  favoritesSchema,
+  protocolSchema,
+  quarantineItemSchema,
+  scenarioSchema,
+  storedHistoryEntrySchema,
+} from '../validation'
+
+import { serializedUtf8Bytes, truncateUtf8Bytes } from './bytes'
+import { detectInitialCalendarTimeZone, getPersistenceConsent } from './consent'
 
 export const DB_NAME = 'farmakit_v1'
 export const DB_VERSION = 1
 
 export type StoreName = 'scenarios' | 'protocols' | 'history' | 'custom' | 'quarantine'
 
-const DEFAULT_SETTINGS: AppSettings = {
-  theme: 'system',
-  calendarTimeZone: 'America/Sao_Paulo',
+export function getDefaultSettings(): AppSettings {
+  return {
+    theme: 'system',
+    calendarTimeZone: detectInitialCalendarTimeZone(),
+  }
 }
 
-const DEFAULT_FAVORITES: Favorites = {
-  substances: [],
-  recipeIds: [],
+export function getDefaultFavorites(): Favorites {
+  return {
+    substances: [],
+    recipeIds: [],
+  }
 }
 
 interface CustomEntry {
@@ -36,23 +53,46 @@ interface CustomEntry {
   value: unknown
 }
 
-// ── Estado de Degradação / Falha ─────────────────────────────────
+// ── Estado de Degradação, Modo Formal e Sincronização ─────────────
 
 let isDegradedState = false
+let isRecoveringState = false
 let lastStorageError: Error | null = null
 let simulatedFailure: Error | null = null
+let hasUnsyncedMemoryChanges = false
+
+export function getStorageMode(): StorageMode {
+  if (!getPersistenceConsent()) {
+    return 'memory-only-consent-off'
+  }
+  if (isRecoveringState) {
+    return 'recovering'
+  }
+  if (isDegradedState) {
+    return 'degraded-memory'
+  }
+  return 'persistent-ok'
+}
+
+export function hasUnsyncedChanges(): boolean {
+  return hasUnsyncedMemoryChanges
+}
 
 // Store em memória para modo degradado ou quando IndexedDB não está disponível / consentimento off
 class InMemoryStore {
   scenarios = new Map<string, Scenario>()
   protocols = new Map<string, Protocol>()
-  history = new Map<string, CalculationRecord>()
+  history = new Map<string, StoredHistoryEntry>()
   custom = new Map<string, unknown>()
   quarantine = new Map<string, QuarantineItem>()
 
   constructor() {
-    this.custom.set('fk:v1:settings', DEFAULT_SETTINGS)
-    this.custom.set('fk:v1:favorites', DEFAULT_FAVORITES)
+    this.resetDefaults()
+  }
+
+  resetDefaults() {
+    this.custom.set('fk:v1:settings', getDefaultSettings())
+    this.custom.set('fk:v1:favorites', getDefaultFavorites())
     this.custom.set('fk:v1:customSubstances', [])
     this.custom.set('fk:v1:customProfiles', [])
     this.custom.set('fk:v1:recipes', [])
@@ -64,11 +104,7 @@ class InMemoryStore {
     this.history.clear()
     this.quarantine.clear()
     this.custom.clear()
-    this.custom.set('fk:v1:settings', DEFAULT_SETTINGS)
-    this.custom.set('fk:v1:favorites', DEFAULT_FAVORITES)
-    this.custom.set('fk:v1:customSubstances', [])
-    this.custom.set('fk:v1:customProfiles', [])
-    this.custom.set('fk:v1:recipes', [])
+    this.resetDefaults()
   }
 }
 
@@ -105,123 +141,7 @@ export function setCustomIDBFactoryForTesting(factory: IDBFactory | undefined): 
   customIDBFactory = factory
 }
 
-export function createMockIDBFactory(): IDBFactory {
-
-  const storeData = new Map<string, Map<string, unknown>>()
-  const objectStoreNames = new Set<string>()
-
-  const triggerSuccess = (req: Record<string, unknown>) => {
-    const handler = req.onsuccess as ((e: unknown) => void) | null | undefined
-    if (handler) {
-      handler.call(req, { target: req })
-    }
-  }
-
-  const triggerComplete = (tx: Record<string, unknown>) => {
-    const handler = tx.oncomplete as ((e: unknown) => void) | null | undefined
-    if (handler) {
-      handler.call(tx, { target: tx })
-    }
-  }
-
-  const triggerUpgrade = (req: Record<string, unknown>) => {
-    const handler = req.onupgradeneeded as ((e: unknown) => void) | null | undefined
-    if (handler) {
-      handler.call(req, { target: req })
-    }
-  }
-
-  const db: Partial<IDBDatabase> = {
-    objectStoreNames: {
-      contains: (name: string) => objectStoreNames.has(name),
-    } as unknown as DOMStringList,
-    createObjectStore: (name: string) => {
-      objectStoreNames.add(name)
-      if (!storeData.has(name)) {
-        storeData.set(name, new Map())
-      }
-      return {} as IDBObjectStore
-    },
-    transaction: () => {
-      const tx: Record<string, unknown> = {
-        error: null,
-        oncomplete: null,
-        onerror: null,
-        objectStore: (name: string) => {
-          let map = storeData.get(name)
-          if (!map) {
-            map = new Map()
-            storeData.set(name, map)
-          }
-          return {
-            getAll: () => {
-              const req: Record<string, unknown> = { result: Array.from(map.values()), onsuccess: null, onerror: null }
-              queueMicrotask(() => triggerSuccess(req))
-              return req as unknown as IDBRequest
-            },
-            get: (key: string) => {
-              const req: Record<string, unknown> = { result: map.get(key), onsuccess: null, onerror: null }
-              queueMicrotask(() => triggerSuccess(req))
-              return req as unknown as IDBRequest
-            },
-            put: (value: unknown) => {
-              const key = (value as { key?: string; id?: string }).key || (value as { id?: string }).id || 'k'
-              map.set(key, value)
-              const req: Record<string, unknown> = { onsuccess: null, onerror: null }
-              queueMicrotask(() => triggerSuccess(req))
-              return req as unknown as IDBRequest
-            },
-            delete: (key: string) => {
-              map.delete(key)
-              const req: Record<string, unknown> = { onsuccess: null, onerror: null }
-              queueMicrotask(() => triggerSuccess(req))
-              return req as unknown as IDBRequest
-            },
-            clear: () => {
-              map.clear()
-              const req: Record<string, unknown> = { onsuccess: null, onerror: null }
-              queueMicrotask(() => triggerSuccess(req))
-              return req as unknown as IDBRequest
-            },
-          } as unknown as IDBObjectStore
-        },
-      }
-      queueMicrotask(() => triggerComplete(tx))
-      return tx as unknown as IDBTransaction
-    },
-    close: () => {},
-  }
-
-  const factory: Record<string, unknown> = {
-    open: () => {
-      const req: Record<string, unknown> = {
-        result: db as IDBDatabase,
-        error: null,
-        onsuccess: null,
-        onerror: null,
-        onupgradeneeded: null,
-        onblocked: null,
-      }
-      queueMicrotask(() => {
-        triggerUpgrade(req)
-        triggerSuccess(req)
-      })
-      return req as unknown as IDBOpenDBRequest
-    },
-    deleteDatabase: () => {
-      storeData.clear()
-      const req: Record<string, unknown> = { onsuccess: null, onerror: null }
-      queueMicrotask(() => triggerSuccess(req))
-      return req as unknown as IDBOpenDBRequest
-    },
-  }
-
-  return factory as unknown as IDBFactory
-}
-
 // ── Abertura do Banco de Dados ───────────────────────────────────
-
-
 
 function getIDBFactory(): IDBFactory | undefined {
   if (simulatedFailure) {
@@ -238,7 +158,6 @@ function getIDBFactory(): IDBFactory | undefined {
   }
   return undefined
 }
-
 
 async function openIDB(): Promise<IDBDatabase | null> {
   const factory = getIDBFactory()
@@ -271,8 +190,6 @@ async function openIDB(): Promise<IDBDatabase | null> {
       }
 
       request.onsuccess = () => {
-        isDegradedState = false
-        lastStorageError = null
         resolve(request.result)
       }
 
@@ -295,49 +212,168 @@ async function openIDB(): Promise<IDBDatabase | null> {
   })
 }
 
+// ── Quarentena Interna para Corrupção de IDB ─────────────────────
+
+function recordIdbCorruption(rawItem: unknown, storeName: string, id?: string): void {
+  if (storeName === 'quarantine') {
+    // Tratamento especial para o store quarantine: descartar sem recursão
+    return
+  }
+  try {
+    const rawStr = JSON.stringify(rawItem)
+    const bytes = serializedUtf8Bytes(rawItem)
+    const truncResult = truncateUtf8Bytes(rawStr, 1024)
+    const item: QuarantineItem = {
+      id: id || `corrupt-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      createdAt: new Date().toISOString(),
+      source: 'idb_corruption',
+      errorCode: `IDB_CORRUPTED_ENTRY_${storeName.toUpperCase()}`,
+      originalUtf8Bytes: bytes,
+      rawExcerptUtf8: truncResult.text,
+      truncated: truncResult.truncated || bytes > 1024,
+    }
+    inMemory.quarantine.set(item.id, item)
+
+    // Tenta persistir na quarentena se possível
+    openIDB().then((db) => {
+      if (db) {
+        try {
+          const tx = db.transaction('quarantine', 'readwrite')
+          tx.objectStore('quarantine').put(item)
+          tx.oncomplete = () => db.close()
+          tx.onerror = () => db.close()
+        } catch {
+          db.close()
+        }
+      }
+    })
+  } catch {
+    // Ignora erro ao quarentenar item patológico
+  }
+}
+
+// ── Tenta Recuperação e Sincronização ────────────────────────────
+
 /**
- * Tenta reabrir o IndexedDB e recuperar do estado degradado.
+ * Tenta reabrir o IndexedDB, sincroniza dados em memória alterados durante degradação e recupera o estado saudável.
  */
 export async function retryStorageOpen(): Promise<boolean> {
   if (simulatedFailure) {
     return false
   }
-  const db = await openIDB()
-  if (db) {
-    db.close()
+  isRecoveringState = true
+
+  try {
+    const db = await openIDB()
+    if (!db) {
+      isRecoveringState = false
+      isDegradedState = true
+      return false
+    }
+
+    if (hasUnsyncedMemoryChanges) {
+      // Sincroniza todas as alterações da memória para o IDB antes de declarar sucesso
+      const tx = db.transaction(
+        ['scenarios', 'protocols', 'history', 'custom', 'quarantine'],
+        'readwrite',
+      )
+      const scenariosStore = tx.objectStore('scenarios')
+      const protocolsStore = tx.objectStore('protocols')
+      const historyStore = tx.objectStore('history')
+      const customStore = tx.objectStore('custom')
+      const quarantineStore = tx.objectStore('quarantine')
+
+      scenariosStore.clear()
+      for (const s of inMemory.scenarios.values()) {
+        scenariosStore.put(s)
+      }
+
+      protocolsStore.clear()
+      for (const p of inMemory.protocols.values()) {
+        protocolsStore.put(p)
+      }
+
+      historyStore.clear()
+      for (const h of inMemory.history.values()) {
+        historyStore.put(h)
+      }
+
+      customStore.clear()
+      for (const [key, value] of inMemory.custom.entries()) {
+        customStore.put({ key, value })
+      }
+
+      quarantineStore.clear()
+      for (const q of inMemory.quarantine.values()) {
+        quarantineStore.put(q)
+      }
+
+      const syncSuccess = await new Promise<boolean>((resolve) => {
+        tx.oncomplete = () => {
+          db.close()
+          resolve(true)
+        }
+        tx.onerror = () => {
+          db.close()
+          resolve(false)
+        }
+        tx.onabort = () => {
+          db.close()
+          resolve(false)
+        }
+      })
+
+      if (!syncSuccess) {
+        isRecoveringState = false
+        isDegradedState = true
+        return false
+      }
+    } else {
+      db.close()
+    }
+
+    hasUnsyncedMemoryChanges = false
     isDegradedState = false
     lastStorageError = null
+    isRecoveringState = false
     return true
+  } catch (err) {
+    isRecoveringState = false
+    isDegradedState = true
+    lastStorageError = err instanceof Error ? err : new Error(String(err))
+    return false
   }
-  return false
 }
 
-// ── Operações Genéricas de Storage ───────────────────────────────
+// ── Operações com Read-Validation ────────────────────────────────
+
+function getInMemoryList<T>(storeName: StoreName): T[] {
+  switch (storeName) {
+    case 'scenarios':
+      return Array.from(inMemory.scenarios.values()) as T[]
+    case 'protocols':
+      return Array.from(inMemory.protocols.values()) as T[]
+    case 'history':
+      return Array.from(inMemory.history.values()) as T[]
+    case 'quarantine':
+      return Array.from(inMemory.quarantine.values()) as T[]
+    case 'custom':
+      return Array.from(inMemory.custom.entries()).map(([key, value]) => ({ key, value })) as T[]
+  }
+}
 
 /**
- * Lê todos os registros de um store específico.
+ * Lê todos os registros de um store com validação runtime de integridade.
  */
 export async function getAllFromStore<T>(storeName: StoreName): Promise<T[]> {
   const consent = getPersistenceConsent()
   const db = consent ? await openIDB() : null
 
   if (!db) {
-    // Modo em memória
-    switch (storeName) {
-      case 'scenarios':
-        return Array.from(inMemory.scenarios.values()) as T[]
-      case 'protocols':
-        return Array.from(inMemory.protocols.values()) as T[]
-      case 'history':
-        return Array.from(inMemory.history.values()) as T[]
-      case 'quarantine':
-        return Array.from(inMemory.quarantine.values()) as T[]
-      case 'custom':
-        return Array.from(inMemory.custom.entries()).map(([key, value]) => ({ key, value })) as T[]
-    }
+    return getInMemoryList<T>(storeName)
   }
 
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     try {
       const tx = db.transaction(storeName, 'readonly')
       const store = tx.objectStore(storeName)
@@ -345,25 +381,81 @@ export async function getAllFromStore<T>(storeName: StoreName): Promise<T[]> {
 
       request.onsuccess = () => {
         db.close()
-        resolve(request.result as T[])
+        const rawList = request.result || []
+        const validList: T[] = []
+
+        for (const raw of rawList) {
+          if (storeName === 'scenarios') {
+            const parsed = scenarioSchema.safeParse(raw)
+            if (parsed.success) {
+              validList.push(parsed.data as T)
+              inMemory.scenarios.set(parsed.data.id, parsed.data)
+            } else {
+              recordIdbCorruption(raw, storeName, (raw as { id?: string })?.id)
+            }
+          } else if (storeName === 'protocols') {
+            const parsed = protocolSchema.safeParse(raw)
+            if (parsed.success) {
+              validList.push(parsed.data as T)
+              inMemory.protocols.set(parsed.data.id, parsed.data)
+            } else {
+              recordIdbCorruption(raw, storeName, (raw as { id?: string })?.id)
+            }
+          } else if (storeName === 'history') {
+            const parsedEntry = storedHistoryEntrySchema.safeParse(raw)
+            if (parsedEntry.success) {
+              validList.push(parsedEntry.data as T)
+              inMemory.history.set(parsedEntry.data.id, parsedEntry.data)
+            } else {
+              // Tenta fallback para CalculationRecord direto sem envelope
+              const parsedRecord = calculationRecordSchema.safeParse(raw)
+              if (parsedRecord.success) {
+                const entry: StoredHistoryEntry = {
+                  id: parsedRecord.data.id,
+                  insertionOrder: Date.parse(parsedRecord.data.createdAt) || 0,
+                  record: parsedRecord.data,
+                }
+                validList.push(entry as T)
+                inMemory.history.set(entry.id, entry)
+              } else {
+                recordIdbCorruption(raw, storeName, (raw as { id?: string })?.id)
+              }
+            }
+          } else if (storeName === 'quarantine') {
+            const parsed = quarantineItemSchema.safeParse(raw)
+            if (parsed.success) {
+              validList.push(parsed.data as T)
+              inMemory.quarantine.set(parsed.data.id, parsed.data)
+            }
+            // Não quarentena item defeituoso no store quarantine
+          } else {
+            validList.push(raw as T)
+          }
+        }
+
+        resolve(validList)
       }
+
       request.onerror = () => {
         db.close()
         isDegradedState = true
         lastStorageError = request.error
-        reject(request.error)
+        // Fallback gracioso para memória
+        resolve(getInMemoryList<T>(storeName))
       }
     } catch (err) {
       db.close()
       isDegradedState = true
       lastStorageError = err instanceof Error ? err : new Error(String(err))
-      reject(err)
+      resolve(getInMemoryList<T>(storeName))
     }
   })
 }
 
+
+
 /**
- * Lê um item por chave de um store.
+ * Lê um item por chave de um store com validação runtime.
  */
 export async function getFromStore<T>(storeName: StoreName, key: string): Promise<T | undefined> {
   const consent = getPersistenceConsent()
@@ -384,7 +476,7 @@ export async function getFromStore<T>(storeName: StoreName, key: string): Promis
     }
   }
 
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     try {
       const tx = db.transaction(storeName, 'readonly')
       const store = tx.objectStore(storeName)
@@ -392,42 +484,119 @@ export async function getFromStore<T>(storeName: StoreName, key: string): Promis
 
       request.onsuccess = () => {
         db.close()
-        if (storeName === 'custom' && request.result) {
-          resolve((request.result as CustomEntry).value as T)
-        } else {
-          resolve(request.result as T | undefined)
+        const raw = request.result
+        if (raw === undefined || raw === null) {
+          resolve(undefined)
+          return
         }
+
+        if (storeName === 'custom') {
+          const entryVal = (raw as CustomEntry).value
+          if (key === 'fk:v1:settings') {
+            const parsed = appSettingsSchema.safeParse(entryVal)
+            if (parsed.success) {
+              inMemory.custom.set(key, parsed.data)
+              resolve(parsed.data as T)
+            } else {
+              recordIdbCorruption(raw, storeName, key)
+              resolve(getDefaultSettings() as T)
+            }
+          } else if (key === 'fk:v1:favorites') {
+            const parsed = favoritesSchema.safeParse(entryVal)
+            if (parsed.success) {
+              inMemory.custom.set(key, parsed.data)
+              resolve(parsed.data as T)
+            } else {
+              recordIdbCorruption(raw, storeName, key)
+              resolve(getDefaultFavorites() as T)
+            }
+          } else {
+            inMemory.custom.set(key, entryVal)
+            resolve(entryVal as T)
+          }
+          return
+        }
+
+        if (storeName === 'scenarios') {
+          const parsed = scenarioSchema.safeParse(raw)
+          if (parsed.success) {
+            inMemory.scenarios.set(parsed.data.id, parsed.data)
+            resolve(parsed.data as T)
+          } else {
+            recordIdbCorruption(raw, storeName, key)
+            resolve(undefined)
+          }
+          return
+        }
+
+        if (storeName === 'protocols') {
+          const parsed = protocolSchema.safeParse(raw)
+          if (parsed.success) {
+            inMemory.protocols.set(parsed.data.id, parsed.data)
+            resolve(parsed.data as T)
+          } else {
+            recordIdbCorruption(raw, storeName, key)
+            resolve(undefined)
+          }
+          return
+        }
+
+        if (storeName === 'history') {
+          const parsedEntry = storedHistoryEntrySchema.safeParse(raw)
+          if (parsedEntry.success) {
+            inMemory.history.set(parsedEntry.data.id, parsedEntry.data)
+            resolve(parsedEntry.data as T)
+          } else {
+            const parsedRecord = calculationRecordSchema.safeParse(raw)
+            if (parsedRecord.success) {
+              const entry: StoredHistoryEntry = {
+                id: parsedRecord.data.id,
+                insertionOrder: Date.parse(parsedRecord.data.createdAt) || 0,
+                record: parsedRecord.data,
+              }
+              inMemory.history.set(entry.id, entry)
+              resolve(entry as T)
+            } else {
+              recordIdbCorruption(raw, storeName, key)
+              resolve(undefined)
+            }
+          }
+          return
+        }
+
+        resolve(raw as T)
       }
+
       request.onerror = () => {
         db.close()
         isDegradedState = true
         lastStorageError = request.error
-        reject(request.error)
+        resolve(undefined)
       }
     } catch (err) {
       db.close()
       isDegradedState = true
       lastStorageError = err instanceof Error ? err : new Error(String(err))
-      reject(err)
+      resolve(undefined)
     }
   })
 }
 
 /**
- * Grava um item em um store.
+ * Grava um item em um store com garantia de durabilidade na conclusão da transação.
  */
 export async function putToStore<T extends { id?: string }>(
   storeName: StoreName,
   value: T,
   customKey?: string,
 ): Promise<void> {
-  // Sempre atualiza o estado em memória da sessão
+  // Atualiza memória da sessão
   if (storeName === 'scenarios' && value.id) {
     inMemory.scenarios.set(value.id, value as unknown as Scenario)
   } else if (storeName === 'protocols' && value.id) {
     inMemory.protocols.set(value.id, value as unknown as Protocol)
   } else if (storeName === 'history' && value.id) {
-    inMemory.history.set(value.id, value as unknown as CalculationRecord)
+    inMemory.history.set(value.id, value as unknown as StoredHistoryEntry)
   } else if (storeName === 'quarantine' && value.id) {
     inMemory.quarantine.set(value.id, value as unknown as QuarantineItem)
   } else if (storeName === 'custom' && customKey) {
@@ -441,6 +610,7 @@ export async function putToStore<T extends { id?: string }>(
 
   const db = await openIDB()
   if (!db) {
+    hasUnsyncedMemoryChanges = true
     return
   }
 
@@ -449,26 +619,154 @@ export async function putToStore<T extends { id?: string }>(
       const tx = db.transaction(storeName, 'readwrite')
       const store = tx.objectStore(storeName)
       const entry = storeName === 'custom' ? { key: customKey, value } : value
-      const request = store.put(entry)
+      store.put(entry)
 
-      request.onsuccess = () => {
+      tx.oncomplete = () => {
         db.close()
         resolve()
       }
-      request.onerror = () => {
+
+      tx.onerror = () => {
         db.close()
         isDegradedState = true
-        lastStorageError = request.error
-        reject(request.error)
+        hasUnsyncedMemoryChanges = true
+        lastStorageError = tx.error
+        reject(tx.error)
+      }
+
+      tx.onabort = () => {
+        db.close()
+        isDegradedState = true
+        hasUnsyncedMemoryChanges = true
+        lastStorageError = new Error('Transaction aborted')
+        reject(new Error('Transaction aborted'))
       }
     } catch (err) {
       db.close()
       isDegradedState = true
+      hasUnsyncedMemoryChanges = true
       lastStorageError = err instanceof Error ? err : new Error(String(err))
       reject(err)
     }
   })
 }
+
+/**
+ * Restaura atomicamente um FullBackup (configurações + histórico) tanto na memória quanto no IndexedDB.
+ */
+export async function restoreFullBackup(
+  payload: ConfigPayload,
+  history: CalculationRecord[],
+): Promise<void> {
+  // 1. Atualiza a memória
+  inMemory.scenarios.clear()
+  for (const s of payload.scenarios) {
+    inMemory.scenarios.set(s.id, s)
+  }
+
+  inMemory.protocols.clear()
+  for (const p of payload.protocols) {
+    inMemory.protocols.set(p.id, p)
+  }
+
+  inMemory.custom.set('fk:v1:settings', payload.settings)
+  inMemory.custom.set('fk:v1:favorites', payload.favorites)
+  inMemory.custom.set('fk:v1:customSubstances', payload.customSubstances)
+  inMemory.custom.set('fk:v1:customProfiles', payload.customProfiles)
+  inMemory.custom.set('fk:v1:recipes', payload.recipes)
+
+  inMemory.history.clear()
+  for (let i = 0; i < history.length; i++) {
+    const record = history[i]
+    const entry: StoredHistoryEntry = {
+      id: record.id,
+      insertionOrder: history.length - i,
+      record,
+    }
+    inMemory.history.set(record.id, entry)
+  }
+
+  // 2. Se consentimento ativado e IDB disponível, executa transação atômica única
+  const consent = getPersistenceConsent()
+  if (!consent) {
+    return
+  }
+
+  const db = await openIDB()
+  if (!db) {
+    hasUnsyncedMemoryChanges = true
+    return
+  }
+
+  return new Promise((resolve, reject) => {
+    try {
+      const tx = db.transaction(
+        ['scenarios', 'protocols', 'history', 'custom'],
+        'readwrite',
+      )
+      const scenariosStore = tx.objectStore('scenarios')
+      const protocolsStore = tx.objectStore('protocols')
+      const customStore = tx.objectStore('custom')
+      const historyStore = tx.objectStore('history')
+
+      scenariosStore.clear()
+      for (const s of payload.scenarios) {
+        scenariosStore.put(s)
+      }
+
+      protocolsStore.clear()
+      for (const p of payload.protocols) {
+        protocolsStore.put(p)
+      }
+
+      customStore.put({ key: 'fk:v1:settings', value: payload.settings })
+      customStore.put({ key: 'fk:v1:favorites', value: payload.favorites })
+      customStore.put({ key: 'fk:v1:customSubstances', value: payload.customSubstances })
+      customStore.put({ key: 'fk:v1:customProfiles', value: payload.customProfiles })
+      customStore.put({ key: 'fk:v1:recipes', value: payload.recipes })
+
+      historyStore.clear()
+      for (let i = 0; i < history.length; i++) {
+        const record = history[i]
+        const entry: StoredHistoryEntry = {
+          id: record.id,
+          insertionOrder: history.length - i,
+          record,
+        }
+        historyStore.put(entry)
+      }
+
+
+      tx.oncomplete = () => {
+        db.close()
+        resolve()
+      }
+
+      tx.onerror = () => {
+        db.close()
+        isDegradedState = true
+        hasUnsyncedMemoryChanges = true
+        lastStorageError = tx.error
+        reject(tx.error)
+      }
+
+      tx.onabort = () => {
+        db.close()
+        isDegradedState = true
+        hasUnsyncedMemoryChanges = true
+        lastStorageError = new Error('Restore transaction aborted')
+        reject(new Error('Restore transaction aborted'))
+      }
+    } catch (err) {
+      db.close()
+      isDegradedState = true
+      hasUnsyncedMemoryChanges = true
+      lastStorageError = err instanceof Error ? err : new Error(String(err))
+      reject(err)
+    }
+  })
+}
+
 
 /**
  * Remove um item por chave de um store.
@@ -499,6 +797,7 @@ export async function deleteFromStore(storeName: StoreName, key: string): Promis
 
   const db = await openIDB()
   if (!db) {
+    hasUnsyncedMemoryChanges = true
     return
   }
 
@@ -506,21 +805,32 @@ export async function deleteFromStore(storeName: StoreName, key: string): Promis
     try {
       const tx = db.transaction(storeName, 'readwrite')
       const store = tx.objectStore(storeName)
-      const request = store.delete(key)
+      store.delete(key)
 
-      request.onsuccess = () => {
+      tx.oncomplete = () => {
         db.close()
         resolve()
       }
-      request.onerror = () => {
+
+      tx.onerror = () => {
         db.close()
         isDegradedState = true
-        lastStorageError = request.error
-        reject(request.error)
+        hasUnsyncedMemoryChanges = true
+        lastStorageError = tx.error
+        reject(tx.error)
+      }
+
+      tx.onabort = () => {
+        db.close()
+        isDegradedState = true
+        hasUnsyncedMemoryChanges = true
+        lastStorageError = new Error('Transaction aborted')
+        reject(new Error('Transaction aborted'))
       }
     } catch (err) {
       db.close()
       isDegradedState = true
+      hasUnsyncedMemoryChanges = true
       lastStorageError = err instanceof Error ? err : new Error(String(err))
       reject(err)
     }
@@ -556,6 +866,7 @@ export async function clearStore(storeName: StoreName): Promise<void> {
 
   const db = await openIDB()
   if (!db) {
+    hasUnsyncedMemoryChanges = true
     return
   }
 
@@ -563,21 +874,32 @@ export async function clearStore(storeName: StoreName): Promise<void> {
     try {
       const tx = db.transaction(storeName, 'readwrite')
       const store = tx.objectStore(storeName)
-      const request = store.clear()
+      store.clear()
 
-      request.onsuccess = () => {
+      tx.oncomplete = () => {
         db.close()
         resolve()
       }
-      request.onerror = () => {
+
+      tx.onerror = () => {
         db.close()
         isDegradedState = true
-        lastStorageError = request.error
-        reject(request.error)
+        hasUnsyncedMemoryChanges = true
+        lastStorageError = tx.error
+        reject(tx.error)
+      }
+
+      tx.onabort = () => {
+        db.close()
+        isDegradedState = true
+        hasUnsyncedMemoryChanges = true
+        lastStorageError = new Error('Transaction aborted')
+        reject(new Error('Transaction aborted'))
       }
     } catch (err) {
       db.close()
       isDegradedState = true
+      hasUnsyncedMemoryChanges = true
       lastStorageError = err instanceof Error ? err : new Error(String(err))
       reject(err)
     }
@@ -594,6 +916,60 @@ export async function clearAllStores(): Promise<void> {
   if (!consent) {
     return
   }
+
+  const db = await openIDB()
+  if (!db) {
+    hasUnsyncedMemoryChanges = true
+    return
+  }
+
+  return new Promise((resolve, reject) => {
+    try {
+      const tx = db.transaction(
+        ['scenarios', 'protocols', 'history', 'custom', 'quarantine'],
+        'readwrite',
+      )
+      tx.objectStore('scenarios').clear()
+      tx.objectStore('protocols').clear()
+      tx.objectStore('history').clear()
+      tx.objectStore('custom').clear()
+      tx.objectStore('quarantine').clear()
+
+      tx.oncomplete = () => {
+        db.close()
+        resolve()
+      }
+      tx.onerror = () => {
+        db.close()
+        isDegradedState = true
+        hasUnsyncedMemoryChanges = true
+        lastStorageError = tx.error
+        reject(tx.error)
+      }
+      tx.onabort = () => {
+        db.close()
+        isDegradedState = true
+        hasUnsyncedMemoryChanges = true
+        lastStorageError = new Error('Transaction aborted')
+        reject(new Error('Transaction aborted'))
+      }
+    } catch (err) {
+      db.close()
+      isDegradedState = true
+      hasUnsyncedMemoryChanges = true
+      lastStorageError = err instanceof Error ? err : new Error(String(err))
+      reject(err)
+    }
+  })
+}
+
+/**
+ * Purge físico incondicional: limpa fisicamente todos os dados persistidos no IndexedDB (§10, §11).
+ * Não depende do consentimento atual.
+ */
+export async function purgePersistentData(): Promise<void> {
+  inMemory.clearAll()
+  hasUnsyncedMemoryChanges = false
 
   const db = await openIDB()
   if (!db) {
@@ -618,14 +994,14 @@ export async function clearAllStores(): Promise<void> {
       }
       tx.onerror = () => {
         db.close()
-        isDegradedState = true
-        lastStorageError = tx.error
         reject(tx.error)
+      }
+      tx.onabort = () => {
+        db.close()
+        reject(new Error('Purge transaction aborted'))
       }
     } catch (err) {
       db.close()
-      isDegradedState = true
-      lastStorageError = err instanceof Error ? err : new Error(String(err))
       reject(err)
     }
   })
@@ -637,9 +1013,9 @@ export async function clearAllStores(): Promise<void> {
  * Carrega o ConfigPayload atual (do IndexedDB ou do estado em memória).
  */
 export async function loadConfigPayload(): Promise<ConfigPayload> {
-  const settings = (await getFromStore<AppSettings>('custom', 'fk:v1:settings')) || DEFAULT_SETTINGS
+  const settings = (await getFromStore<AppSettings>('custom', 'fk:v1:settings')) || getDefaultSettings()
   const favorites =
-    (await getFromStore<Favorites>('custom', 'fk:v1:favorites')) || DEFAULT_FAVORITES
+    (await getFromStore<Favorites>('custom', 'fk:v1:favorites')) || getDefaultFavorites()
   const customSubstances =
     (await getFromStore<CustomSubstance[]>('custom', 'fk:v1:customSubstances')) || []
   const customProfiles =
@@ -687,6 +1063,7 @@ export async function saveConfigPayload(payload: ConfigPayload): Promise<void> {
 
   const db = await openIDB()
   if (!db) {
+    hasUnsyncedMemoryChanges = true
     return
   }
 
@@ -720,12 +1097,21 @@ export async function saveConfigPayload(payload: ConfigPayload): Promise<void> {
       tx.onerror = () => {
         db.close()
         isDegradedState = true
+        hasUnsyncedMemoryChanges = true
         lastStorageError = tx.error
         reject(tx.error)
+      }
+      tx.onabort = () => {
+        db.close()
+        isDegradedState = true
+        hasUnsyncedMemoryChanges = true
+        lastStorageError = new Error('Transaction aborted')
+        reject(new Error('Transaction aborted'))
       }
     } catch (err) {
       db.close()
       isDegradedState = true
+      hasUnsyncedMemoryChanges = true
       lastStorageError = err instanceof Error ? err : new Error(String(err))
       reject(err)
     }
@@ -737,8 +1123,10 @@ export async function saveConfigPayload(payload: ConfigPayload): Promise<void> {
  */
 export async function resetStorageForTesting(): Promise<void> {
   isDegradedState = false
+  isRecoveringState = false
   lastStorageError = null
   simulatedFailure = null
+  hasUnsyncedMemoryChanges = false
   inMemory.clearAll()
 
   const factory = getIDBFactory()

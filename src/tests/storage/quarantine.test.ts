@@ -1,94 +1,108 @@
 import { beforeEach, describe, expect, it } from 'vitest'
+import { indexedDB } from 'fake-indexeddb'
 import { setPersistenceConsent } from '../../storage/consent'
-import { resetStorageForTesting } from '../../storage/idb'
 import {
   addQuarantineItem,
   deleteQuarantineItem,
   getQuarantineItems,
 } from '../../storage/quarantine'
-import { serializedUtf8Bytes } from '../../storage/bytes'
+import { resetStorageForTesting, setCustomIDBFactoryForTesting } from '../../storage/idb'
 import { SAFETY_LIMITS } from '../../validation/limits'
+import { serializedUtf8Bytes } from '../../storage/bytes'
 
-describe('Quarantine Store & Compact Diagnostics (§11, §14)', () => {
+describe('Quarantine Storage, Bounds & Insertion FIFO (§11, §14, E6.1)', () => {
   beforeEach(async () => {
+    setCustomIDBFactoryForTesting(indexedDB)
     setPersistenceConsent(true)
     await resetStorageForTesting()
   })
 
-  it('adiciona item de quarentena respeitando o limite de 256 KiB', async () => {
+  it('CORREÇÃO 13: respeita o limite individual de 256 KiB aplicando truncamento byte-aware', async () => {
+    // 300 KiB de texto
+    const hugeText = '💊 Medicamento ' + 'X'.repeat(300 * 1024)
     const res = await addQuarantineItem({
+      id: 'q-huge',
       source: 'config_import',
       errorCode: 'INVALID_JSON',
-      originalUtf8Bytes: 500,
-      rawExcerptUtf8: '{"invalid": json}',
-    })
-
-    expect(res.item.id).toBeDefined()
-    expect(res.evictedCount).toBe(0)
-
-    const items = await getQuarantineItems()
-    expect(items).toHaveLength(1)
-    expect(items[0].errorCode).toBe('INVALID_JSON')
-    expect(serializedUtf8Bytes(items[0])).toBeLessThanOrEqual(SAFETY_LIMITS.QUARANTINE_ITEM_BYTES_MAX)
-  })
-
-  it('trunca de modo byte-aware excertos grandes sem corromper Unicode', async () => {
-    const hugeExcerpt = '💉💊 Teste Unicode ' + new Array(100000).fill('ção').join('')
-    const res = await addQuarantineItem({
-      source: 'full_backup_import',
-      errorCode: 'SCHEMA_FAILURE',
-      originalUtf8Bytes: hugeExcerpt.length * 2,
-      rawExcerptUtf8: hugeExcerpt,
+      originalUtf8Bytes: new TextEncoder().encode(hugeText).byteLength,
+      rawExcerptUtf8: hugeText,
     })
 
     expect(res.item.truncated).toBe(true)
-    expect(serializedUtf8Bytes(res.item)).toBeLessThanOrEqual(SAFETY_LIMITS.QUARANTINE_ITEM_BYTES_MAX)
+    const bytes = serializedUtf8Bytes(res.item)
+    expect(bytes).toBeLessThanOrEqual(SAFETY_LIMITS.QUARANTINE_ITEM_BYTES_MAX)
   })
 
-  it('aplica poda FIFO determinística ao exceder 5 itens', async () => {
-    for (let i = 1; i <= 5; i++) {
+  it('CORREÇÃO 13: aplica poda determinística ao ultrapassar 5 itens', async () => {
+    for (let i = 1; i <= 7; i++) {
       await addQuarantineItem({
-        id: `q-${i}`,
-        createdAt: new Date(Date.now() + i * 1000).toISOString(),
+        id: `q-item-${i}`,
         source: 'config_import',
-        errorCode: `ERR_${i}`,
+        errorCode: `CODE_${i}`,
         originalUtf8Bytes: 100,
+        rawExcerptUtf8: `Excerto ${i}`,
       })
     }
 
-    let items = await getQuarantineItems()
+    const items = await getQuarantineItems()
     expect(items).toHaveLength(5)
 
-    // Adiciona o 6º item
-    const res6 = await addQuarantineItem({
-      id: 'q-6',
-      createdAt: new Date(Date.now() + 6000).toISOString(),
-      source: 'config_import',
-      errorCode: 'ERR_6',
-      originalUtf8Bytes: 100,
-    })
-
-    expect(res6.evictedCount).toBe(1)
-
-    items = await getQuarantineItems()
-    expect(items).toHaveLength(5)
-    expect(items.some((q) => q.id === 'q-6')).toBe(true)
-    expect(items.some((q) => q.id === 'q-1')).toBe(false) // q-1 mais antigo evictado
+    const ids = items.map((it) => it.id)
+    expect(ids).not.toContain('q-item-1')
+    expect(ids).not.toContain('q-item-2')
+    expect(ids).toContain('q-item-3')
+    expect(ids).toContain('q-item-7')
   })
 
-  it('permite deletar item específico da quarentena', async () => {
-    await addQuarantineItem({
-      id: 'q-del',
-      source: 'config_import',
-      errorCode: 'ERR_DEL',
-      originalUtf8Bytes: 100,
+  it('CORREÇÃO 13: aplica poda determinística quando o total ultrapassa 1 MiB', async () => {
+    // Adiciona 5 itens de 240 KiB cada (total ~1.2 MiB > 1 MiB)
+    for (let i = 1; i <= 5; i++) {
+      const text = 'Y'.repeat(240 * 1024)
+      await addQuarantineItem({
+        id: `q-large-${i}`,
+        source: 'full_backup_import',
+        errorCode: 'LARGE_PAYLOAD',
+        originalUtf8Bytes: new TextEncoder().encode(text).byteLength,
+        rawExcerptUtf8: text,
+      })
+    }
+
+    const items = await getQuarantineItems()
+    const totalBytes = items.reduce((acc, it) => acc + serializedUtf8Bytes(it), 0)
+    expect(totalBytes).toBeLessThanOrEqual(SAFETY_LIMITS.QUARANTINE_TOTAL_BYTES_MAX)
+  })
+
+  it('preserva integridade de caracteres Unicode multibyte ao truncar', async () => {
+    const emojiStr = '💉'.repeat(70000)
+    const res = await addQuarantineItem({
+      id: 'q-emoji',
+      source: 'legacy_migration',
+      errorCode: 'EMOJI_CORRUPT',
+      originalUtf8Bytes: new TextEncoder().encode(emojiStr).byteLength,
+      rawExcerptUtf8: emojiStr,
     })
 
-    let items = await getQuarantineItems()
-    expect(items).toHaveLength(1)
+    expect(res.item.truncated).toBe(true)
+    const excerpt = res.item.rawExcerptUtf8 || ''
+    // Não deve conter code point corrompido / quebrado no final
+    expect(() => new TextEncoder().encode(excerpt)).not.toThrow()
+    expect(excerpt.length).toBeGreaterThan(0)
+  })
+
+  it('permite deleção individual de itens de quarentena', async () => {
+    await addQuarantineItem({
+      id: 'q-del',
+      source: 'idb_corruption',
+      errorCode: 'TEST',
+      originalUtf8Bytes: 50,
+      rawExcerptUtf8: 'teste',
+    })
+
+    const itemsBefore = await getQuarantineItems()
+    expect(itemsBefore).toHaveLength(1)
 
     await deleteQuarantineItem('q-del')
-    items = await getQuarantineItems()
-    expect(items).toHaveLength(0)
+    const itemsAfter = await getQuarantineItems()
+    expect(itemsAfter).toHaveLength(0)
   })
 })

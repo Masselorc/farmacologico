@@ -815,3 +815,99 @@ Implementar a camada completa de persistência, exportação/importação, orça
 ### Commit
 
 - Mensagem: `feat(farmakit): implementar persistencia e exports da E6`
+
+## 2026-08-27 — E6.1 — Correções pós-auditoria da persistência
+
+### Objetivo
+
+Corrigir a implementação da camada de persistência, histórico, exports, budgets e quarentena (E6.1) após auditoria externa rigorosa, cobrindo:
+1. Purge real no opt-out (limpeza física incondicional de todos os stores do IndexedDB antes de desligar a flag de consentimento).
+2. `StorageMode` formal (`persistent-ok` | `degraded-memory` | `memory-only-consent-off` | `recovering`), marcação de alterações dirty não sincronizadas (`hasUnsyncedMemoryChanges`) e sincronização obrigatória em `retryStorageOpen()`.
+3. Poda determinística FIFO automática do histórico em `mutateConfigPayload` caso o FullBackupBundle projetado ultrapasse 64 MiB (retornando `evictedHistoryCount` e `evictedHistoryBytes`).
+4. FIFO ordenado estritamente por `insertionOrder` sequencial interna crescente (nunca por `createdAt`), e imutabilidade por ID no histórico (ID duplicado é rejeitado sem sobrescrever nem podar).
+5. Validação completa de invariantes de `protocol-analysis` (chaves compostas livres de colisão `JSON.stringify([protocolId, componentId])`, bijeção 1:1 contra `protocolsSnapshot[].components[]`, suporte a IDs contendo dois pontos `:` e independência de ordem).
+6. Validador de integridade referencial `validateConfigReferences` em `src/storage/references.ts` (unicidade de IDs, `customProfile.owner` contra `customSubstances`, `scenario.source` contra `customProfiles`, `protocol.components.source` contra `customProfiles`, `favorites` contra `customSubstances`/`recipes`, e fronteira com `datasetVersion <= CURRENT_DATASET_VERSION`).
+7. Read-validation no IndexedDB com schemas Zod e quarentena de itens corrompidos com `source: 'idb_corruption'` (com tratamento especial sem recursão para corrupção no store `quarantine`).
+8. Detecção do fuso horário inicial via `Intl.DateTimeFormat().resolvedOptions().timeZone` com fallback seguro para `UTC`.
+9. Cap de 1200 pontos por série (`DISPLAY_POINTS_PER_SERIES_MAX`) em `ChartViewScenarioSnapshot` e `ProtocolAnalysisSeriesSnapshot`.
+10. Validação exata da escala `scaleMode` em `chartViewSnapshotSchema` (`normalized` exige `normalized_ratio` em $[0, 1]$ exato).
+11. Export builders com validação profunda de schemas e integridade referencial antes de emitir o JSON.
+12. Restauração atômica de FullBackup (`restoreFullBackup`) com transação única e rollback em caso de erro.
+13. Guarda pré-leitura de `File.size` sem chamar `.text()` nem `.arrayBuffer()` e sem enviar para quarentena.
+14. Adoção de `fake-indexeddb` para execução determinística de testes de transação, abort, concorrência e sincronização de IDB.
+
+### Alterações realizadas
+
+- Adicionada biblioteca `fake-indexeddb` em `devDependencies` do `package.json`.
+- Atualizado `src/validation/limits.ts` com `DISPLAY_POINTS_PER_SERIES_MAX: 1200`.
+- Atualizados `src/domain/data-management/types.ts` e `src/domain/types.ts` com `StorageMode`, `StoredHistoryEntry`, `ConfigMutationResult`.
+- Atualizado `src/validation/schemas/data-management.ts` com `storedHistoryEntrySchema`, cap de 1200 pontos por série e superRefine estrito de `scaleMode`.
+- Criado `src/storage/references.ts` implementando `validateConfigReferences`.
+- Atualizado `src/storage/consent.ts` com `detectInitialCalendarTimeZone()` e `disablePersistenceAndPurge()`.
+- Reescrito `src/storage/idb.ts` com suporte completo a modos degradados, dirty tracking, read validation, quarentena de corrupção, sincronização no retry e transação atômica em `restoreFullBackup()`.
+- Atualizado `src/storage/history.ts` com ordenação por `insertionOrder`, envelope `StoredHistoryEntry` e imutabilidade por ID.
+- Atualizado `src/storage/config.ts` com validação de integridade referencial e poda automática de histórico quando FullBackup projetado $> 64$ MiB.
+- Atualizado `src/storage/quarantine.ts` com FIFO por sequência de inserção e limites estritos.
+- Atualizado `src/storage/export.ts` com validação prévia integral.
+- Atualizado `src/storage/import.ts` com codificação de chaves compostas por array JSON, validação de invariantes e restauração atômica.
+- Criados/atualizados testes em `src/tests/storage/`: `bounds.test.ts`, `bytes.test.ts`, `config.test.ts`, `consent.test.ts`, `corruption.test.ts`, `export.test.ts`, `history.test.ts`, `idb.test.ts`, `import.test.ts`, `quarantine.test.ts`, `references.test.ts`, `roundtrip.test.ts`.
+
+### Arquivos principais
+
+- `package.json`
+- `src/validation/limits.ts`
+- `src/domain/data-management/types.ts`
+- `src/domain/types.ts`
+- `src/validation/schemas/data-management.ts`
+- `src/storage/references.ts`
+- `src/storage/consent.ts`
+- `src/storage/idb.ts`
+- `src/storage/history.ts`
+- `src/storage/config.ts`
+- `src/storage/quarantine.ts`
+- `src/storage/export.ts`
+- `src/storage/import.ts`
+- `src/storage/index.ts`
+- `src/tests/storage/bounds.test.ts`
+- `src/tests/storage/bytes.test.ts`
+- `src/tests/storage/config.test.ts`
+- `src/tests/storage/consent.test.ts`
+- `src/tests/storage/corruption.test.ts`
+- `src/tests/storage/export.test.ts`
+- `src/tests/storage/history.test.ts`
+- `src/tests/storage/idb.test.ts`
+- `src/tests/storage/import.test.ts`
+- `src/tests/storage/quarantine.test.ts`
+- `src/tests/storage/references.test.ts`
+- `src/tests/storage/roundtrip.test.ts`
+- `docs/DIARIO-DE-BORDO.md`
+
+### Decisões tomadas
+
+- Chaves compostas de componentes de protocolos usam `JSON.stringify([protocolId, componentId])` para evitar colisões entre IDs contendo caracteres delimitadores como `:` ou `/`.
+- Inserção no histórico gera `insertionOrder` monotonicamente crescente; em `restoreFullBackup`, preserva-se a ordem idêntica atribuindo `insertionOrder: history.length - i`.
+- Ao desativar consentimento com `disablePersistenceAndPurge`, os stores `scenarios`, `protocols`, `history`, `custom` e `quarantine` são limpos fisicamente no IndexedDB antes de persistir o flag de consentimento como `false`.
+- Validações de limites e referências são executadas em memória antes de disparar operações de I/O, garantindo rollback sem estado intermediário em caso de falha.
+
+### Validações executadas
+
+- `npm run lint`: PASS (0 erros, 0 warnings)
+- `npm run typecheck`: PASS (0 erros)
+- `npm run type-tests`: PASS (0 erros)
+- `npm run test:e6`: PASS (12 arquivos, 52 testes)
+- `npm test`: PASS (49 arquivos, 422 testes)
+- `npm run test:e5`: PASS (9 arquivos, 99 testes)
+- `npm run test:e4`: PASS (11 arquivos, 81 testes)
+- `npm run build`: PASS (PWA generateSW, 10 precache entries)
+- `npm run check:build-boundaries`: PASS
+- `npm run test:e1`: PASS (2 testes Playwright)
+- `git diff --check`: PASS (0 violações de whitespace)
+
+### Pendências
+
+- E7 (migrações legadas) continua NÃO iniciada.
+- UI de E8–E12 continua NÃO iniciada.
+
+### Commit
+
+- Mensagem: `fix(farmakit): corrigir persistencia e invariantes da E6`
