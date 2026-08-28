@@ -18,6 +18,7 @@
     "test:e5": "vitest run src/tests/validation",
     "test:e6": "vitest run src/tests/storage",
     "test:e7": "vitest run src/tests/migrations",
+    "test:e8": "vitest run src/tests/features/reconstitution src/tests/domain/reconstitution.test.ts src/tests/validation/reconstitution.schemas.test.ts",
     "test:watch": "vitest",
     "test:e1": "playwright test",
     "check:build-boundaries": "node scripts/check-build-boundaries.mjs",

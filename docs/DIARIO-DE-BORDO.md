@@ -1439,3 +1439,79 @@ Um parent `isBlend/esters` com `id` ou `groupId` numérico mantinha esse valor c
 ### Commit
 
 - Mensagem autorizada: `fix(farmakit): normalizar ids numericos na migracao E7`.
+
+## 2026-08-28 — E8 — Reconstituição
+
+### Objetivo
+
+Implementar a tela funcional de reconstituição prevista na especificação, sem iniciar as etapas E9 em diante.
+
+- Base SHA: `00beef0589572adf8cdaeb4a21fced2bf21811b0` em `main`.
+
+### Alterações realizadas
+
+- Substituído o placeholder da rota `#/reconstituir` por fluxo automático de draft textual, parsing pt-BR, schema Zod, engine existente e apresentação.
+- Criados `ResultPanel`, `SyringeGauge`, `CopyButton`, `SaveToHistoryButton`, helpers de formulário/apresentação/snapshot e CSS responsivo.
+- Adicionadas as âncoras de 10/120/240 U, aviso de graduação 9/10 U, bloqueio `DOSE_EXCEEDS_VIAL_CONTENT`, remoção de resultado stale, copy descritivo e salvamento explícito.
+- Corrigido somente o parâmetro do erro do engine de `vialContentMcg` para `vialTotalMcg`.
+- O registro usa `input`, `resultSnapshot`, `reconstitutionEngineVersion`, `CURRENT_DATASET_VERSION`, ID criptograficamente seguro e `createdAt` no salvamento.
+- O consentimento desligado informa sessão; o consentimento ligado diferencia persistência confirmada de modo degradado; falhas e eviction não são mascaradas.
+- Atualizada somente a expectativa estrutural da rota no smoke E1; o spike Chart.js/CSP permaneceu inalterado.
+
+### Arquivos principais
+
+- `src/features/reconstitution/pages/ReconstitutePage.tsx`
+- `src/features/reconstitution/components/{ResultPanel,SyringeGauge,CopyButton,SaveToHistoryButton}.tsx`
+- `src/features/reconstitution/lib/{form,presentation,historyRecord}.ts`
+- `src/features/reconstitution/reconstitution.css`
+- `src/app/i18n/pt-BR.messages.ts`
+- `src/domain/reconstitution/calculate.ts`
+- `src/tests/features/reconstitution/reconstitution-page.test.tsx`
+- `src/tests/domain/reconstitution.test.ts`
+- `src/tests/e2e/smoke-e1.spec.ts`
+- `package.json`
+
+### Decisões tomadas
+
+- A UI não duplica fórmulas nem warning; chama `calculateReconstitution()` e renderiza o contrato retornado.
+- Valores científicos permanecem numéricos e não formatados no histórico; a formatação pt-BR ocorre somente na apresentação/copy.
+- O medidor usa `<meter>` com valor limitado à capacidade, `aria-valuetext` com o valor real e `data-overflow` para excedentes.
+- Nenhuma alteração foi feita em `src/storage/*`, limites, schemas, dataset, PK, recurrence, simulation, migrações E7, README ou especificação.
+
+### Validações executadas
+
+- Red phase antes da implementação: 19 falhas (18 de UI do placeholder e 1 regressão do parâmetro `vialTotalMcg`); contratos existentes permaneceram verdes.
+- Runtime usado nos gates: Node.js `24.19.0` bundled; npm `11.12.1`; `npm ci` instalou 511 pacotes e reportou 0 vulnerabilidades.
+- `npm run lint`: PASS.
+- `npm run typecheck`: PASS.
+- `npm run type-tests`: PASS.
+- `npm run test:e8`: PASS (3 arquivos, 42 testes).
+- `npm run test:e7`: PASS (7 arquivos, 46 testes).
+- `npm run test:e6 -- --no-file-parallelism --maxWorkers=1`: PASS (21 arquivos, 125 testes).
+- `npm run test:e5`: PASS (9 arquivos, 99 testes).
+- `npm run test:e4`: PASS (11 arquivos, 81 testes).
+- `npm test -- --no-file-parallelism --maxWorkers=1`: PASS (66 arquivos, 563 testes).
+- `npm run build`: PASS (Vite + PWA generateSW, 10 entradas no precache).
+- `npm run check:build-boundaries`: PASS (9 arquivos em `dist`, sem `.token-optimizer`, manifest único, CSP/referrer preservados).
+- `npm run test:e1`: PASS (2 testes Playwright em Chromium).
+- `git diff --check`: PASS.
+
+### Problemas encontrados
+
+- O Node global `25.9.0` expõe Web Storage experimental sem métodos quando executado sem arquivo de localStorage; isso provoca falhas preexistentes nos testes E6. A execução foi transferida para o Node bundled `24.19.0`, compatível com o workflow, e os testes de storage foram serializados para evitar contenção entre workers.
+- O smoke estrutural E1 ainda esperava o placeholder removido da E8; a asserção dessa rota foi atualizada, sem modificar o spike Chart.js.
+
+### Solução adotada
+
+- Uso exclusivo das APIs públicas de storage e do parser/schema/engine existentes; nenhum novo storage, dependência ou endpoint foi criado.
+- Staging previsto de forma explícita somente para os arquivos da E8; `.token-optimizer/wiki/evidence.jsonl` e `.token-optimizer/wiki/metrics.jsonl` permanecem fora do commit.
+
+### Pendências
+
+- Commit autorizado e push para `main` serão realizados após a conferência final do staged diff.
+- Validação do GitHub Actions no SHA final ainda pendente.
+
+### Commit
+
+- Mensagem autorizada: `feat(farmakit): implementar reconstituicao E8`.
+- SHA e CI serão registrados após o commit e a publicação.

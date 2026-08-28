@@ -8,7 +8,11 @@ const BASE_PATH = '/farmacologico/'
 const structuralRoutes = [
   { navLabel: 'Biblioteca', heading: 'Biblioteca', placeholder: /prevista na E10\./ },
   { navLabel: 'Meia-vida', heading: 'Meia-vida', placeholder: /prevista na E9\./ },
-  { navLabel: 'Reconstituir', heading: 'Reconstituir', placeholder: /prevista na E8\./ },
+  {
+    navLabel: 'Reconstituir',
+    heading: 'Reconstituir',
+    placeholder: /Preencha os valores para visualizar o cálculo automaticamente\./,
+  },
   { navLabel: 'Protocolos', heading: 'Protocolos', placeholder: /prevista na E11\./ },
   { navLabel: 'Histórico', heading: 'Histórico', placeholder: /prevista na E12\./ },
   { navLabel: 'Ajustes', heading: 'Ajustes', placeholder: /prevista na E6\/E13\./ },

@@ -60,7 +60,7 @@ export function calculateReconstitution(
       error: [
         domainError('DOSE_EXCEEDS_VIAL_CONTENT', {
           desiredDoseMcg: input.desiredDoseMcg,
-          vialContentMcg: totalMcg,
+          vialTotalMcg: totalMcg,
         }),
       ],
     }

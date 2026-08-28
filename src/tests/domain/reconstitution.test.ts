@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { calculateReconstitution } from '../../domain/reconstitution/calculate'
 import { RECONSTITUTION_ENGINE_VERSION } from '../../domain/version'
+import { formatDomainError } from '../../app/i18n/pt-BR.messages'
 
 function syringe(overrides?: Partial<Parameters<typeof calculateReconstitution>[0]['syringe']>) {
   return {
@@ -87,6 +88,20 @@ describe('calculateReconstitution — âncoras normativas', () => {
     expect(result.ok).toBe(false)
     if (result.ok) return
     expect(result.error.map((e) => e.code)).toEqual(['DOSE_EXCEEDS_VIAL_CONTENT'])
+  })
+
+  it('DOSE_EXCEEDS usa vialTotalMcg no payload e na mensagem pt-BR', () => {
+    const result = calculateReconstitution({
+      vialMassMg: 5,
+      diluentVolumeMl: 2,
+      desiredDoseMcg: 6000,
+      syringe: syringe(),
+    })
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.error[0]?.params).toEqual({ desiredDoseMcg: 6000, vialTotalMcg: 5000 })
+    expect(formatDomainError(result.error[0]!)).toContain('6000 mcg')
+    expect(formatDomainError(result.error[0]!)).toContain('5000 mcg')
   })
 })
 
