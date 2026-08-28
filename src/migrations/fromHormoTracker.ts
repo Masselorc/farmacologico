@@ -7,6 +7,7 @@ import { protocolSchema } from '../validation/schemas/protocol'
 import { mapLegacyColor, DEFAULT_MIGRATION_PALETTE } from './colors'
 import { isRecord, operationContext, optionalIdentity, parseUnknown, resolveOfficialMatches, sortIssues, validName } from './common'
 import { makeLegacyStableId } from './ids'
+import { legacyBlendEsterMetadata, normalizeLegacyHormoTrackerDirectArray } from './hormoTrackerLegacyCompatibility'
 import type { LegacyMigrationPreview, LegacyOfficialProfileResolver, MigrationIssue, MigrationPaletteEntry } from './types'
 
 export interface HormoTrackerMigrationOptions {
@@ -73,17 +74,24 @@ function expandOldBlend(record: Record<string, unknown>, index: number): Record<
     const ester = esters[esterIndex]
     if (!isRecord(ester) || !finiteWithin(ester.halfLife, Number.MIN_VALUE, SAFETY_LIMITS.HALF_LIFE_DAYS_MAX) ||
       !finiteWithin(ester.tmax, 0, SAFETY_LIMITS.TMAX_DAYS_MAX)) return null
-    const label = validName(ester.componentLabel ?? ester.label ?? ester.name, UX_LIMITS.NAME_MAX_CHARS)
-    if (!label) return null
+    const metadata = legacyBlendEsterMetadata(record, ester)
+    if (!metadata) return null
     const proportion = ester.proportion
     if (typeof proportion !== 'number') return null
+    const parentIdentity = optionalIdentity(record.id) ?? optionalIdentity(record.key) ?? String(index)
+    const esterIdentity = optionalIdentity(ester.id) ?? optionalIdentity(ester.key) ?? `${parentIdentity}:ester:${esterIndex}`
     expanded.push({
       ...record,
       ...ester,
-      id: ester.id ?? `${optionalIdentity(record.id) ?? index}:ester:${esterIndex}`,
+      id: esterIdentity,
+      legacyComponentIdentity: esterIdentity,
       groupId: record.groupId ?? record.id ?? `blend:${index}`,
-      componentLabel: label,
-      blendName: record.blendName ?? record.name,
+      compoundKey: ester.compoundKey ?? (metadata.blendKey && metadata.componentKey ? `${metadata.blendKey}:${metadata.componentKey}` : undefined),
+      name: metadata.componentName,
+      blendKey: metadata.blendKey,
+      blendName: metadata.blendName,
+      componentKey: metadata.componentKey,
+      componentLabel: metadata.componentLabel,
       dose: record.dose * proportion,
       isBlend: false,
       esters: undefined,
@@ -96,7 +104,7 @@ function toCandidate(record: Record<string, unknown>, index: number, subIndex: n
   const name = validName(record.name, UX_LIMITS.NAME_MAX_CHARS)
   if (!name) return { code: 'LEGACY_PROTOCOL_INVALID' }
   const groupIdentity = optionalIdentity(record.groupId)
-  const ownIdentity = optionalIdentity(record.componentKey) ?? optionalIdentity(record.protocolId) ?? optionalIdentity(record.id) ?? `${index}:${subIndex}`
+  const ownIdentity = optionalIdentity(record.legacyComponentIdentity) ?? optionalIdentity(record.componentKey) ?? optionalIdentity(record.protocolId) ?? optionalIdentity(record.id) ?? `${index}:${subIndex}`
   const groupKey = groupIdentity ? `group:${groupIdentity}` : `record:${ownIdentity}`
   if (!finiteWithin(record.dose, Number.MIN_VALUE, SAFETY_LIMITS.SIMULATION_DOSE_MG_MAX)) return { code: 'LEGACY_PROTOCOL_INVALID_DOSE' }
   if (!finiteWithin(record.halfLife, Number.MIN_VALUE, SAFETY_LIMITS.HALF_LIFE_DAYS_MAX) || !finiteWithin(record.tmax, 0, SAFETY_LIMITS.TMAX_DAYS_MAX)) return { code: 'LEGACY_PROTOCOL_INVALID' }
@@ -123,7 +131,9 @@ export function previewHormoTrackerMigration(raw: unknown, options: HormoTracker
     return { sourceKey: 'hormoTrackerProtocols', ...context, entities: [], importedCount: 0, discardedCount: 1, colorRemaps: [], issues, originalUtf8Bytes: parsed.bytes }
   }
   const value = parsed.value
-  const records = Array.isArray(value) ? value : isRecord(value) && value.schemaVersion === 2 && Array.isArray(value.protocols) ? value.protocols : null
+  const records = Array.isArray(value)
+    ? normalizeLegacyHormoTrackerDirectArray(value)
+    : isRecord(value) && value.schemaVersion === 2 && Array.isArray(value.protocols) ? value.protocols : null
   if (!records) {
     issues.push(issue('LEGACY_SOURCE_INVALID_SHAPE', undefined, undefined, 1, true))
     return { sourceKey: 'hormoTrackerProtocols', ...context, entities: [], importedCount: 0, discardedCount: 1, colorRemaps: [], issues, originalUtf8Bytes: parsed.bytes }
@@ -135,14 +145,21 @@ export function previewHormoTrackerMigration(raw: unknown, options: HormoTracker
     const record = records[index]
     if (!isRecord(record)) { issues.push(issue('LEGACY_PROTOCOL_INVALID', index, undefined, 1)); continue }
     const groupId = optionalIdentity(record.groupId)
-    const observedIdentity = groupId ? `group:${groupId}` : `record:${optionalIdentity(record.componentKey) ?? optionalIdentity(record.protocolId) ?? optionalIdentity(record.id) ?? `${index}:0`}`
-    observedGroups.set(observedIdentity, index)
     const expanded = record.isBlend === true && groupId && knownMaterializedGroups.has(groupId) && records.some((sibling, siblingIndex) => siblingIndex !== index && isRecord(sibling) && sibling.groupId === groupId)
       ? [record]
       : expandOldBlend(record, index)
-    if (!expanded) { issues.push(issue('LEGACY_PROTOCOL_INVALID', index, groupId, 1, true)); continue }
+    if (!expanded) {
+      const invalidGroupKey = groupId ? `group:${groupId}` : `record:${optionalIdentity(record.componentKey) ?? optionalIdentity(record.protocolId) ?? optionalIdentity(record.id) ?? `${index}:0`}`
+      observedGroups.set(invalidGroupKey, index)
+      issues.push(issue('LEGACY_PROTOCOL_INVALID', index, groupId, 1, true))
+      continue
+    }
     for (let subIndex = 0; subIndex < expanded.length; subIndex += 1) {
-      const converted = toCandidate(expanded[subIndex]!, index, subIndex, context.assumedTimeZone)
+      const expandedRecord = expanded[subIndex]!
+      const expandedGroupId = optionalIdentity(expandedRecord.groupId)
+      const observedIdentity = expandedGroupId ? `group:${expandedGroupId}` : `record:${optionalIdentity(expandedRecord.componentKey) ?? optionalIdentity(expandedRecord.protocolId) ?? optionalIdentity(expandedRecord.id) ?? `${index}:${subIndex}`}`
+      observedGroups.set(observedIdentity, index)
+      const converted = toCandidate(expandedRecord, index, subIndex, context.assumedTimeZone)
       if (!converted.candidate) { issues.push(issue(converted.code ?? 'LEGACY_PROTOCOL_INVALID', index, groupId, 1)); continue }
       candidates.push(converted.candidate)
     }
@@ -162,11 +179,12 @@ export function previewHormoTrackerMigration(raw: unknown, options: HormoTracker
     const totalDoseMg = members.reduce((sum, member) => sum + member.dose, 0)
     if (!finiteWithin(totalDoseMg, Number.MIN_VALUE, SAFETY_LIMITS.PROTOCOL_TOTAL_DOSE_MG_MAX)) { issues.push(issue('LEGACY_GROUP_TOTAL_DOSE_INVALID', first.index, groupKey, members.length, true)); continue }
     const protocolId = makeLegacyStableId('hormo:protocol', groupKey)
+    const groupColorRemaps: ColorRemapEntry[] = []
     const components: ProtocolComponent[] = members.map((member) => {
       const componentId = makeLegacyStableId('hormo:component', groupKey, member.identity)
       const color = mapLegacyColor(member.color, options.palette ?? DEFAULT_MIGRATION_PALETTE)
       if (color.invalid) issues.push(issue('LEGACY_COLOR_DEFAULTED', member.index, groupKey, 0))
-      if (color.remappedFrom) colorRemaps.push({ protocolId, componentId, legacyOriginalHex: color.remappedFrom, mappedPaletteColor: color.displayColor.paletteColor })
+      if (color.remappedFrom) groupColorRemaps.push({ protocolId, componentId, legacyOriginalHex: color.remappedFrom, mappedPaletteColor: color.displayColor.paletteColor })
       const halfLifeMs = member.halfLife * MS_PER_DAY
       const tmaxMs = member.tmax === 0 ? null : member.tmax * MS_PER_DAY
       const matches = resolveOfficialMatches(options.resolver
@@ -189,6 +207,7 @@ export function previewHormoTrackerMigration(raw: unknown, options: HormoTracker
     const valid = protocolSchema.safeParse(protocol)
     if (!valid.success) { issues.push(issue('LEGACY_PROTOCOL_INVALID', first.index, groupKey, members.length, true)); continue }
     entities.push(valid.data)
+    colorRemaps.push(...groupColorRemaps)
   }
   const sortedIssues = sortIssues(issues)
   colorRemaps.sort((a, b) => a.protocolId.localeCompare(b.protocolId) || a.componentId.localeCompare(b.componentId))

@@ -1294,3 +1294,106 @@ Implementar migrações assistidas, explícitas e não destrutivas do HormoTrack
 ### Commit
 
 - Mensagem prevista: `feat(farmakit): implementar migracoes legadas E7`.
+
+## 2026-08-27 — E7.1 — Compatibilidade cirúrgica das migrações legadas
+
+### Objetivo
+
+Corrigir a reconstrução histórica do LANDERGOLD em arrays diretos sem `groupId`, aceitar a estrutura real `key + suffix` dos ésteres em `isBlend/esters` e garantir que `MigrationReport.colorRemaps` cite somente Protocols efetivamente aceitos pela aplicação.
+
+### Alterações realizadas
+
+- Criado catálogo local e isolado de compatibilidade do HormoTracker, sem integrar ou antecipar o dataset oficial da E10.
+- Implementada pré-normalização exclusiva do array legado direto por nomes históricos exatos, preservando envelopes v2 sem heurísticas adicionais.
+- Reproduzida a assinatura histórica de agrupamento do LANDERGOLD por agenda e base numérica `id - índice do componente`, com fallback determinístico por data para IDs não numéricos.
+- Preservados dose, half-life, Tmax e cor efetivamente persistidos no legado; o catálogo é usado somente para reconstruir identidade, grupo e labels.
+- Atualizada a expansão `isBlend/esters` para aceitar ésteres com `key`, `suffix`, `proportion`, parâmetros PK e cor, sem exigir `name`.
+- Corrigido o rastreamento do grupo observado após expansão de blend, eliminando falso `LEGACY_GROUP_EMPTY`.
+- Remaps de cor passaram a ser acumulados por grupo e publicados no preview somente depois de o Protocol passar por `protocolSchema`.
+- `MigrationReport.colorRemaps` passou a exigir explicitamente o conjunto de IDs adicionados; marker pré-existente, falha de mutação e `nothing_to_apply` retornam lista vazia.
+
+### Arquivos principais
+
+- `src/migrations/hormoTrackerLegacyCompatibility.ts`
+- `src/migrations/fromHormoTracker.ts`
+- `src/migrations/registry.ts`
+- `src/migrations/fixtures/hormotracker-legacy-landergold.json`
+- `src/migrations/fixtures/hormotracker-legacy-isblend.json`
+- `src/tests/migrations/hormoTracker.test.ts`
+- `src/tests/migrations/colors.test.ts`
+- `src/tests/migrations/idempotency.test.ts`
+
+### Decisões tomadas
+
+- O reconhecimento histórico é nominal e exato; não foi adicionada inferência farmacológica aproximada.
+- A heurística é aplicada somente ao array direto realmente legado. O envelope v2 continua dependendo de agrupamento já materializado.
+- O preset histórico identifica a estrutura, mas nunca substitui os valores PK, doses ou cores encontrados no storage legado.
+- A implementação permanece autocontida no FARMakit e não possui dependência runtime do repositório HormoTracker antigo.
+- Meia-vida e as fronteiras públicas E6 permaneceram inalteradas.
+
+### Validações executadas
+
+- `npm ci` em snapshot integral fora do OneDrive: PASS (511 pacotes, 0 vulnerabilidades reportadas pelo npm).
+- `npm run lint`: PASS.
+- `npm run typecheck`: PASS.
+- `npm run type-tests`: PASS.
+- `npm run test:e7`: PASS (7 arquivos, 34 testes).
+- `npm run test:e6`: PASS (21 arquivos, 125 testes).
+- `npm run test:e5`: PASS (9 arquivos, 99 testes).
+- `npm run test:e4`: PASS (11 arquivos, 81 testes).
+- `npm test`: PASS (65 arquivos, 529 testes).
+- `npm run build`: PASS (Vite + PWA generateSW, 10 entradas no precache).
+- `npm run check:build-boundaries`: PASS (9 arquivos em `dist`, zero referências a `.token-optimizer`).
+- `npm run test:e1`: PASS (2 testes Playwright).
+
+### Problemas encontrados
+
+- O anexo da E7.1 termina ao final do catálogo conceitual da seção 7.1 e não contém as seções posteriores, inclusive eventual instrução de commit/push.
+- Fixtures lidas inicialmente por `new URL(..., import.meta.url)` receberam URL HTTP do transformador Vitest; a leitura de arquivo exigia caminho local explícito.
+
+### Solução adotada
+
+- As decisões de formato foram confrontadas com a especificação vigente e com o código histórico local do HormoTracker, que confirmou o reconhecimento `base + suffix`, a base numérica do agrupamento e a estrutura real dos ésteres.
+- As fixtures passaram a ser carregadas em teste por caminho resolvido a partir de `process.cwd()`.
+
+### Pendências
+
+- UI, E8, E9, E10 e dataset oficial permanecem fora do escopo.
+- Commit e push aguardam a parte ausente da instrução ou autorização explícita do usuário.
+
+### Commit
+
+- Não realizado nesta execução: a mensagem e a autorização de publicação não constam no anexo recebido, que termina na seção 7.1.
+
+### Retomada e fechamento em 2026-08-28
+
+- O workspace foi retomado em `main`, com `HEAD` e `origin/main` em `899ae99cfe18671b367542e31526ee37b1ae74bc`, sem staging prévio e com as alterações E7.1 preservadas.
+- A revisão identificou uma lacuna adicional: uma rejeição real de `mutateConfigPayload()` escapava do contrato controlado da migração. `applyLegacyMigration()` passou a capturar o aborto transacional e retornar `status: failed`, `importedCount: 0`, `colorRemaps: []`, `addedCount: 0`, `persisted: false` e `markerPersisted: false`.
+- Adicionado teste regressivo com aborto real da transação IndexedDB, confirmando rollback do Config e ausência de remap fantasma.
+- Preservadas as regressões já presentes no trabalho interrompido para limites do Meia-vida e shapes integralmente incompatíveis das duas fontes legadas.
+
+### Validações da retomada
+
+- `npm ci` no workspace OneDrive: PASS (511 pacotes, 0 vulnerabilidades reportadas pelo npm); os workers Vitest não iniciaram nesse caminho e a validação funcional foi transferida para snapshot integral fora do OneDrive.
+- Runtime dos gates: Node.js `24.19.0`, compatível com o workflow `node-version: 24`; o Node.js global `25.9.0` foi descartado por incompatibilidade com `jsdom@30.0.1`.
+- `npm ci` no snapshot fora do OneDrive: PASS (511 pacotes, 0 vulnerabilidades reportadas pelo npm).
+- `npm run lint`: PASS.
+- `npm run typecheck`: PASS.
+- `npm run type-tests`: PASS.
+- `npm run test:e7`: PASS (7 arquivos, 44 testes).
+- `npm run test:e6 -- --maxWorkers=1`: PASS (21 arquivos, 125 testes); execução serial usada para evitar contenção nos casos de budget de 8–47 MiB.
+- `npm run test:e5 -- --maxWorkers=1`: PASS (9 arquivos, 99 testes).
+- `npm run test:e4 -- --maxWorkers=1`: PASS (11 arquivos, 81 testes).
+- `npm test -- --maxWorkers=1`: PASS (65 arquivos, 539 testes).
+- `npm run build`: PASS (Vite + PWA generateSW, 10 entradas no precache).
+- `npm run check:build-boundaries`: PASS (9 arquivos em `dist`, zero referências a `.token-optimizer`).
+- `npm run test:e1`: PASS (2 testes Playwright em Chromium).
+- `git diff --check`: PASS.
+
+### Escopo da retomada
+
+- E8, E9 e E10 não foram iniciadas; nenhum dataset oficial foi criado e nenhum engine matemático foi alterado.
+- A E6 não foi alterada; sua infraestrutura de fault injection foi apenas reutilizada pelo teste E7.1.
+- `README.md` e `FARMakit-especificacao-final.md` permaneceram sem diff.
+- Alterações automáticas em `.token-optimizer/` foram preservadas no workspace e excluídas do staging.
+- Commit autorizado: `fix(farmakit): fechar compatibilidade legada E7`.

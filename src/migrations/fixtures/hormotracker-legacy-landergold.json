@@ -1,0 +1,5 @@
+[
+  { "id": 1700000000000, "name": "Durateston LANDERGOLD - Propionato", "halfLife": 2, "tmax": 0.22916666666666666, "dose": 20, "startDate": "2026-08-27", "startTime": "08:00", "type": "weekly", "daysOfWeek": [0, 1, 6], "weeksCount": 8, "color": "#1abc9c" },
+  { "id": 1700000000001, "name": "Durateston LANDERGOLD - Fenilpropionato", "halfLife": 3, "tmax": 2, "dose": 40, "startDate": "2026-08-27", "startTime": "08:00", "type": "weekly", "daysOfWeek": [0, 1, 6], "weeksCount": 8, "color": "#2ecc71" },
+  { "id": 1700000000002, "name": "Durateston LANDERGOLD - Isocaproato", "halfLife": 8, "tmax": 1.5, "dose": 40, "startDate": "2026-08-27", "startTime": "08:00", "type": "weekly", "daysOfWeek": [0, 1, 6], "weeksCount": 8, "color": "#27ae60" }
+]

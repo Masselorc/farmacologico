@@ -1,0 +1,11 @@
+[
+  {
+    "id": "old-landergold", "key": "durateston-landergold", "name": "Durateston LANDERGOLD (Blend)", "isBlend": true, "dose": 100,
+    "startDate": "2026-08-27", "startTime": "08:00", "type": "single", "color": "#27ae60",
+    "esters": [
+      { "key": "propionato", "suffix": " - Propionato", "proportion": 0.2, "halfLife": 2, "tmax": 0.22916666666666666, "color": "#1abc9c" },
+      { "key": "fenilpropionato", "suffix": " - Fenilpropionato", "proportion": 0.4, "halfLife": 3, "tmax": 2, "color": "#2ecc71" },
+      { "key": "isocaproato", "suffix": " - Isocaproato", "proportion": 0.4, "halfLife": 8, "tmax": 1.5, "color": "#27ae60" }
+    ]
+  }
+]

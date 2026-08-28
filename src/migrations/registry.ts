@@ -14,6 +14,7 @@ import type {
 } from './types'
 
 const completedMigrationSourcesInSession = new Set<LegacyMigrationSourceKey>()
+const NO_ENTITY_IDS: ReadonlySet<string> = new Set<string>()
 
 export function resetMigrationSessionForTesting(): void {
   completedMigrationSourcesInSession.clear()
@@ -56,14 +57,12 @@ function reportFrom<T extends Protocol | Scenario>(
   importedCount: number,
   discardedCount: number,
   quarantined: boolean,
-  importedEntityIds?: ReadonlySet<string>,
+  importedEntityIds: ReadonlySet<string>,
 ): MigrationReport {
   return {
     sourceKey: preview.sourceKey, ranAt: preview.ranAt, importedCount, discardedCount,
     assumedTimeZone: preview.assumedTimeZone,
-    colorRemaps: importedEntityIds
-      ? preview.colorRemaps.filter((entry) => importedEntityIds.has(entry.protocolId))
-      : preview.colorRemaps,
+    colorRemaps: preview.colorRemaps.filter((entry) => importedEntityIds.has(entry.protocolId)),
     quarantined,
   }
 }
@@ -78,39 +77,53 @@ export function applyLegacyMigration<T extends Protocol | Scenario>(
 
 async function applySnapshot<T extends Protocol | Scenario>(preview: LegacyMigrationPreview<T>, storage: LegacyKeyValueStorage | null): Promise<LegacyMigrationApplyResult> {
   if (isLegacyMigrationCompleted(preview.sourceKey, storage)) {
-    return { status: 'already_migrated', report: reportFrom(preview, 0, preview.discardedCount, false), issues: preview.issues, addedCount: 0, persisted: getPersistenceConsent(), markerPersisted: durableCompleted(preview.sourceKey, storage) }
+    return { status: 'already_migrated', report: reportFrom(preview, 0, preview.discardedCount, false, NO_ENTITY_IDS), issues: preview.issues, addedCount: 0, persisted: getPersistenceConsent(), markerPersisted: durableCompleted(preview.sourceKey, storage) }
   }
   const issues = [...preview.issues]
   let addedCount = 0
   let alreadyPresentCount = 0
-  const addedEntityIds = new Set<string>()
-  const mutation = await mutateConfigPayload((current) => {
-    const target = preview.sourceKey === 'hormoTrackerProtocols' ? current.protocols : current.scenarios
-    const limit = preview.sourceKey === 'hormoTrackerProtocols' ? SAFETY_LIMITS.PROTOCOLS_MAX : SAFETY_LIMITS.SCENARIOS_MAX
-    const additions: T[] = []
-    for (const entity of preview.entities) {
-      const existing = target.find((candidate) => candidate.id === entity.id)
-      if (existing) {
-        if (sameEntity(existing, entity)) alreadyPresentCount += 1
-        else issues.push({ code: 'LEGACY_ID_CONFLICT', discardedUnits: 1, requiresQuarantine: true, groupKey: entity.id })
-        continue
+  const representedEntityIds = new Set<string>()
+  let mutation: Awaited<ReturnType<typeof mutateConfigPayload>>
+  try {
+    mutation = await mutateConfigPayload((current) => {
+      const target = preview.sourceKey === 'hormoTrackerProtocols' ? current.protocols : current.scenarios
+      const limit = preview.sourceKey === 'hormoTrackerProtocols' ? SAFETY_LIMITS.PROTOCOLS_MAX : SAFETY_LIMITS.SCENARIOS_MAX
+      const additions: T[] = []
+      for (const entity of preview.entities) {
+        const existing = target.find((candidate) => candidate.id === entity.id)
+        if (existing) {
+          if (sameEntity(existing, entity)) {
+            alreadyPresentCount += 1
+            representedEntityIds.add(entity.id)
+          }
+          else issues.push({ code: 'LEGACY_ID_CONFLICT', discardedUnits: 1, requiresQuarantine: true, groupKey: entity.id })
+          continue
+        }
+        if (target.length + additions.length >= limit) {
+          issues.push({ code: 'LEGACY_CONFIG_CAPACITY_EXCEEDED', discardedUnits: 1, requiresQuarantine: false, groupKey: entity.id })
+          continue
+        }
+        additions.push(entity)
       }
-      if (target.length + additions.length >= limit) {
-        issues.push({ code: 'LEGACY_CONFIG_CAPACITY_EXCEEDED', discardedUnits: 1, requiresQuarantine: false, groupKey: entity.id })
-        continue
-      }
-      additions.push(entity)
+      addedCount = additions.length
+      for (const addition of additions) representedEntityIds.add(addition.id)
+      return preview.sourceKey === 'hormoTrackerProtocols'
+        ? { ...current, protocols: [...current.protocols, ...(additions as Protocol[])] }
+        : { ...current, scenarios: [...current.scenarios, ...(additions as Scenario[])] }
+    })
+  } catch (error) {
+    const sortedIssues = sortIssues(issues)
+    const discardedCount = sortedIssues.reduce((sum, current) => sum + current.discardedUnits, 0)
+    return {
+      status: 'failed', report: reportFrom(preview, 0, discardedCount, false, NO_ENTITY_IDS),
+      issues: sortedIssues, addedCount: 0, persisted: false, markerPersisted: false,
+      error: error instanceof Error ? error.message : String(error),
     }
-    addedCount = additions.length
-    for (const addition of additions) addedEntityIds.add(addition.id)
-    return preview.sourceKey === 'hormoTrackerProtocols'
-      ? { ...current, protocols: [...current.protocols, ...(additions as Protocol[])] }
-      : { ...current, scenarios: [...current.scenarios, ...(additions as Scenario[])] }
-  })
+  }
   const sortedIssues = sortIssues(issues)
   const discardedCount = sortedIssues.reduce((sum, current) => sum + current.discardedUnits, 0)
   if (!mutation.ok) {
-    return { status: 'failed', report: reportFrom(preview, 0, discardedCount, false), issues: sortedIssues, addedCount: 0, persisted: false, markerPersisted: false, error: mutation.error.internalReason }
+    return { status: 'failed', report: reportFrom(preview, 0, discardedCount, false, NO_ENTITY_IDS), issues: sortedIssues, addedCount: 0, persisted: false, markerPersisted: false, error: mutation.error.internalReason }
   }
   let quarantined = false
   try {
@@ -124,11 +137,11 @@ async function applySnapshot<T extends Protocol | Scenario>(preview: LegacyMigra
       quarantined = true
     }
   } catch (error) {
-    return { status: 'failed', report: reportFrom(preview, addedCount, discardedCount, quarantined, addedEntityIds), issues: sortedIssues, addedCount, persisted: getPersistenceConsent(), markerPersisted: false, error: error instanceof Error ? error.message : String(error) }
+    return { status: 'failed', report: reportFrom(preview, addedCount, discardedCount, quarantined, representedEntityIds), issues: sortedIssues, addedCount, persisted: getPersistenceConsent(), markerPersisted: false, error: error instanceof Error ? error.message : String(error) }
   }
   const hasMigratedState = addedCount > 0 || alreadyPresentCount > 0
   if (!hasMigratedState) {
-    return { status: 'nothing_to_apply', report: reportFrom(preview, 0, discardedCount, quarantined), issues: sortedIssues, addedCount: 0, persisted: getPersistenceConsent(), markerPersisted: false }
+    return { status: 'nothing_to_apply', report: reportFrom(preview, 0, discardedCount, quarantined, NO_ENTITY_IDS), issues: sortedIssues, addedCount: 0, persisted: getPersistenceConsent(), markerPersisted: false }
   }
   completedMigrationSourcesInSession.add(preview.sourceKey)
   const persisted = getPersistenceConsent()
@@ -138,6 +151,6 @@ async function applySnapshot<T extends Protocol | Scenario>(preview: LegacyMigra
   }
   return {
     status: addedCount === 0 ? 'already_migrated' : 'applied',
-    report: reportFrom(preview, addedCount, discardedCount, quarantined, addedEntityIds), issues: sortedIssues, addedCount, persisted, markerPersisted,
+    report: reportFrom(preview, addedCount, discardedCount, quarantined, representedEntityIds), issues: sortedIssues, addedCount, persisted, markerPersisted,
   }
 }

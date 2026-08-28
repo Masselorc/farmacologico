@@ -10,4 +10,13 @@ describe('E7 fontes corrompidas', () => {
     expect(preview.entities).toEqual([])
     expect(preview.issues).toContainEqual(expect.objectContaining({ code: 'LEGACY_SOURCE_INVALID_JSON', requiresQuarantine: true }))
   })
+
+  it.each([
+    ['HormoTracker', () => previewHormoTrackerMigration({}, { assumedTimeZone: 'UTC' })],
+    ['Meia-vida', () => previewMeiavidaMigration({}, { assumedTimeZone: 'UTC' })],
+  ])('%s rejeita shape integralmente incompatível', (_name, run) => {
+    const preview = run()
+    expect(preview.entities).toEqual([])
+    expect(preview.issues).toContainEqual(expect.objectContaining({ code: 'LEGACY_SOURCE_INVALID_SHAPE', requiresQuarantine: true }))
+  })
 })

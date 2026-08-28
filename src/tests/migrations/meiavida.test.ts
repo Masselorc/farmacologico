@@ -42,4 +42,14 @@ describe('E7 Meia-vida', () => {
     })
     expect(preview.entities[0]?.source).toEqual(expect.objectContaining({ type: 'library', substanceId: 'sub', profileId: 'profile', datasetVersion: 3 }))
   })
+
+  it('preserva somente as primeiras 2.000 doses válidas', () => {
+    const doses = Array.from({ length: 2001 }, (_, index) => ({
+      id: `dose-${index}`, amountMg: 1, time: '2026-08-27T10:00',
+    }))
+    const preview = previewMeiavidaMigration({ schemaVersion: 2, scenarios: [{ ...base, doses }] }, { assumedTimeZone: 'UTC' })
+    expect(preview.entities[0]?.doses).toHaveLength(2000)
+    expect(preview.discardedCount).toBe(1)
+    expect(preview.entities[0]?.doses[0]?.id).not.toBe(preview.entities[0]?.doses[1999]?.id)
+  })
 })
