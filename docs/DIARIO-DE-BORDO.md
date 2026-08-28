@@ -1397,3 +1397,45 @@ Corrigir a reconstrução histórica do LANDERGOLD em arrays diretos sem `groupI
 - `README.md` e `FARMakit-especificacao-final.md` permaneceram sem diff.
 - Alterações automáticas em `.token-optimizer/` foram preservadas no workspace e excluídas do staging.
 - Commit autorizado: `fix(farmakit): fechar compatibilidade legada E7`.
+
+## 2026-08-28 — E7.2 — Identidade numérica no isBlend legado
+
+### Problema
+
+Um parent `isBlend/esters` com `id` ou `groupId` numérico mantinha esse valor como number no record intermediário. Como `optionalIdentity()` aceita somente texto, os três esters perdiam a identidade comum e eram fragmentados em três Protocols.
+
+### Correção
+
+- Criado `legacyIdentity()`, específico da compatibilidade HormoTracker, que preserva as regras textuais existentes e converte somente números finitos para string.
+- `expandOldBlend()` passou a normalizar parent, group e ester antes de criar records intermediários; `groupId` intermediário é sempre string.
+- Os demais pontos internos de identidade do parser HormoTracker passaram a usar a mesma normalização, sem alterar `optionalIdentity()` globalmente.
+- A pré-normalização LANDERGOLD, PK individual, `key + suffix`, `colorRemaps`, registry, Meia-vida, E6, schemas e engines permaneceram inalterados.
+
+### Regressão
+
+- Teste criado antes da correção: `normaliza parent, groupId e ester ids numéricos no isBlend legado`.
+- Resultado na base `17f17a38e12d4c418ec6cbadfa0d0197684ef87d`: FAIL, três Protocols recebidos em vez de um.
+- Resultado após a correção: PASS, um Protocol, três components, `totalDoseMg = 100`, proporções `0.2/0.4/0.4`, PK individual preservada e IDs determinísticos.
+- Cobertos parent ID numérico, `groupId` numérico explícito, ester IDs numéricos e mudança determinística dos component IDs quando os IDs dos esters mudam.
+- Coberto o helper com string válida, números finitos, zero, negativo e rejeição de NaN, infinidades, null, objeto, array e boolean.
+
+### Gates
+
+- Runtime: Node.js `24.19.0`, compatível com o workflow `node-version: 24`.
+- `npm ci` em snapshot integral fora do OneDrive: PASS (511 pacotes, 0 vulnerabilidades reportadas pelo npm).
+- `npm run lint`: PASS.
+- `npm run typecheck`: PASS.
+- `npm run type-tests`: PASS.
+- `npm run test:e7 -- --maxWorkers=1`: PASS (7 arquivos, 46 testes).
+- `npm run test:e6 -- --maxWorkers=1`: PASS (21 arquivos, 125 testes).
+- `npm run test:e5 -- --maxWorkers=1`: PASS (9 arquivos, 99 testes).
+- `npm run test:e4 -- --maxWorkers=1`: PASS (11 arquivos, 81 testes).
+- `npm test -- --maxWorkers=1`: PASS (65 arquivos, 541 testes).
+- `npm run build`: PASS (PWA generateSW, 10 entradas no precache).
+- `npm run check:build-boundaries`: PASS (9 arquivos em `dist`, zero referências a `.token-optimizer`).
+- `npm run test:e1`: PASS (2 testes Playwright em Chromium).
+- `git diff --check`: PASS.
+
+### Commit
+
+- Mensagem autorizada: `fix(farmakit): normalizar ids numericos na migracao E7`.

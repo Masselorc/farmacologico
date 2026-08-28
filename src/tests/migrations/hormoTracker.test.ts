@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { protocolSchema } from '../../validation/schemas/protocol'
 import { previewHormoTrackerMigration } from '../../migrations'
+import { legacyIdentity } from '../../migrations/hormoTrackerLegacyCompatibility'
 
 const schedule = { startDate: '2026-08-27', startTime: '08:00', type: 'weekly', daysOfWeek: [0, 1, 6], weeksCount: 8 }
 const component = (id: string, dose: number, halfLife: number, tmax: number, label: string, color: string) => ({
@@ -11,6 +12,20 @@ const component = (id: string, dose: number, halfLife: number, tmax: number, lab
 })
 
 describe('E7 HormoTracker', () => {
+  it('aceita somente texto válido e números finitos como identidade legada', () => {
+    expect(legacyIdentity('  antigo  ')).toBe('antigo')
+    expect(legacyIdentity(123)).toBe('123')
+    expect(legacyIdentity(0)).toBe('0')
+    expect(legacyIdentity(-5)).toBe('-5')
+    expect(legacyIdentity(Number.NaN)).toBeUndefined()
+    expect(legacyIdentity(Number.POSITIVE_INFINITY)).toBeUndefined()
+    expect(legacyIdentity(Number.NEGATIVE_INFINITY)).toBeUndefined()
+    expect(legacyIdentity(null)).toBeUndefined()
+    expect(legacyIdentity({})).toBeUndefined()
+    expect(legacyIdentity([])).toBeUndefined()
+    expect(legacyIdentity(true)).toBeUndefined()
+  })
+
   it('reconstrói o LANDERGOLD histórico sem groupId somente no array direto', () => {
     const raw: unknown = JSON.parse(readFileSync(join(process.cwd(), 'src/migrations/fixtures/hormotracker-legacy-landergold.json'), 'utf8'))
     if (!Array.isArray(raw)) throw new Error('fixture inválida')
@@ -190,5 +205,55 @@ describe('E7 HormoTracker', () => {
     expect(preview.entities[0]?.components.every((item) => item.source.type === 'manual')).toBe(true)
     expect(preview.issues.some((item) => item.code === 'LEGACY_GROUP_EMPTY')).toBe(false)
     expect(protocolSchema.safeParse(preview.entities[0]).success).toBe(true)
+  })
+
+  it('normaliza parent, groupId e ester ids numéricos no isBlend legado', () => {
+    const fixture: unknown = JSON.parse(readFileSync(join(process.cwd(), 'src/migrations/fixtures/hormotracker-legacy-isblend.json'), 'utf8'))
+    if (!Array.isArray(fixture) || typeof fixture[0] !== 'object' || fixture[0] === null || Array.isArray(fixture[0])) {
+      throw new Error('fixture inválida')
+    }
+    const parent = fixture[0]
+    if (!Array.isArray(parent.esters)) throw new Error('fixture sem esters')
+    const numericParent = [{
+      ...parent,
+      id: 1_700_000_000_000,
+      esters: parent.esters.map((ester: unknown, index: number) => ({
+        ...(typeof ester === 'object' && ester !== null && !Array.isArray(ester) ? ester : {}),
+        id: 1_700_000_000_001 + index,
+      })),
+    }]
+    const options = { assumedTimeZone: 'UTC', ranAt: '2026-08-27T12:00:00Z' }
+
+    const preview = previewHormoTrackerMigration(numericParent, options)
+    expect(preview.entities).toHaveLength(1)
+    const protocol = preview.entities[0]!
+    expect(protocol.totalDoseMg).toBe(100)
+    expect(protocol.components).toHaveLength(3)
+    const byLabel = new Map(protocol.components.map((item) => [item.label, item]))
+    expect(byLabel.get('Propionato')?.proportion).toBeCloseTo(0.2)
+    expect(byLabel.get('Fenilpropionato')?.proportion).toBeCloseTo(0.4)
+    expect(byLabel.get('Isocaproato')?.proportion).toBeCloseTo(0.4)
+    expect(byLabel.get('Propionato')?.pkParametersSnapshot.halfLife.value).toBe(2)
+    expect(byLabel.get('Fenilpropionato')?.pkParametersSnapshot.halfLife.value).toBe(3)
+    expect(byLabel.get('Isocaproato')?.pkParametersSnapshot.halfLife.value).toBe(8)
+
+    const repeated = previewHormoTrackerMigration(numericParent, options)
+    expect(repeated.entities[0]?.id).toBe(protocol.id)
+    expect(new Map(repeated.entities[0]?.components.map((item) => [item.label, item.id]))).toEqual(
+      new Map(protocol.components.map((item) => [item.label, item.id])),
+    )
+
+    const explicitGroup = previewHormoTrackerMigration([{ ...numericParent[0], groupId: 1_700_000_000_000 }], options)
+    expect(explicitGroup.entities).toHaveLength(1)
+    expect(explicitGroup.entities[0]?.components).toHaveLength(3)
+
+    const changedEsterIds = previewHormoTrackerMigration([{
+      ...numericParent[0],
+      esters: numericParent[0].esters.map((ester: Record<string, unknown>) => ({ ...ester, id: Number(ester.id) + 100 })),
+    }], options)
+    const changedByLabel = new Map(changedEsterIds.entities[0]?.components.map((item) => [item.label, item.id]))
+    expect(changedByLabel.get('Propionato')).not.toBe(byLabel.get('Propionato')?.id)
+    expect(changedByLabel.get('Fenilpropionato')).not.toBe(byLabel.get('Fenilpropionato')?.id)
+    expect(changedByLabel.get('Isocaproato')).not.toBe(byLabel.get('Isocaproato')?.id)
   })
 })

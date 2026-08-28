@@ -1,5 +1,10 @@
 import { isRecord, optionalIdentity, validName } from './common'
 
+export function legacyIdentity(value: unknown): string | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value)
+  return optionalIdentity(value)
+}
+
 interface LegacyHormoTrackerBlendComponentDefinition {
   key: string
   suffix: string

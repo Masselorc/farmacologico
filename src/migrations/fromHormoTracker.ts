@@ -7,7 +7,7 @@ import { protocolSchema } from '../validation/schemas/protocol'
 import { mapLegacyColor, DEFAULT_MIGRATION_PALETTE } from './colors'
 import { isRecord, operationContext, optionalIdentity, parseUnknown, resolveOfficialMatches, sortIssues, validName } from './common'
 import { makeLegacyStableId } from './ids'
-import { legacyBlendEsterMetadata, normalizeLegacyHormoTrackerDirectArray } from './hormoTrackerLegacyCompatibility'
+import { legacyBlendEsterMetadata, legacyIdentity, normalizeLegacyHormoTrackerDirectArray } from './hormoTrackerLegacyCompatibility'
 import type { LegacyMigrationPreview, LegacyOfficialProfileResolver, MigrationIssue, MigrationPaletteEntry } from './types'
 
 export interface HormoTrackerMigrationOptions {
@@ -78,14 +78,15 @@ function expandOldBlend(record: Record<string, unknown>, index: number): Record<
     if (!metadata) return null
     const proportion = ester.proportion
     if (typeof proportion !== 'number') return null
-    const parentIdentity = optionalIdentity(record.id) ?? optionalIdentity(record.key) ?? String(index)
-    const esterIdentity = optionalIdentity(ester.id) ?? optionalIdentity(ester.key) ?? `${parentIdentity}:ester:${esterIndex}`
+    const parentIdentity = legacyIdentity(record.id) ?? legacyIdentity(record.key) ?? `blend:${index}`
+    const groupIdentity = legacyIdentity(record.groupId) ?? parentIdentity
+    const esterIdentity = legacyIdentity(ester.id) ?? legacyIdentity(ester.key) ?? `${parentIdentity}:ester:${esterIndex}`
     expanded.push({
       ...record,
       ...ester,
       id: esterIdentity,
       legacyComponentIdentity: esterIdentity,
-      groupId: record.groupId ?? record.id ?? `blend:${index}`,
+      groupId: groupIdentity,
       compoundKey: ester.compoundKey ?? (metadata.blendKey && metadata.componentKey ? `${metadata.blendKey}:${metadata.componentKey}` : undefined),
       name: metadata.componentName,
       blendKey: metadata.blendKey,
@@ -103,8 +104,8 @@ function expandOldBlend(record: Record<string, unknown>, index: number): Record<
 function toCandidate(record: Record<string, unknown>, index: number, subIndex: number, timeZone: string): { candidate?: Candidate; code?: string } {
   const name = validName(record.name, UX_LIMITS.NAME_MAX_CHARS)
   if (!name) return { code: 'LEGACY_PROTOCOL_INVALID' }
-  const groupIdentity = optionalIdentity(record.groupId)
-  const ownIdentity = optionalIdentity(record.legacyComponentIdentity) ?? optionalIdentity(record.componentKey) ?? optionalIdentity(record.protocolId) ?? optionalIdentity(record.id) ?? `${index}:${subIndex}`
+  const groupIdentity = legacyIdentity(record.groupId)
+  const ownIdentity = legacyIdentity(record.legacyComponentIdentity) ?? legacyIdentity(record.componentKey) ?? legacyIdentity(record.protocolId) ?? legacyIdentity(record.id) ?? `${index}:${subIndex}`
   const groupKey = groupIdentity ? `group:${groupIdentity}` : `record:${ownIdentity}`
   if (!finiteWithin(record.dose, Number.MIN_VALUE, SAFETY_LIMITS.SIMULATION_DOSE_MG_MAX)) return { code: 'LEGACY_PROTOCOL_INVALID_DOSE' }
   if (!finiteWithin(record.halfLife, Number.MIN_VALUE, SAFETY_LIMITS.HALF_LIFE_DAYS_MAX) || !finiteWithin(record.tmax, 0, SAFETY_LIMITS.TMAX_DAYS_MAX)) return { code: 'LEGACY_PROTOCOL_INVALID' }
@@ -140,24 +141,24 @@ export function previewHormoTrackerMigration(raw: unknown, options: HormoTracker
   }
   const candidates: Candidate[] = []
   const observedGroups = new Map<string, number>()
-  const knownMaterializedGroups = new Set(records.filter(isRecord).map((record) => optionalIdentity(record.groupId)).filter((id): id is string => id !== undefined))
+  const knownMaterializedGroups = new Set(records.filter(isRecord).map((record) => legacyIdentity(record.groupId)).filter((id): id is string => id !== undefined))
   for (let index = 0; index < records.length; index += 1) {
     const record = records[index]
     if (!isRecord(record)) { issues.push(issue('LEGACY_PROTOCOL_INVALID', index, undefined, 1)); continue }
-    const groupId = optionalIdentity(record.groupId)
+    const groupId = legacyIdentity(record.groupId)
     const expanded = record.isBlend === true && groupId && knownMaterializedGroups.has(groupId) && records.some((sibling, siblingIndex) => siblingIndex !== index && isRecord(sibling) && sibling.groupId === groupId)
       ? [record]
       : expandOldBlend(record, index)
     if (!expanded) {
-      const invalidGroupKey = groupId ? `group:${groupId}` : `record:${optionalIdentity(record.componentKey) ?? optionalIdentity(record.protocolId) ?? optionalIdentity(record.id) ?? `${index}:0`}`
+      const invalidGroupKey = groupId ? `group:${groupId}` : `record:${legacyIdentity(record.componentKey) ?? legacyIdentity(record.protocolId) ?? legacyIdentity(record.id) ?? `${index}:0`}`
       observedGroups.set(invalidGroupKey, index)
       issues.push(issue('LEGACY_PROTOCOL_INVALID', index, groupId, 1, true))
       continue
     }
     for (let subIndex = 0; subIndex < expanded.length; subIndex += 1) {
       const expandedRecord = expanded[subIndex]!
-      const expandedGroupId = optionalIdentity(expandedRecord.groupId)
-      const observedIdentity = expandedGroupId ? `group:${expandedGroupId}` : `record:${optionalIdentity(expandedRecord.componentKey) ?? optionalIdentity(expandedRecord.protocolId) ?? optionalIdentity(expandedRecord.id) ?? `${index}:${subIndex}`}`
+      const expandedGroupId = legacyIdentity(expandedRecord.groupId)
+      const observedIdentity = expandedGroupId ? `group:${expandedGroupId}` : `record:${legacyIdentity(expandedRecord.componentKey) ?? legacyIdentity(expandedRecord.protocolId) ?? legacyIdentity(expandedRecord.id) ?? `${index}:${subIndex}`}`
       observedGroups.set(observedIdentity, index)
       const converted = toCandidate(expandedRecord, index, subIndex, context.assumedTimeZone)
       if (!converted.candidate) { issues.push(issue(converted.code ?? 'LEGACY_PROTOCOL_INVALID', index, groupId, 1)); continue }
