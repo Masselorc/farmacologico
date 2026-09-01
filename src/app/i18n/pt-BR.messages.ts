@@ -114,6 +114,32 @@ export type Messages = typeof messages
 
 export type ErrorMessageTemplate = string | ((params?: Record<string, number | string>) => string)
 
+const messageNumberFormatters = new Map<number, Intl.NumberFormat>()
+
+function getMessageNumberFormatter(maximumFractionDigits: number): Intl.NumberFormat {
+  const existing = messageNumberFormatters.get(maximumFractionDigits)
+  if (existing) return existing
+
+  const formatter = new Intl.NumberFormat('pt-BR', {
+    maximumFractionDigits,
+    minimumFractionDigits: 0,
+    useGrouping: false,
+  })
+  messageNumberFormatters.set(maximumFractionDigits, formatter)
+  return formatter
+}
+
+export function formatMessageNumber(
+  value: number | string,
+  maximumFractionDigits = 3,
+): string {
+  const numeric = typeof value === 'number' ? value : Number(value)
+  if (!Number.isFinite(numeric)) {
+    return String(value)
+  }
+  return getMessageNumberFormatter(maximumFractionDigits).format(numeric)
+}
+
 export const domainErrorMessages: Record<DomainErrorCode, ErrorMessageTemplate> = {
   HALF_LIFE_NON_POSITIVE: 'A meia-vida deve ser maior que zero.',
   TMAX_NEGATIVE: 'O Tmax deve ser maior ou igual a zero.',
@@ -131,7 +157,7 @@ export const domainErrorMessages: Record<DomainErrorCode, ErrorMessageTemplate> 
   SCENARIO_NAME_REQUIRED: 'Informe o nome da substância/cenário.',
   DOSE_EXCEEDS_VIAL_CONTENT: (params) =>
     params?.desiredDoseMcg !== undefined && params?.vialTotalMcg !== undefined
-      ? `A dose desejada (${params.desiredDoseMcg} mcg) excede a quantidade total do frasco (${params.vialTotalMcg} mcg).`
+      ? `A dose desejada (${formatMessageNumber(params.desiredDoseMcg)} mcg) excede a quantidade total do frasco (${formatMessageNumber(params.vialTotalMcg)} mcg).`
       : 'A dose desejada excede o conteúdo total do frasco.',
   INVALID_RECONSTITUTION_INPUT: 'Os parâmetros de reconstituição informados são inválidos.',
   COMPONENT_PROPORTION_INVALID: 'Cada componente deve ter uma proporção numérica maior que zero.',

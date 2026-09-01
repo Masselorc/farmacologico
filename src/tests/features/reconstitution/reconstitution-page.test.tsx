@@ -264,10 +264,31 @@ describe('ReconstitutePage — E8', () => {
 
   it('respeita capacidade escolhida de 30 U e mantém 120 U como valor real', () => {
     renderPage()
-    fillValid()
+    fillField('Quantidade no frasco', '5')
+    fillField('Volume de diluente', '2')
+    fillField('Dose informada', '3000')
     fireEvent.change(screen.getByRole('combobox', { name: 'Capacidade da seringa' }), { target: { value: '30' } })
-    expect(screen.getByText('10 U')).toBeTruthy()
-    expect(screen.queryByText(/capacidade selecionada de 30 U/i)).toBeNull()
+
+    expect(screen.getByText('120 U')).toBeTruthy()
+    expect(screen.getByText(/excede a capacidade selecionada de 30 U/i)).toBeTruthy()
+    expect(screen.getByText(/120 U calculadas/i)).toBeTruthy()
+
+    const meter = screen.getByRole('meter')
+    expect(meter.getAttribute('aria-valuemax')).toBe('30')
+    expect(meter.getAttribute('aria-valuenow')).toBe('30')
+    expect(meter.getAttribute('aria-valuetext')).toContain('120')
+    expect(meter.getAttribute('aria-valuetext')).toContain('30')
+  })
+
+  it('formata warning de capacidade com números decimais pt-BR sem cauda IEEE-754', () => {
+    renderPage()
+    fillField('Quantidade no frasco', '3')
+    fillField('Volume de diluente', '2')
+    fillField('Dose informada', '1600')
+
+    expect(screen.getByText('106,667 U')).toBeTruthy()
+    expect(screen.getByText(/corresponde a 106,667 U e excede a capacidade selecionada de 100 U/i)).toBeTruthy()
+    expect(screen.getByText(/106,667 U calculadas/i)).toBeTruthy()
   })
 
   it('constrói snapshot estrutural sem recalcular o resultado', () => {

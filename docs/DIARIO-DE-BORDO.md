@@ -1515,3 +1515,54 @@ Implementar a tela funcional de reconstituição prevista na especificação, se
 
 - Mensagem autorizada: `feat(farmakit): implementar reconstituicao E8`.
 - SHA e CI serão registrados após o commit e a publicação.
+
+## 2026-08-28 — E8.1 — Formatação numérica pt-BR da Reconstituição
+
+### Objetivo
+
+Corrigir a apresentação numérica localizada em pt-BR da funcionalidade de Reconstituição (E8), eliminando o ponto decimal e caudas binárias IEEE-754 em avisos dinâmicos e mensagens de erro de domínio, além de fechar gaps e regressões de teste.
+
+- Base SHA: `6ea7df998c6f6ebc903bc3bd8f4f58cb629770f6` em `main`.
+
+### Alterações realizadas
+
+- Em `src/features/reconstitution/lib/presentation.ts`, `formatReconstitutionWarningText()` passou a formatar os parâmetros dinâmicos de `CAPACITY_EXCEEDED` (`result.syringeUnits` e `input.syringe.capacityUnits`) via `formatReconstitutionNumber(..., 3, false)` antes de repassá-los ao catálogo de mensagens, garantindo vírgula pt-BR e até 3 casas decimais sem caudas IEEE-754.
+- Em `src/app/i18n/pt-BR.messages.ts`, criado o helper puro `formatMessageNumber()` (Intl pt-BR, max 3 casas, sem grouping) para interpolar números de forma localizada em mensagens de erro de domínio como `DOSE_EXCEEDS_VIAL_CONTENT` (`desiredDoseMcg` e `vialTotalMcg`), evitando dependência circular com o módulo de Reconstituição.
+- Em `src/tests/features/reconstitution/reconstitution-page.test.tsx`, corrigido o teste da capacidade de 30 U para usar a entrada 5 mg / 2 mL / 3000 mcg (gerando 120 U), validando resultado 120 U, warning 120 U / 30 U, meter now = 30, meter max = 30, `aria-valuetext` e overflow textual "120 U calculadas".
+- Adicionados testes de unidade dedicados em `src/tests/features/reconstitution/presentation.test.ts` e em `src/tests/validation/i18n.test.ts` cobrindo a formatação pt-BR dos warnings, números com decimais, caudas IEEE-754 e texto estruturado de cópia.
+
+### Arquivos principais
+
+- `src/features/reconstitution/lib/presentation.ts`
+- `src/app/i18n/pt-BR.messages.ts`
+- `src/tests/features/reconstitution/reconstitution-page.test.tsx`
+- `src/tests/features/reconstitution/presentation.test.ts`
+- `src/tests/validation/i18n.test.ts`
+- `docs/DIARIO-DE-BORDO.md`
+
+### Decisões tomadas
+
+- A matemática e o motor científico (`src/domain/reconstitution/calculate.ts`) permaneceram 100% intocados e puros.
+- Nenhum snapshot de histórico, schema, storage E6 ou migração E7 foi modificado.
+- O helper `formatMessageNumber` em `src/app/i18n/pt-BR.messages.ts` opera de forma pura e desacoplada, preservando a fronteira arquitetural.
+
+### Validações executadas
+
+- `npm run lint`: PASS (0 erros).
+- `npm run typecheck`: PASS (0 erros).
+- `npm run type-tests`: PASS (0 erros).
+- `npm run test:e8`: PASS (4 arquivos, 50 testes).
+- `npm test`: PASS (67 arquivos, 574 testes).
+- `npm run test:e7`: PASS (7 arquivos, 46 testes).
+- `npm run test:e6`: PASS (21 arquivos, 125 testes).
+- `npm run test:e5`: PASS (9 arquivos, 102 testes).
+- `npm run test:e4`: PASS (11 arquivos, 81 testes).
+- `npm run build`: PASS (Vite + PWA generateSW, 10 entradas no precache).
+- `npm run check:build-boundaries`: PASS (9 arquivos em `dist`, 0 referências a `.token-optimizer`).
+- `npm run test:e1`: PASS (2 testes Playwright em Chromium).
+- `git diff --check`: PASS.
+
+### Commit
+
+- Mensagem autorizada: `fix(farmakit): fechar apresentacao numerica da E8`.
+

@@ -4,6 +4,7 @@ import {
   domainErrorMessages,
   formatDataManagementError,
   formatDomainError,
+  formatMessageNumber,
   formatPkWarning,
   formatReconstitutionWarning,
   formatRecurrenceReason,
@@ -18,6 +19,28 @@ import { dataManagementError, type DataManagementErrorCode, domainError, type Do
 import type { PkWarningCode, ReconstitutionWarningCode } from '../../domain/types'
 
 describe('E5 i18n — Catálogo e formatadores pt-BR de erros e warnings (§6, §7, §8)', () => {
+  describe('formatMessageNumber helper puro', () => {
+    it('formata inteiros sem agrupamento de milhar', () => {
+      expect(formatMessageNumber(6000)).toBe('6000')
+      expect(formatMessageNumber(5000)).toBe('5000')
+      expect(formatMessageNumber(0)).toBe('0')
+    })
+
+    it('formata decimais em pt-BR com vírgula e até 3 casas', () => {
+      expect(formatMessageNumber(5001.5)).toBe('5001,5')
+      expect(formatMessageNumber(5000.5)).toBe('5000,5')
+      expect(formatMessageNumber(100.123)).toBe('100,123')
+      expect(formatMessageNumber(100.1234)).toBe('100,123')
+    })
+
+    it('aceita strings numéricas e preserva valores não finitos', () => {
+      expect(formatMessageNumber('5001.5')).toBe('5001,5')
+      expect(formatMessageNumber('6000')).toBe('6000')
+      expect(formatMessageNumber('invalid')).toBe('invalid')
+      expect(formatMessageNumber(Number.NaN)).toBe('NaN')
+    })
+  })
+
   describe('Domain Errors catálogo e formatters', () => {
     const allDomainErrorCodes: DomainErrorCode[] = [
       'HALF_LIFE_NON_POSITIVE',
@@ -78,6 +101,12 @@ describe('E5 i18n — Catálogo e formatadores pt-BR de erros e warnings (§6, �
       )
       expect(formatDomainError(domainError('DOSE_EXCEEDS_VIAL_CONTENT', { desiredDoseMcg: 6000, vialTotalMcg: 5000 }))).toBe(
         'A dose desejada (6000 mcg) excede a quantidade total do frasco (5000 mcg).',
+      )
+      expect(formatDomainError(domainError('DOSE_EXCEEDS_VIAL_CONTENT', { desiredDoseMcg: 5001.5, vialTotalMcg: 5000 }))).toBe(
+        'A dose desejada (5001,5 mcg) excede a quantidade total do frasco (5000 mcg).',
+      )
+      expect(formatDomainError(domainError('DOSE_EXCEEDS_VIAL_CONTENT', { desiredDoseMcg: 5000.5, vialTotalMcg: 5000 }))).toBe(
+        'A dose desejada (5000,5 mcg) excede a quantidade total do frasco (5000 mcg).',
       )
     })
   })

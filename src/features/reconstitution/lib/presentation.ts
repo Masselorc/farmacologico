@@ -32,8 +32,8 @@ export function formatReconstitutionWarningText(
 ): string {
   if (code === 'CAPACITY_EXCEEDED') {
     return formatReconstitutionWarning(code, {
-      syringeUnits: result.syringeUnits,
-      capacityUnits: input.syringe.capacityUnits,
+      syringeUnits: formatReconstitutionNumber(result.syringeUnits, 3, false),
+      capacityUnits: formatReconstitutionNumber(input.syringe.capacityUnits, 3, false),
     })
   }
   return formatReconstitutionWarning(code)
