@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ConfigPayload, Scenario } from '../../../domain/types'
+import type { CalculationRecord, ConfigPayload, Scenario } from '../../../domain/types'
 import { ComparatorPage } from '../../../features/comparator/pages/ComparatorPage'
 import * as storageModule from '../../../storage'
 
@@ -55,7 +55,7 @@ describe('ComparatorPage Component (§15, E9)', () => {
     vi.mocked(storageModule.getStorageMode).mockReturnValue('persistent-ok')
     vi.mocked(storageModule.addCalculationRecord).mockResolvedValue({
       ok: true,
-      record: {} as any,
+      record: {} as unknown as CalculationRecord,
       evictedCount: 0,
       evictedBytes: 0,
     })
