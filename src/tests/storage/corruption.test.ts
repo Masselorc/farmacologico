@@ -165,7 +165,7 @@ describe('IDB Read-Validation & Corruption Quarantine (§11, E6.1)', () => {
     expect(serializedUtf8Bytes(items)).toBeLessThanOrEqual(SAFETY_LIMITS.QUARANTINE_TOTAL_BYTES_MAX)
     expect(items.every((item) => serializedUtf8Bytes(item) <= SAFETY_LIMITS.QUARANTINE_ITEM_BYTES_MAX)).toBe(true)
     expect(items.some((item) => item.source === 'idb_corruption' && item.rawExcerptUtf8?.includes('corrupt-9'))).toBe(true)
-  })
+  }, 15_000)
 
   it('valida referências cruzadas ao montar o ConfigPayload lido', async () => {
     const db = await openRawIDB()

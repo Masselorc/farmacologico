@@ -1565,4 +1565,70 @@ Corrigir a apresentação numérica localizada em pt-BR da funcionalidade de Rec
 ### Commit
 
 - Mensagem autorizada: `fix(farmakit): fechar apresentacao numerica da E8`.
+- SHA base: `83ff7cac1487afd85627c72ddbb1377515ce8b18`.
+
+## 2026-09-01 — E9 — Comparador / Meia-vida
+
+### Objetivo
+
+Implementar integralmente a funcionalidade do Comparador / Meia-vida (E9) da FARMakit: edição e análise de múltiplos cenários farmacocinéticos manuais ou migrados, gerenciamento de doses com datas/horas civis interpretadas estritamente via Temporal no fuso da aplicação, cálculo de janelas individuais (`CalculationWindow`), amostragem visual reamostrada (`sampleForDisplay` ≤ 1200 pontos), visualização com Chart.js 4 em escalas Absoluta/Normalizada e eixos Linear/Logarítmico (com `LOG_REL_EPSILON = 1e-12`), métricas monocompartimentais, heurística determinística de fase (`phaseHint`), tabela de marcos, detalhes educacionais do modelo e salvamento explícito de snapshots no histórico de cálculos.
+
+### Alterações realizadas
+
+- Em `src/domain/pk/sampling.ts`, implementada a função pura e determinística `sampleForDisplay(analysisCurve, constraints)` filtrando pela `DisplayWindow` e limitando a ≤ 1200 pontos sem interpolações ou mutações, preservando o primeiro ponto, o último ponto e o ponto de pico.
+- Em `src/features/comparator/lib/`, criados os módulos de suporte:
+  - `phaseHint.ts`: heurística determinística de 4 estados (`awaiting_first_dose`, `absorbing_latest`, `awaiting_next_planned`, `terminal_decline`);
+  - `colors.ts`: paleta padrão de 6 cores seguras e sanitização;
+  - `presentation.ts`: formatadores de UI para massa (`fromMilligrams`), percentuais e datas no fuso;
+  - `chartView.ts`: preparação determinística de pontos para gráficos e snapshots (`createChartSnapshotPoints`) com suporte a modos Absolute/Normalized × Linear/Log e clipping de log relativo;
+  - `form.ts`: parsing, validação e conversão de drafts de cenários e doses com Temporal (`civilToInstantIso` e `instantToZonedParts`);
+  - `historyRecord.ts`: builder puro de `CalculationRecord` (`createComparatorCalculationRecord`) preservando cardinalidade 1:1, snapshots completos de cenários e inputs filtrados;
+  - `analysis.ts`: orquestração do pipeline científico por cenário (`deriveCalculationWindow` → `selectRelevantScenarioDoses` → `assembleScenarioInputs` → `analyze` → `sampleForDisplay`).
+- Em `src/features/charts/CompareChart.tsx`, implementado componente de visualização gráfica responsivo com Chart.js 4 (bundled, CSP-safe, destroy no cleanup, eixo temporal ms formatado em `calendarTimeZone`, omissão de pontos clipped em log via `y: null`).
+- Em `src/features/comparator/components/`, criados: `ScenarioList`, `ScenarioForm`, `QuickDose`, `DoseEditor`, `MetricsPanel`, `MilestonesTable`, `ModelDetails` e `SaveAnalysisButton`.
+- Em `src/features/comparator/pages/`, criados: `EditPage`, `AnalysisPage` e `ComparatorPage` com relógio vivo de 1 segundo (com cleanup de `setInterval`) e gerenciamento de estado desacoplado do armazenamento.
+- Em `src/features/comparator/comparator.css`, definida a estilização completa do comparador baseada nos design tokens do projeto.
+- Em `src/app/i18n/pt-BR.messages.ts`, adicionado o catálogo de mensagens `messages.comparator`.
+- Adicionada suíte de testes com 8 arquivos e 28 testes específicos da E9 cobrindo amostragem, heurísticas, chart view, formulários, pipeline científico, snapshots de histórico e ciclo de vida de componentes.
+
+### Arquivos principais
+
+- `src/domain/pk/sampling.ts`
+- `src/features/comparator/` (pages, components, lib, comparator.css)
+- `src/features/charts/CompareChart.tsx`
+- `src/app/i18n/pt-BR.messages.ts`
+- `src/tests/domain/pk.sampling.test.ts`
+- `src/tests/features/comparator/`
+- `src/tests/features/charts/`
+- `docs/DIARIO-DE-BORDO.md`
+
+### Decisões tomadas
+
+- O motor matemático (`src/domain/pk/analysis.ts`, `bateman.ts`, `rates.ts`, `state.ts`, `cutoff.ts`) permaneceu 100% puro e inalterado.
+- Nenhum dataset fictício foi criado; novos cenários operam exclusivamente com `source.type = 'manual'`.
+- O denominator de normalização é exclusivamente o pico global científico do resultado (`result.peak.amountMg`).
+- O relógio vivo de 1s e as alterações de escala na UI não provocam escritas automáticas na persistência.
+- O salvamento no histórico é uma ação estritamente explícita do usuário, respeitando consentimento e limites de capacidade.
+
+### Validações executadas
+
+- `npm run lint`: PASS (0 erros, 0 warnings).
+- `npm run typecheck`: PASS (0 erros).
+- `npm run type-tests`: PASS (0 erros).
+- `npm run test:e9`: PASS (8 arquivos, 28 testes).
+- `npm test`: PASS (75 arquivos, 602 testes).
+- `npm run test:e8`: PASS (4 arquivos, 50 testes).
+- `npm run test:e7`: PASS (7 arquivos, 46 testes).
+- `npm run test:e6`: PASS (21 arquivos, 125 testes).
+- `npm run test:e5`: PASS (9 arquivos, 102 testes).
+- `npm run test:e4`: PASS (11 arquivos, 81 testes).
+- `npm run build`: PASS (Vite + PWA generateSW).
+- `npm run check:build-boundaries`: PASS (9 arquivos em dist, 0 referências a `.token-optimizer`).
+- `npm run test:e1`: PASS (2 testes Playwright em Chromium).
+- `git diff --check`: PASS.
+
+### Commit
+
+- Mensagem autorizada: `feat(farmakit): implementar comparador E9`.
+
 

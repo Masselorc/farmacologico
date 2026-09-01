@@ -7,7 +7,7 @@ const BASE_PATH = '/farmacologico/'
 
 const structuralRoutes = [
   { navLabel: 'Biblioteca', heading: 'Biblioteca', placeholder: /prevista na E10\./ },
-  { navLabel: 'Meia-vida', heading: 'Meia-vida', placeholder: /prevista na E9\./ },
+  { navLabel: 'Meia-vida', heading: 'Meia-vida', placeholder: /Compare cenários farmacocinéticos/ },
   {
     navLabel: 'Reconstituir',
     heading: 'Reconstituir',
