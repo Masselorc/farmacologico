@@ -17,7 +17,7 @@ function createSampleRecord(id: string, createdAt: string, paddingChars = 0): Ca
   return {
     id,
     createdAt,
-    display: { title: `Registro ${id}`, color: 'emerald-500', note: 'x'.repeat(paddingChars) },
+    display: { title: `Registro ${id}`, color: '#059669', note: 'x'.repeat(paddingChars) },
     type: 'reconstitution',
     versions: { reconstitutionEngineVersion: '1.0.0', datasetVersion: 1 },
     input: {

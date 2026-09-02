@@ -15,6 +15,7 @@ import { messages } from '../../app/i18n/pt-BR.messages'
 import { formatPresentationDateLong, formatPresentationDateShort, formatPresentationNumber, formatPresentationPercent } from '../comparator/lib/presentation'
 import type { ComparatorAnalyzedScenario } from '../comparator/lib/analysis'
 import type { ChartScaleMode, ChartYAxisMode, TimeZoneId } from '../../domain/types'
+import { sanitizePaletteColor } from '../../domain/shared/colors'
 
 Chart.register(
   LineController,
@@ -65,11 +66,13 @@ export function CompareChart({
         }
       })
 
+      const safeColor = sanitizePaletteColor(item.scenario.color)
+
       datasets.push({
         label: item.scenario.name,
         data: pointsData,
-        borderColor: item.scenario.color,
-        backgroundColor: item.scenario.color,
+        borderColor: safeColor,
+        backgroundColor: safeColor,
         borderWidth: 2,
         pointRadius: 0,
         pointHoverRadius: 4,

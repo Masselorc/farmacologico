@@ -21,7 +21,7 @@ import {
 const dummyScenario: Scenario = {
   id: 'sc-rt-1',
   name: 'Cenário Round-Trip',
-  color: 'emerald-500',
+  color: '#059669',
   source: {
     type: 'manual',
     pkParametersSnapshot: { halfLife: { value: 18, unit: 'hours' }, tmax: null },
@@ -34,7 +34,7 @@ const dummyScenario: Scenario = {
 const reconRecord: CalculationRecord = {
   id: 'rec-rt-recon',
   createdAt: '2026-08-27T08:00:00.000Z',
-  display: { title: 'Reconstituição RT', color: 'blue-500' },
+  display: { title: 'Reconstituição RT', color: '#2563eb' },
   type: 'reconstitution',
   versions: { reconstitutionEngineVersion: '1.0.0', datasetVersion: 1 },
   input: {
@@ -61,7 +61,7 @@ const reconRecord: CalculationRecord = {
 
 function pkRecord(id: string, scaleMode: 'absolute' | 'normalized'): CalculationRecord {
   return {
-    id, createdAt: '2026-08-27T08:15:00.000Z', display: { title: `PK ${scaleMode}`, color: 'emerald-500' },
+    id, createdAt: '2026-08-27T08:15:00.000Z', display: { title: `PK ${scaleMode}`, color: '#059669' },
     type: 'pharmacokinetics', versions: { pkEngineVersion: '1.0.0', recurrenceEngineVersion: '1.0.0', datasetVersion: 1 },
     scenarios: [{
       scenarioId: dummyScenario.id, scenarioSnapshot: dummyScenario,
@@ -80,7 +80,7 @@ function pkRecord(id: string, scaleMode: 'absolute' | 'normalized'): Calculation
     chartViewSnapshot: {
       displayWindow: { startMs: 0, endMs: 86_400_000 }, calendarTimeZone: 'America/Sao_Paulo',
       scaleMode, yAxisMode: 'log', displayPointsByScenario: [{
-        scenarioId: dummyScenario.id, label: dummyScenario.name, color: 'emerald-500',
+        scenarioId: dummyScenario.id, label: dummyScenario.name, color: '#059669',
         points: [{ timeMs: 0, value: scaleMode === 'absolute' ? 250 : 1,
           valueKind: scaleMode === 'absolute' ? 'mg' : 'normalized_ratio', clippedBelowLogEpsilon: false }],
       }],
@@ -91,7 +91,7 @@ function pkRecord(id: string, scaleMode: 'absolute' | 'normalized'): Calculation
 const protoRecord: CalculationRecord = {
   id: 'rec-rt-proto',
   createdAt: '2026-08-27T08:30:00.000Z',
-  display: { title: 'Protocol Analysis RT', color: 'purple-500' },
+  display: { title: 'Protocol Analysis RT', color: '#7c3aed' },
   type: 'protocol-analysis',
   versions: {
     pkEngineVersion: '1.0.0',
@@ -119,13 +119,13 @@ const protoRecord: CalculationRecord = {
           source: { type: 'manual' },
           selectedPkParameters: { halfLifeMs: 86400000, tmaxMs: null },
           pkParametersSnapshot: { halfLife: { value: 24, unit: 'hours' }, tmax: null },
-          displayColor: { paletteColor: 'purple-500' },
+          displayColor: { paletteColor: '#7c3aed' },
         },
         {
           id: 'comp:rt:2', label: 'Componente RT 2', proportion: 0.5,
           source: { type: 'manual' }, selectedPkParameters: { halfLifeMs: 43_200_000, tmaxMs: null },
           pkParametersSnapshot: { halfLife: { value: 12, unit: 'hours' }, tmax: null },
-          displayColor: { paletteColor: 'blue-500' },
+          displayColor: { paletteColor: '#2563eb' },
         },
       ],
 
@@ -140,7 +140,7 @@ const protoRecord: CalculationRecord = {
     series: [
       {
         key: { protocolId: 'proto:rt:1', componentId: 'comp:rt:2' },
-        label: 'Série RT 2', color: 'blue-500', displayPoints: [{ timeMs: 0, amountMg: 50 }],
+        label: 'Série RT 2', color: '#2563eb', displayPoints: [{ timeMs: 0, amountMg: 50 }],
         state: { administeredMg: 50, centralMg: 50, depotMg: 0, eliminatedMg: 0,
           administeredCount: 1, plannedCount: 1, centralPercent: 100, depotPercent: 0, eliminatedPercent: 0 },
         peak: { timeMs: 0, amountMg: 50 }, milestones: [], warnings: [],
@@ -148,7 +148,7 @@ const protoRecord: CalculationRecord = {
       {
         key: { protocolId: 'proto:rt:1', componentId: 'comp:rt:1' },
         label: 'Série RT',
-        color: 'purple-500',
+        color: '#7c3aed',
         displayPoints: [{ timeMs: 0, amountMg: 100, clippedBelowLogEpsilon: false }],
         state: {
           administeredMg: 100,

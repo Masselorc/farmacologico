@@ -21,7 +21,7 @@ describe('E5 Protocol Schemas (§6)', () => {
   }
 
   const validDisplayColor = {
-    paletteColor: 'blue-500',
+    paletteColor: '#2563eb',
   }
 
   function makeComponent(id: string, label: string, proportion: number) {

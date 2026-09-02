@@ -28,7 +28,7 @@ function createDummyCalculationRecord(id: string, paddingChars: number): Calcula
   return {
     id,
     createdAt: new Date().toISOString(),
-    display: { title: `Cálculo ${id}`, color: 'blue-500', note: 'x'.repeat(paddingChars) },
+    display: { title: `Cálculo ${id}`, color: '#2563eb', note: 'x'.repeat(paddingChars) },
     type: 'reconstitution',
     versions: { reconstitutionEngineVersion: '1.0.0', datasetVersion: 1 },
     input: {
@@ -66,7 +66,7 @@ describe('Config Storage, Budgets & Auto-Pruning (§11, §12, E6.1)', () => {
     const scenario: Scenario = {
       id: 'sc-cfg-1',
       name: 'Cenário Config',
-      color: 'purple-500',
+      color: '#7c3aed',
       source: {
         type: 'manual',
         pkParametersSnapshot: { halfLife: { value: 12, unit: 'hours' }, tmax: null },
@@ -130,7 +130,7 @@ describe('Config Storage, Budgets & Auto-Pruning (§11, §12, E6.1)', () => {
         {
           id: 'sc-orphan',
           name: 'Orphan Scenario',
-          color: 'blue-500',
+          color: '#2563eb',
           source: {
             type: 'custom_profile',
             customProfileId: 'non-existent-profile',

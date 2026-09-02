@@ -17,7 +17,7 @@ const emptyConfig = (): ConfigPayload => ({
 
 function record(id: string, note = ''): CalculationRecord {
   return {
-    id, createdAt: '2026-08-27T08:00:00.000Z', display: { title: id, color: 'blue-500', note },
+    id, createdAt: '2026-08-27T08:00:00.000Z', display: { title: id, color: '#2563eb', note },
     type: 'reconstitution', versions: { reconstitutionEngineVersion: '1.0.0', datasetVersion: 1 },
     input: { vialMassMg: 10, diluentVolumeMl: 2, desiredDoseMcg: 100,
       syringe: { family: 'U-100', capacityUnits: 100, unitsPerMl: 100, graduationUnits: 1 } },

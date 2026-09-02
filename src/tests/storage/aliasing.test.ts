@@ -21,7 +21,7 @@ function createSampleRecord(): ReconstitutionRecord {
   return {
     id: 'rec-alias-1',
     createdAt: '2026-08-27T08:00:00.000Z',
-    display: { title: 'Título Original', color: 'blue-500' },
+    display: { title: 'Título Original', color: '#2563eb' },
     type: 'reconstitution',
     versions: {
       reconstitutionEngineVersion: '1.0.0',
@@ -116,7 +116,7 @@ describe('Storage Immutability & Copy-in / Copy-out Defensive Aliasing (§11, E6
     const scenario: Scenario = {
       id: 'sc-alias-cfg',
       name: 'Nome Original',
-      color: 'blue-500',
+      color: '#2563eb',
       source: {
         type: 'manual',
         pkParametersSnapshot: { halfLife: { value: 12, unit: 'hours' }, tmax: null },

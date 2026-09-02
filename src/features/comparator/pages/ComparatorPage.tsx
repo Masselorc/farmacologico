@@ -52,7 +52,7 @@ export function ComparatorPage() {
   const scenarios = useMemo<Scenario[]>(() => config?.scenarios ?? [], [config])
 
   const handleUpdateScenarios = async (updatedScenarios: Scenario[]): Promise<{ ok: boolean; error?: string }> => {
-    if (!config) return { ok: false, error: 'Configuração não carregada.' }
+    if (!config) return { ok: false, error: messages.comparator.configNotLoaded }
     const result = await mutateConfigPayload((current) => ({
       ...current,
       scenarios: updatedScenarios,
@@ -61,7 +61,7 @@ export function ComparatorPage() {
       setConfig(result.payload)
       return { ok: true }
     }
-    return { ok: false, error: 'Erro ao salvar.' }
+    return { ok: false, error: messages.comparator.saveError }
   }
 
   // Pipeline de análise memoizado
@@ -99,7 +99,7 @@ export function ComparatorPage() {
     return (
       <section className="page comparator-page">
         <h1 className="page-title">{messages.comparator.title}</h1>
-        <p className="loading-notice">Carregando comparador…</p>
+        <p className="loading-notice">{messages.comparator.loadingComparator}</p>
       </section>
     )
   }

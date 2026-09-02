@@ -18,7 +18,7 @@ describe('Safety Limits & Exact Bounds (§6, §11, §12, E6.1)', () => {
     const validScenarioSnap = {
       scenarioId: 'sc-1',
       label: 'S1',
-      color: 'blue-500' as const,
+      color: '#2563eb' as const,
       points: validPoints,
     }
     expect(chartViewScenarioSnapshotSchema.safeParse(validScenarioSnap).success).toBe(true)
@@ -41,7 +41,7 @@ describe('Safety Limits & Exact Bounds (§6, §11, §12, E6.1)', () => {
     const validSeriesSnap = {
       key: { protocolId: 'p1', componentId: 'c1' },
       label: 'Series 1',
-      color: 'blue-500' as const,
+      color: '#2563eb' as const,
       displayPoints: validDisplayPoints,
       state: {
         administeredMg: 50,
@@ -71,7 +71,7 @@ describe('Safety Limits & Exact Bounds (§6, §11, §12, E6.1)', () => {
     const scenarios20 = Array.from({ length: 20 }, (_, i) => ({
       id: `sc-${i}`,
       name: `Cenário ${i}`,
-      color: 'blue-500' as const,
+      color: '#2563eb' as const,
       source: {
         type: 'manual' as const,
         pkParametersSnapshot: { halfLife: { value: 10, unit: 'hours' as const }, tmax: null },
@@ -109,7 +109,7 @@ describe('Safety Limits & Exact Bounds (§6, §11, §12, E6.1)', () => {
           {
             id: 'sc-21',
             name: 'Cenário 21',
-            color: 'blue-500' as const,
+            color: '#2563eb' as const,
             source: {
               type: 'manual' as const,
               pkParametersSnapshot: { halfLife: { value: 10, unit: 'hours' as const }, tmax: null },

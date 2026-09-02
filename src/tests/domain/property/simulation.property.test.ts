@@ -32,7 +32,7 @@ describe('E4 simulation — janela e seleção do Comparador', () => {
     const scenario = {
       id: 's',
       name: 'S',
-      color: '#fff',
+      color: '#2563eb' as const,
       source: { type: 'manual' as const },
       displayUnit: 'mg' as const,
       selectedPkParameters: { halfLifeMs: 6 * MS_PER_DAY, tmaxMs: null },
@@ -97,7 +97,7 @@ describe('E4 protocolos — proporções, cap e identidade', () => {
           halfLife: { value: i + 1, unit: 'days' as const },
           tmax: i % 2 === 0 ? null : { value: 1, unit: 'minutes' as const },
         },
-        displayColor: { paletteColor: 'blue' },
+        displayColor: { paletteColor: '#2563eb' as const },
       })),
       createdAt: '2026-01-05T09:00:00Z',
       updatedAt: '2026-01-05T09:00:00Z',

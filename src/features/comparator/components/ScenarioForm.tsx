@@ -80,7 +80,7 @@ export function ScenarioForm({
         >
           {DEFAULT_SCENARIO_COLORS.map((color, idx) => (
             <option key={color} value={color}>
-              Cor {idx + 1} ({color})
+              {messages.comparator.colorOptionLabel(idx + 1, color)}
             </option>
           ))}
         </select>
@@ -107,9 +107,9 @@ export function ScenarioForm({
             value={draft.halfLifeUnit}
             onChange={(e) => setDraft((d) => ({ ...d, halfLifeUnit: e.target.value as TimeUnit }))}
           >
-            <option value="minutes">minutos</option>
-            <option value="hours">horas</option>
-            <option value="days">dias</option>
+            <option value="minutes">{messages.comparator.timeUnitMinutes}</option>
+            <option value="hours">{messages.comparator.timeUnitHours}</option>
+            <option value="days">{messages.comparator.timeUnitDays}</option>
           </select>
         </div>
       </div>
@@ -135,9 +135,9 @@ export function ScenarioForm({
             value={draft.tmaxUnit}
             onChange={(e) => setDraft((d) => ({ ...d, tmaxUnit: e.target.value as TimeUnit }))}
           >
-            <option value="minutes">minutos</option>
-            <option value="hours">horas</option>
-            <option value="days">dias</option>
+            <option value="minutes">{messages.comparator.timeUnitMinutes}</option>
+            <option value="hours">{messages.comparator.timeUnitHours}</option>
+            <option value="days">{messages.comparator.timeUnitDays}</option>
           </select>
         </div>
       </div>
@@ -149,9 +149,9 @@ export function ScenarioForm({
           value={draft.displayUnit}
           onChange={(e) => setDraft((d) => ({ ...d, displayUnit: e.target.value as MassUnit }))}
         >
-          <option value="mcg">mcg</option>
-          <option value="mg">mg</option>
-          <option value="g">g</option>
+          <option value="mcg">{messages.comparator.massUnitMcg}</option>
+          <option value="mg">{messages.comparator.massUnitMg}</option>
+          <option value="g">{messages.comparator.massUnitG}</option>
         </select>
       </div>
 

@@ -47,7 +47,7 @@ const validProtocolSnapshot: Protocol = {
       source: { type: 'manual' },
       selectedPkParameters: { halfLifeMs: 86400000, tmaxMs: null },
       pkParametersSnapshot: { halfLife: { value: 24, unit: 'hours' }, tmax: null },
-      displayColor: { paletteColor: 'blue-500' },
+      displayColor: { paletteColor: '#2563eb' },
     },
   ],
 
@@ -127,7 +127,7 @@ describe('Import Pipeline, Guards & Invariants (§11, §16, §17, E6.1)', () => 
       {
         id: 'rec-proto-1',
         createdAt: '2026-08-27T08:00:00.000Z',
-        display: { title: 'Análise Protocolo', color: 'blue-500' },
+        display: { title: 'Análise Protocolo', color: '#2563eb' },
         type: 'protocol-analysis',
         versions: {
           pkEngineVersion: '1.0.0',
@@ -143,7 +143,7 @@ describe('Import Pipeline, Guards & Invariants (§11, §16, §17, E6.1)', () => 
             {
               key: { protocolId: 'proto:1', componentId: 'comp:1' },
               label: 'Série 1',
-              color: 'blue-500',
+              color: '#2563eb',
               displayPoints: [{ timeMs: 0, amountMg: 100, clippedBelowLogEpsilon: false }],
               state: {
                 administeredMg: 100,
@@ -200,7 +200,7 @@ describe('Import Pipeline, Guards & Invariants (§11, §16, §17, E6.1)', () => 
         {
           id: 'rec-orphan-key',
           createdAt: '2026-08-27T08:00:00.000Z',
-          display: { title: 'Análise Órfã', color: 'blue-500' },
+          display: { title: 'Análise Órfã', color: '#2563eb' },
           type: 'protocol-analysis',
           versions: { pkEngineVersion: '1.0.0', recurrenceEngineVersion: '1.0.0', datasetVersion: 1 },
           timeZone: 'UTC',
@@ -212,7 +212,7 @@ describe('Import Pipeline, Guards & Invariants (§11, §16, §17, E6.1)', () => 
               {
                 key: { protocolId: 'proto:1', componentId: 'comp-NON-EXISTENT' }, // Órfão!
                 label: 'Série',
-                color: 'blue-500',
+                color: '#2563eb',
                 displayPoints: [],
                 state: { administeredMg: 0, centralMg: 0, depotMg: 0, eliminatedMg: 0, administeredCount: 0, plannedCount: 0, centralPercent: 0, depotPercent: 0, eliminatedPercent: 0 },
                 peak: { timeMs: 0, amountMg: 0 },
@@ -245,7 +245,7 @@ describe('Import Pipeline, Guards & Invariants (§11, §16, §17, E6.1)', () => 
       {
         id: 'rec-applied',
         createdAt: '2026-08-27T08:00:00.000Z',
-        display: { title: 'Applied Rec', color: 'blue-500' },
+        display: { title: 'Applied Rec', color: '#2563eb' },
         type: 'reconstitution',
         versions: { reconstitutionEngineVersion: '1.0.0', datasetVersion: 1 },
         input: {
@@ -297,7 +297,7 @@ describe('Import Pipeline, Guards & Invariants (§11, §16, §17, E6.1)', () => 
         {
           id: 'sc-orig-1',
           name: 'Cenário Original',
-          color: 'blue-500',
+          color: '#2563eb' as const,
           source: { type: 'manual' as const, pkParametersSnapshot: { halfLife: { value: 12, unit: 'hours' as const }, tmax: null } },
           displayUnit: 'mg' as const,
           selectedPkParameters: { halfLifeMs: 43200000, tmaxMs: null },
@@ -341,7 +341,7 @@ describe('Import Pipeline, Guards & Invariants (§11, §16, §17, E6.1)', () => 
         {
           id: 'rec-orig-1',
           createdAt: '2026-08-27T08:00:00.000Z',
-          display: { title: 'Título Original', color: 'blue-500' },
+          display: { title: 'Título Original', color: '#2563eb' },
           type: 'reconstitution',
           versions: { reconstitutionEngineVersion: '1.0.0', datasetVersion: 1 },
           input: {

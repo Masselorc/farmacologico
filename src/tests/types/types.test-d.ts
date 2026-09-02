@@ -116,14 +116,14 @@ export const testMigrationReport: MigrationReport = {
 }
 
 export const testColorRemap: ColorRemapEntry = {
-  protocolId: 'p', componentId: 'c', legacyOriginalHex: '#000001', mappedPaletteColor: '#000000',
+  protocolId: 'p', componentId: 'c', legacyOriginalHex: '#000001', mappedPaletteColor: '#2563eb',
 }
 
 // @ts-expect-error - sourceKey da migração é união fechada
 export const testInvalidMigrationSource: MigrationReport = { ...testMigrationReport, sourceKey: 'legacy:unknown' }
 
 // @ts-expect-error - remap exige componentId
-export const testInvalidColorRemap: ColorRemapEntry = { protocolId: 'p', legacyOriginalHex: '#000001', mappedPaletteColor: '#000000' }
+export const testInvalidColorRemap: ColorRemapEntry = { protocolId: 'p', legacyOriginalHex: '#000001', mappedPaletteColor: '#2563eb' }
 
 export const testLegacyMigratedManualSource: LegacyMigratedScenarioSource = { type: 'manual' }
 
@@ -198,7 +198,7 @@ export type TestProtocolAnalysisVersions = Expect<Extends<ProtocolAnalysisVersio
 export const testValidPkRecord: CalculationRecord = {
   id: 'pk-rec-1',
   createdAt: '2026-08-27T12:00:00Z',
-  display: { title: 'Simulação Cipionato', color: 'blue-500', note: 'Teste PK' },
+  display: { title: 'Simulação Cipionato', color: '#2563eb', note: 'Teste PK' },
   type: 'pharmacokinetics',
   versions: { pkEngineVersion: '1.0.0', recurrenceEngineVersion: '1.0.0', datasetVersion: 1 },
   scenarios: [
@@ -221,7 +221,7 @@ export const testValidPkRecord: CalculationRecord = {
       {
         scenarioId: 's1',
         label: 'Cipionato',
-        color: 'blue-500',
+        color: '#2563eb',
         points: [{ timeMs: 0, value: 10, valueKind: 'mg' }],
       },
     ],
@@ -231,7 +231,7 @@ export const testValidPkRecord: CalculationRecord = {
 export const testValidReconRecord: CalculationRecord = {
   id: 'recon-rec-1',
   createdAt: '2026-08-27T12:00:00Z',
-  display: { title: 'Reconstituição HCG', color: 'green-500' },
+  display: { title: 'Reconstituição HCG', color: '#059669' },
   type: 'reconstitution',
   versions: { reconstitutionEngineVersion: '1.0.0', datasetVersion: 1 },
   input: {} as ReconstitutionInput,
@@ -241,7 +241,7 @@ export const testValidReconRecord: CalculationRecord = {
 export const testValidProtocolRecord: CalculationRecord = {
   id: 'proto-rec-1',
   createdAt: '2026-08-27T12:00:00Z',
-  display: { title: 'Protocolo TRT', color: 'purple-500' },
+  display: { title: 'Protocolo TRT', color: '#7c3aed' },
   type: 'protocol-analysis',
   versions: { pkEngineVersion: '1.0.0', recurrenceEngineVersion: '1.0.0', datasetVersion: 1 },
   timeZone: 'America/Sao_Paulo',
@@ -252,7 +252,7 @@ export const testValidProtocolRecord: CalculationRecord = {
       {
         key: { protocolId: 'p1', componentId: 'c1' },
         label: 'Enantato',
-        color: 'purple-500',
+        color: '#7c3aed',
         displayPoints: [{ timeMs: 0, amountMg: 100 }],
         state: {} as SimulationOutput['currentState'],
         peak: { timeMs: 0, amountMg: 100 },
@@ -316,7 +316,7 @@ export const testInvalidSingle: Recurrence = { type: 'single', weeks: 4 }
 export const testScenarioWithoutSource: Scenario = {
   id: 's1',
   name: 'Cenário',
-  color: 'c1',
+  color: '#2563eb',
   displayUnit: 'mg',
   selectedPkParameters: { halfLifeMs: 86400000, tmaxMs: null },
   doses: [],
@@ -329,7 +329,7 @@ export const testProtocolCompWithoutSource: ProtocolComponent = {
   proportion: 1,
   selectedPkParameters: { halfLifeMs: 86400000, tmaxMs: null },
   pkParametersSnapshot: { halfLife: { value: 24, unit: 'hours' }, tmax: null },
-  displayColor: { paletteColor: 'blue' },
+  displayColor: { paletteColor: '#2563eb' },
 }
 
 // @ts-expect-error - ProtocolComponent sem pkParametersSnapshot é inválido
@@ -339,7 +339,7 @@ export const testProtocolCompWithoutSnapshot: ProtocolComponent = {
   proportion: 1,
   source: { type: 'manual' },
   selectedPkParameters: { halfLifeMs: 86400000, tmaxMs: null },
-  displayColor: { paletteColor: 'blue' },
+  displayColor: { paletteColor: '#2563eb' },
 }
 
 // @ts-expect-error - ProtocolComponent sem displayColor é inválido

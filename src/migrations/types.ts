@@ -1,6 +1,7 @@
 import type {
   ColorRemapEntry,
   InstantIso,
+  PaletteColorId,
   PkParametersSnapshot,
   Protocol,
   Scenario,
@@ -21,7 +22,7 @@ export interface MigrationIssue {
 }
 
 export interface MigrationPaletteEntry {
-  id: string
+  id: PaletteColorId
   hex: string
 }
 

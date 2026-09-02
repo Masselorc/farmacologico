@@ -66,7 +66,7 @@ describe('E5 Dose & Scenario Schemas (§6)', () => {
       const scenario = {
         id: 'sc-1',
         name: 'Cenário Teste',
-        color: '#0055ff',
+        color: '#2563eb',
         source: { type: 'manual' as const },
         displayUnit: 'mg' as const,
         selectedPkParameters: { halfLifeMs: 86_400_000, tmaxMs: null },
@@ -93,7 +93,7 @@ describe('E5 Dose & Scenario Schemas (§6)', () => {
       const base = {
         id: 'sc-1',
         name: 'Cenário',
-        color: 'blue-500',
+        color: '#2563eb',
         displayUnit: 'mg' as const,
         selectedPkParameters: { halfLifeMs: 86_400_000, tmaxMs: null },
         doses: [],
@@ -168,7 +168,7 @@ describe('E5 Dose & Scenario Schemas (§6)', () => {
         scenarioSchema.safeParse({
           id: 'sc-1',
           name: 'Cenário',
-          color: 'blue-500',
+          color: '#2563eb',
           source: { type: 'manual' },
           displayUnit: 'mg',
           selectedPkParameters: { halfLifeMs: 86_400_000, tmaxMs: null },

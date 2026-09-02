@@ -1,20 +1,23 @@
 // Códigos normativos do catálogo de domínio (§6).
-export type DomainErrorCode =
-  | 'HALF_LIFE_NON_POSITIVE'
-  | 'TMAX_NEGATIVE'
-  | 'NO_DOSES'
-  | 'INVALID_DOSE_AMOUNT'
-  | 'INVALID_DOSE_TIME'
-  | 'INVALID_HORIZON'
-  | 'ABSORPTION_SOLVER_FAILURE'
-  | 'SCENARIO_NAME_REQUIRED'
-  | 'DOSE_EXCEEDS_VIAL_CONTENT'
-  | 'INVALID_RECONSTITUTION_INPUT'
-  | 'COMPONENT_PROPORTION_INVALID'
-  | 'COMPONENT_PROPORTIONS_MUST_SUM_ONE'
-  | 'PROTOCOL_COMPONENT_LIMIT_EXCEEDED'
-  | 'NUMERIC_FAILURE'
-  | 'PROTOCOL_TOTAL_DOSE_INVALID'
+export const DOMAIN_ERROR_CODES = [
+  'HALF_LIFE_NON_POSITIVE',
+  'TMAX_NEGATIVE',
+  'NO_DOSES',
+  'INVALID_DOSE_AMOUNT',
+  'INVALID_DOSE_TIME',
+  'INVALID_HORIZON',
+  'ABSORPTION_SOLVER_FAILURE',
+  'SCENARIO_NAME_REQUIRED',
+  'DOSE_EXCEEDS_VIAL_CONTENT',
+  'INVALID_RECONSTITUTION_INPUT',
+  'COMPONENT_PROPORTION_INVALID',
+  'COMPONENT_PROPORTIONS_MUST_SUM_ONE',
+  'PROTOCOL_COMPONENT_LIMIT_EXCEEDED',
+  'NUMERIC_FAILURE',
+  'PROTOCOL_TOTAL_DOSE_INVALID',
+] as const
+
+export type DomainErrorCode = (typeof DOMAIN_ERROR_CODES)[number]
 
 export interface DomainError {
   code: DomainErrorCode
@@ -30,7 +33,8 @@ export function isDomainError(value: unknown): value is DomainError {
     typeof value === 'object' &&
     value !== null &&
     'code' in value &&
-    typeof (value as { code: unknown }).code === 'string'
+    typeof (value as { code: unknown }).code === 'string' &&
+    (DOMAIN_ERROR_CODES as readonly string[]).includes((value as { code: string }).code)
   )
 }
 

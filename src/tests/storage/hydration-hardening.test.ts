@@ -40,7 +40,7 @@ function createDummyReconRecord(id: string, labelPadding?: string): CalculationR
   return {
     id,
     createdAt: '2026-08-27T08:00:00.000Z',
-    display: { title: `Cálculo ${id}`, color: 'blue-500' },
+    display: { title: `Cálculo ${id}`, color: '#2563eb' },
     type: 'reconstitution',
     versions: { reconstitutionEngineVersion: '1.0.0', datasetVersion: 1 },
     input: {
@@ -425,7 +425,7 @@ describe('Hydration Invariants & Normalization Hardening (§11, §18, E6.4)', ()
     const validScenario: Scenario = {
       id: 'sc-valid-stay',
       name: 'Cenário Válido Que Fica',
-      color: 'blue-500',
+      color: '#2563eb',
       source: { type: 'manual', pkParametersSnapshot: { halfLife: { value: 12, unit: 'hours' }, tmax: null } },
       displayUnit: 'mg',
       selectedPkParameters: { halfLifeMs: 43200000, tmaxMs: null },

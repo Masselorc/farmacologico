@@ -172,7 +172,7 @@ describe('IDB Read-Validation & Corruption Quarantine (§11, E6.1)', () => {
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction('scenarios', 'readwrite')
       tx.objectStore('scenarios').put({
-        id: 'orphan-read', name: 'Órfão', color: 'blue-500', displayUnit: 'mg', doses: [],
+        id: 'orphan-read', name: 'Órfão', color: '#2563eb', displayUnit: 'mg', doses: [],
         selectedPkParameters: { halfLifeMs: 43_200_000, tmaxMs: null },
         source: { type: 'custom_profile', customProfileId: 'missing',
           pkParametersSnapshot: { halfLife: { value: 12, unit: 'hours' }, tmax: null } },

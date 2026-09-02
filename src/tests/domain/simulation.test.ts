@@ -13,7 +13,7 @@ describe('Comparador — janela e seleção', () => {
   const scenario = {
     id: 'sc1',
     name: 'Cenário A',
-    color: '#0f766e',
+    color: '#0891b2' as const,
     source: { type: 'manual' as const },
     displayUnit: 'mg' as const,
     selectedPkParameters: { halfLifeMs: 6 * MS_PER_DAY, tmaxMs: null },
@@ -92,7 +92,7 @@ describe('Protocolos — um input por componente', () => {
           halfLife: { value: 6, unit: 'days' as const },
           tmax: null,
         },
-        displayColor: { paletteColor: 'blue' },
+        displayColor: { paletteColor: '#2563eb' as const },
       })),
       createdAt: '2026-01-05T09:00:00Z',
       updatedAt: '2026-01-05T09:00:00Z',

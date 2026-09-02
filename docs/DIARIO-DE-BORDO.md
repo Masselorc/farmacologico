@@ -1705,4 +1705,74 @@ Corrigir e fechar integralmente os problemas identificados pela auditoria extern
 
 - Mensagem autorizada: `fix(farmakit): fechar correcoes da E9`.
 
+## 2026-09-02 — E9.2 — Fechamento final das regressões do Comparador
 
+### Objetivo
+
+Resolver os blockers apontados pela auditoria externa da E9.1:
+1. Playwright real do Comparador populado provando o CompareChart montado e com pixels renderizados sob CSP;
+2. Paleta autorizada fechada de 21 cores ponta a ponta (`src/domain/shared/colors.ts`, schemas Zod, sanitização em CompareChart e snapshots de CalculationRecord);
+3. CRUD transacional assíncrono para Dose e exclusão de Cenário preservando draft/UI em falha e exibindo alerta de erro;
+4. Eliminação de falsos positivos de Chart.js nos testes jsdom do Comparador;
+5. Teste real específico para ABSORPTION_SOLVER_FAILURE (`halfLifeMs = 1`, `tmaxMs = 86400000`);
+6. Endurecimento de `isDomainError()` para aceitar apenas códigos do catálogo fechado `DOMAIN_ERROR_CODES`;
+7. Centralização de i18n da E9 em `pt-BR.messages.ts`.
+
+### Alterações realizadas
+
+- `src/domain/shared/colors.ts`: módulo canônico exportando 21 cores autorizadas (`DEFAULT_SCENARIO_COLORS` + `LEGACY_SCENARIO_COLORS`), tipo `PaletteColorId` e helpers `isAllowedPaletteColor` e `sanitizePaletteColor`.
+- `src/validation/schemas/primitives.ts`: `paletteColorIdSchema = z.enum(PALETTE_ALLOWED)`.
+- `src/domain/types.ts`: re-export de `PaletteColorId` a partir do módulo canônico.
+- `src/domain/shared/errors.ts`: tupla constante `DOMAIN_ERROR_CODES` endurecendo `isDomainError`.
+- `src/features/charts/CompareChart.tsx`: sanitização de cor via `sanitizePaletteColor` antes do repasse ao Chart.js.
+- `src/features/comparator/lib/historyRecord.ts` e `src/features/reconstitution/lib/historyRecord.ts`: sanitização e atualização de cores para a paleta canônica fechada.
+- `src/features/comparator/components/DoseEditor.tsx` e `src/features/comparator/components/ScenarioList.tsx`: mutações transacionais aguardáveis que preservam draft e estado de edição em caso de falha.
+- `src/features/comparator/pages/EditPage.tsx`: repasse e retorno do status das mutações.
+- `src/app/i18n/pt-BR.messages.ts`: centralização de strings de formulário e unidades de massa.
+- `src/tests/features/comparator/e9.2-regressions.test.tsx`: suíte de regressões cobrindo os blockers normativos da E9.2.
+- `src/tests/e2e/smoke-e1.spec.ts`: teste Playwright E2E do Comparador populado com 2 doses (passada e futura), validação de montagem do canvas de `CompareChart`, contagem de pixels coloridos via `getImageData`, alternância de escalas (Absoluta/Normalizada) e eixos (Linear/Log), integridade CSP e ausência de estilos inline na árvore React.
+- Fixtures de teste de storage e validação atualizadas para a paleta canônica autorizada (`#2563eb`, `#059669`, `#7c3aed`, `#e74c3c`).
+
+### Arquivos principais
+
+- `src/domain/shared/colors.ts`
+- `src/domain/shared/errors.ts`
+- `src/domain/types.ts`
+- `src/validation/schemas/primitives.ts`
+- `src/features/charts/CompareChart.tsx`
+- `src/features/comparator/components/DoseEditor.tsx`
+- `src/features/comparator/components/ScenarioList.tsx`
+- `src/features/comparator/pages/EditPage.tsx`
+- `src/features/comparator/lib/historyRecord.ts`
+- `src/features/comparator/lib/colors.ts`
+- `src/app/i18n/pt-BR.messages.ts`
+- `src/tests/features/comparator/e9.2-regressions.test.tsx`
+- `src/tests/e2e/smoke-e1.spec.ts`
+
+### Decisões tomadas
+
+- Nenhum contrato científico ou motor matemático alterado (`bateman.ts`, `rates.ts`, `state.ts`, `cutoff.ts` intactos).
+- Nenhum estilo inline (`style={{ ... }}`) introduzido.
+- `.token-optimizer/` versionado e preservado intacto.
+- A aprovação externa da E9 permanece pendente; a E10 não foi iniciada.
+
+### Validações executadas
+
+- `npm run lint`: PASS (0 erros, 0 warnings).
+- `npm run typecheck`: PASS (0 erros).
+- `npm run type-tests`: PASS (0 erros).
+- `npm run test:e9`: PASS (10 arquivos, 52 testes).
+- `npm run test:e8`: PASS (4 arquivos, 50 testes).
+- `npm run test:e7`: PASS (7 arquivos, 46 testes).
+- `npm run test:e6`: PASS (21 arquivos, 125 testes).
+- `npm run test:e5`: PASS (9 arquivos, 102 testes).
+- `npm run test:e4`: PASS (11 arquivos, 81 testes).
+- `npm test`: PASS (77 arquivos, 626 testes).
+- `npm run build`: PASS (Vite + PWA generateSW).
+- `npm run check:build-boundaries`: PASS (9 arquivos em dist, 0 referências a `.token-optimizer`).
+- `npm run test:e1`: PASS (4 testes Playwright em Chromium).
+- `git diff --check`: PASS (0 erros de formatação ou whitespace).
+
+### Commit
+
+- Mensagem autorizada: `fix(farmakit): fechar regressões finais da E9`.

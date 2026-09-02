@@ -141,3 +141,112 @@ test('Comparador E9 renderiza sob CSP sem violacoes nem inline styles', async ({
 
   expect(problems).toEqual([])
 })
+
+test('Comparador E9 populado renderiza CompareChart real com pintura de pixels sob CSP', async ({ page }) => {
+  const problems = watchProblems(page)
+
+  // 1. Acessa a página do Comparador
+  await page.goto(`${BASE_PATH}#/meia-vida`)
+  await expect(page.getByRole('heading', { name: 'Meia-vida' })).toBeVisible()
+
+  // 2. Alterna para a aba de Cenários para cadastrar um cenário com doses
+  await page.getByRole('button', { name: /Cenários/i }).click()
+  await expect(page.locator('.comparator-edit-panel')).toBeVisible()
+
+  // Clica em "+ Adicionar cenário"
+  await page.getByRole('button', { name: /\+ Adicionar cenário/i }).click()
+  await expect(page.locator('#scenario-name')).toBeVisible()
+
+  // Preenche dados do cenário
+  await page.locator('#scenario-name').fill('Cenário Teste E2E')
+  await page.locator('#scenario-halflife').fill('1')
+  await page.locator('#scenario-halflife-unit').selectOption('days')
+  await page.locator('#scenario-tmax').fill('4')
+  await page.locator('#scenario-tmax-unit').selectOption('hours')
+  await page.getByRole('button', { name: /Salvar cenário/i }).click()
+
+  // Aguarda aparecer na lista de cenários
+  await expect(page.locator('.scenario-items').getByText('Cenário Teste E2E')).toBeVisible()
+
+  // 3. Cadastra duas doses (1 passada e 1 futura)
+  // Dose passada
+  await page.locator('#dose-amount').fill('100')
+  await page.locator('#dose-date').fill('2026-08-25')
+  await page.locator('#dose-time').fill('12:00')
+  await page.getByRole('button', { name: /\+ Adicionar dose/i }).click()
+  await expect(page.getByText('100 mg')).toBeVisible()
+
+  // Dose futura
+  await page.locator('#dose-amount').fill('50')
+  await page.locator('#dose-date').fill('2026-09-10')
+  await page.locator('#dose-time').fill('12:00')
+  await page.getByRole('button', { name: /\+ Adicionar dose/i }).click()
+  await expect(page.getByText('50 mg')).toBeVisible()
+
+  // 4. Alterna para a aba de Análise e visualização
+  await page.getByRole('button', { name: /Análise e visualização/i }).click()
+  await expect(page.locator('.comparator-analysis-panel')).toBeVisible()
+
+  // A. Cenário realmente analisado
+  await expect(page.locator('.metrics-panel-container').getByText('Cenário Teste E2E')).toBeVisible()
+  await expect(page.getByText(/Administrações realizadas/i)).toBeVisible()
+  await expect(page.getByText(/Doses futuras na simulação/i)).toBeVisible()
+
+  // B. CompareChart realmente montado e visível
+  const canvas = page.locator('.compare-chart-frame canvas')
+  await expect(canvas).toBeVisible()
+
+  const box = await canvas.boundingBox()
+  expect(box).not.toBeNull()
+  expect(box!.width).toBeGreaterThan(100)
+  expect(box!.height).toBeGreaterThan(100)
+
+  // C. Prova pintura real de pixels no canvas
+  const getPaintedPixelCount = async () => {
+    return page.evaluate(() => {
+      const canvasEl = document.querySelector<HTMLCanvasElement>('.compare-chart-frame canvas')
+      if (!canvasEl) return -1
+      const ctx = canvasEl.getContext('2d')
+      if (!ctx) return -1
+      const { width, height } = canvasEl
+      const data = ctx.getImageData(0, 0, width, height).data
+      let count = 0
+      for (let i = 3; i < data.length; i += 4 * 17) {
+        if (data[i] > 0) count++
+      }
+      return count
+    })
+  }
+
+  // Aguarda Chart.js inicializar e desenhar
+  await page.waitForTimeout(300)
+  const initialPainted = await getPaintedPixelCount()
+  expect(initialPainted).toBeGreaterThan(50)
+
+  // D. Alternar escala: Absoluta -> Normalizada e provar que continua pintado
+  await page.getByRole('button', { name: /Normalizada/i }).click()
+  await page.waitForTimeout(300)
+  const normalizedPainted = await getPaintedPixelCount()
+  expect(normalizedPainted).toBeGreaterThan(50)
+
+  // E. Alternar eixo: Linear -> Log e provar que continua funcional
+  await page.getByRole('button', { name: /Logarítmico/i }).click()
+  await page.waitForTimeout(300)
+  const logPainted = await getPaintedPixelCount()
+  expect(logPainted).toBeGreaterThan(50)
+
+  // G. Inline styles: estritamente zero na árvore React da aplicação (§13 do prompt)
+  const inlineStyles = await page.evaluate(() => {
+    const root = document.querySelector('.comparator-page')
+    if (!root) return []
+    // Ignorar elemento canvas do Chart.js que injeta atributos técnicos próprios no DOM do canvas
+    const elements = Array.from(root.querySelectorAll('[style]')).filter(
+      (el) => el.tagName.toLowerCase() !== 'canvas',
+    )
+    return elements.map((el) => el.outerHTML)
+  })
+  expect(inlineStyles).toHaveLength(0)
+
+  // F. CSP: sem erros nem requisições indevidas
+  expect(problems).toEqual([])
+})

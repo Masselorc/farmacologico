@@ -5,7 +5,8 @@ import type { Duration, DurationRange, DurationValue, InstantIso, LocalDate, Loc
 
 export type IsoWeekday = 1 | 2 | 3 | 4 | 5 | 6 | 7
 
-export type PaletteColorId = string
+import type { PaletteColorId } from './shared/colors'
+export type { PaletteColorId }
 
 export interface DisplayColor {
   paletteColor: PaletteColorId

@@ -33,7 +33,7 @@ export function createReconstitutionCalculationRecord(
     createdAt: options.createdAt,
     display: {
       title: options.title ?? messages.reconstitution.historyTitle(input.label ?? ''),
-      color: 'emerald-500',
+      color: '#059669',
     },
     type: 'reconstitution',
     versions: {

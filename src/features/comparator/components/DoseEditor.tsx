@@ -9,7 +9,7 @@ import { QuickDose } from './QuickDose'
 export interface DoseEditorProps {
   scenario: Scenario
   calendarTimeZone: TimeZoneId
-  onUpdateDoses: (doses: Dose[]) => void
+  onUpdateDoses: (doses: Dose[]) => Promise<{ ok: boolean; error?: string }>
 }
 
 export function DoseEditor({
@@ -25,6 +25,7 @@ export function DoseEditor({
     localTime: '' as LocalTime,
   })
   const [errors, setErrors] = useState<string[]>([])
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   const canAddMore = scenario.doses.length < SAFETY_LIMITS.DOSES_PER_SCENARIO_MAX
 
@@ -46,7 +47,7 @@ export function DoseEditor({
     setErrors([])
   }
 
-  const handleSubmitDose = (e: React.FormEvent) => {
+  const handleSubmitDose = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!editingDoseId && !canAddMore) {
       setErrors([messages.comparator.dosesMaxReached(SAFETY_LIMITS.DOSES_PER_SCENARIO_MAX)])
@@ -61,26 +62,40 @@ export function DoseEditor({
     }
 
     setErrors([])
-    if (editingDoseId) {
-      onUpdateDoses(scenario.doses.map((d) => (d.id === editingDoseId ? result.dose : d)))
-      setEditingDoseId(null)
-    } else {
-      onUpdateDoses([...scenario.doses, result.dose])
-    }
+    setIsSubmitting(true)
+    try {
+      const nextDoses = editingDoseId
+        ? scenario.doses.map((d) => (d.id === editingDoseId ? result.dose : d))
+        : [...scenario.doses, result.dose]
 
-    setDraft({
-      id: '',
-      amountText: '',
-      localDate: draft.localDate,
-      localTime: draft.localTime,
-    })
+      const mutationResult = await onUpdateDoses(nextDoses)
+      if (!mutationResult || mutationResult.ok) {
+        setEditingDoseId(null)
+        setDraft({
+          id: '',
+          amountText: '',
+          localDate: draft.localDate,
+          localTime: draft.localTime,
+        })
+      } else {
+        setErrors([mutationResult.error || messages.comparator.updateDosesError])
+      }
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
-  const handleRemoveDose = (doseId: string) => {
-    if (editingDoseId === doseId) {
-      handleCancelEdit()
+  const handleRemoveDose = async (doseId: string) => {
+    setErrors([])
+    const nextDoses = scenario.doses.filter((d) => d.id !== doseId)
+    const mutationResult = await onUpdateDoses(nextDoses)
+    if (!mutationResult || mutationResult.ok) {
+      if (editingDoseId === doseId) {
+        handleCancelEdit()
+      }
+    } else {
+      setErrors([mutationResult.error || messages.comparator.updateDosesError])
     }
-    onUpdateDoses(scenario.doses.filter((d) => d.id !== doseId))
   }
 
   const editingIndex = editingDoseId ? scenario.doses.findIndex((d) => d.id === editingDoseId) : -1
@@ -116,7 +131,7 @@ export function DoseEditor({
                 id="dose-amount"
                 type="text"
                 inputMode="decimal"
-                placeholder="Ex.: 10"
+                placeholder={messages.comparator.doseAmountPlaceholder}
                 value={draft.amountText}
                 onChange={(e) => setDraft((d) => ({ ...d, amountText: e.target.value }))}
                 required
@@ -160,7 +175,7 @@ export function DoseEditor({
                 {messages.comparator.cancel}
               </button>
             )}
-            <button type="submit" className="btn btn-primary btn-sm">
+            <button type="submit" className="btn btn-primary btn-sm" disabled={isSubmitting}>
               {editingDoseId ? messages.comparator.saveDose : `+ ${messages.comparator.addDose}`}
             </button>
           </div>
@@ -201,6 +216,7 @@ export function DoseEditor({
                     <button
                       type="button"
                       className="btn-link text-danger btn-sm"
+                      disabled={isSubmitting}
                       onClick={() => handleRemoveDose(dose.id)}
                     >
                       {messages.comparator.removeDose}

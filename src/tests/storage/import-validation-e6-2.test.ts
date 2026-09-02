@@ -12,7 +12,7 @@ const baseConfig = (): ConfigPayload => ({
 })
 
 const scenarioLibrary = (datasetVersion: number): Scenario => ({
-  id: 'scenario-library', name: 'Library', color: 'blue-500',
+  id: 'scenario-library', name: 'Library', color: '#2563eb',
   source: { type: 'library', substanceId: 'substance', profileId: 'profile', datasetVersion,
     pkParametersSnapshot: { halfLife: { value: 12, unit: 'hours' }, tmax: null } },
   displayUnit: 'mg', selectedPkParameters: { halfLifeMs: 43_200_000, tmaxMs: null }, doses: [],
@@ -25,12 +25,12 @@ const protocolLibrary = (datasetVersion: number): Protocol => ({
     source: { type: 'library', substanceId: 'substance', profileId: 'profile', datasetVersion },
     selectedPkParameters: { halfLifeMs: 43_200_000, tmaxMs: null },
     pkParametersSnapshot: { halfLife: { value: 12, unit: 'hours' }, tmax: null },
-    displayColor: { paletteColor: 'blue-500' } }],
+    displayColor: { paletteColor: '#2563eb' } }],
   createdAt: '2026-08-27T08:00:00.000Z', updatedAt: '2026-08-27T08:00:00.000Z',
 })
 
 const record = (id: string, datasetVersion = 1): CalculationRecord => ({
-  id, createdAt: '2026-08-27T08:00:00.000Z', display: { title: id, color: 'blue-500' },
+  id, createdAt: '2026-08-27T08:00:00.000Z', display: { title: id, color: '#2563eb' },
   type: 'reconstitution', versions: { reconstitutionEngineVersion: '1.0.0', datasetVersion },
   input: { vialMassMg: 10, diluentVolumeMl: 2, desiredDoseMcg: 100,
     syringe: { family: 'U-100', capacityUnits: 100, unitsPerMl: 100, graduationUnits: 1 } },

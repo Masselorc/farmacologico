@@ -45,22 +45,23 @@ export function EditPage({
     setIsCreating(false)
   }
 
-  const handleDeleteScenario = async (scenarioId: string) => {
+  const handleDeleteScenario = async (scenarioId: string): Promise<{ ok: boolean; error?: string }> => {
     const updated = scenarios.filter((s) => s.id !== scenarioId)
     const result = await onUpdateScenarios(updated)
     if (!result.ok) {
       setPageError(result.error ?? messages.comparator.deleteScenarioError)
-      return
+      return result
     }
 
     setPageError(null)
     if (activeScenarioId === scenarioId) {
       setActiveScenarioId(updated.length > 0 ? updated[0].id : null)
     }
+    return { ok: true }
   }
 
-  const handleUpdateDoses = async (doses: Dose[]) => {
-    if (!activeScenario) return
+  const handleUpdateDoses = async (doses: Dose[]): Promise<{ ok: boolean; error?: string }> => {
+    if (!activeScenario) return { ok: false, error: messages.comparator.updateDosesError }
     const updatedScenario: Scenario = {
       ...activeScenario,
       doses,
@@ -69,9 +70,10 @@ export function EditPage({
     const result = await onUpdateScenarios(candidate)
     if (!result.ok) {
       setPageError(result.error ?? messages.comparator.updateDosesError)
-      return
+      return result
     }
     setPageError(null)
+    return { ok: true }
   }
 
   return (

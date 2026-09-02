@@ -60,7 +60,7 @@ describe('Config References Validation (§6, §11, E6.1)', () => {
     const scenario: Scenario = {
       id: 'sc-1',
       name: 'Cenário 1',
-      color: 'blue-500',
+      color: '#2563eb',
       source: {
         type: 'custom_profile',
         customProfileId: 'prof-1',
@@ -89,7 +89,7 @@ describe('Config References Validation (§6, §11, E6.1)', () => {
           proportion: 1,
           selectedPkParameters: { halfLifeMs: 86400000, tmaxMs: null },
           pkParametersSnapshot: { halfLife: { value: 24, unit: 'hours' }, tmax: null },
-          displayColor: { paletteColor: 'blue-500' },
+          displayColor: { paletteColor: '#2563eb' },
         },
       ],
       createdAt: '2026-08-27T08:00:00.000Z',
@@ -164,7 +164,7 @@ describe('Config References Validation (§6, §11, E6.1)', () => {
       {
         id: 'sc-orphan',
         name: 'Cenário Órfão',
-        color: 'red-500',
+        color: '#e74c3c',
         source: {
           type: 'custom_profile',
           customProfileId: 'missing-profile',
@@ -202,7 +202,7 @@ describe('Config References Validation (§6, §11, E6.1)', () => {
             proportion: 1,
             selectedPkParameters: { halfLifeMs: 86400000, tmaxMs: null },
             pkParametersSnapshot: { halfLife: { value: 24, unit: 'hours' }, tmax: null },
-            displayColor: { paletteColor: 'red-500' },
+            displayColor: { paletteColor: '#e74c3c' },
           },
         ],
         createdAt: '2026-08-27T08:00:00.000Z',

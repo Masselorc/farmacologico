@@ -27,7 +27,7 @@ import { createFaultController, readRawStore } from './idb-faults'
 const dummyScenario: Scenario = {
   id: 'sc-enable-1',
   name: 'Cenário Memory-Only',
-  color: 'blue-500',
+  color: '#2563eb',
   source: {
     type: 'manual',
     pkParametersSnapshot: { halfLife: { value: 12, unit: 'hours' }, tmax: null },
@@ -55,7 +55,7 @@ const dummyProtocol: Protocol = {
       source: { type: 'manual' },
       selectedPkParameters: { halfLifeMs: 86400000, tmaxMs: null },
       pkParametersSnapshot: { halfLife: { value: 24, unit: 'hours' }, tmax: null },
-      displayColor: { paletteColor: 'blue-500' },
+      displayColor: { paletteColor: '#2563eb' },
     },
   ],
   createdAt: '2026-08-27T08:00:00.000Z',
@@ -76,7 +76,7 @@ const dummySubstance: CustomSubstance = {
 const dummyRecord: CalculationRecord = {
   id: 'rec-enable-1',
   createdAt: '2026-08-27T08:00:00.000Z',
-  display: { title: 'Cálculo Memory-Only', color: 'blue-500' },
+  display: { title: 'Cálculo Memory-Only', color: '#2563eb' },
   type: 'reconstitution',
   versions: {
     reconstitutionEngineVersion: '1.0.0',

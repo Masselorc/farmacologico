@@ -1,4 +1,4 @@
-import type { DisplayColor } from '../domain/types'
+import type { DisplayColor, PaletteColorId } from '../domain/types'
 import type { MigrationPaletteEntry } from './types'
 
 export const LEGACY_COLORS = [
@@ -6,7 +6,7 @@ export const LEGACY_COLORS = [
   '#2c3e50', '#8e44ad', '#e67e22', '#d35400', '#ff7979', '#f39c12', '#ff9f43',
 ] as const
 
-export const LEGACY_COLOR_FALLBACK = '#3498db'
+export const LEGACY_COLOR_FALLBACK: PaletteColorId = '#3498db'
 export const MEIAVIDA_LEGACY_SCENARIO_COLORS = [
   '#2563eb', '#059669', '#d97706', '#7c3aed', '#db2777', '#0891b2',
 ] as const
@@ -26,7 +26,7 @@ export function normalizeHex(value: unknown): string | null {
   return typeof value === 'string' && HEX.test(value) ? value.toLowerCase() : null
 }
 
-export function nearestPaletteColor(hex: string, palette: MigrationPaletteEntry[]): string {
+export function nearestPaletteColor(hex: string, palette: MigrationPaletteEntry[]): PaletteColorId {
   const [r, g, b] = channels(hex)
   const candidates = palette
     .map((entry) => ({ ...entry, normalized: normalizeHex(entry.hex) }))

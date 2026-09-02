@@ -214,7 +214,7 @@ export function buildDoseFromDraft(
 
   const parsedAmount = parseLocaleDecimal(draft.amountText)
   if (!parsedAmount.ok || parsedAmount.value <= 0) {
-    errors.push('Informe uma quantidade de dose válida e maior que zero.')
+    errors.push(messages.comparator.doseAmountInvalid)
   }
 
   let instantIso = ''
@@ -224,8 +224,8 @@ export function buildDoseFromDraft(
       localTime: draft.localTime,
       timeZone: calendarTimeZone,
     })
-  } catch (err) {
-    errors.push(err instanceof Error ? err.message : 'Data e hora inválidas.')
+  } catch {
+    errors.push(messages.comparator.doseDateTimeInvalid)
   }
 
   if (errors.length > 0) {

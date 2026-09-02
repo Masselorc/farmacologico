@@ -13,7 +13,7 @@ import {
 import { createFaultController, readRawStore } from './idb-faults'
 
 const scenarioA: Scenario = {
-  id: 'scenario-a', name: 'A', color: 'blue-500', source: { type: 'manual',
+  id: 'scenario-a', name: 'A', color: '#2563eb', source: { type: 'manual',
     pkParametersSnapshot: { halfLife: { value: 12, unit: 'hours' }, tmax: null } },
   displayUnit: 'mg', selectedPkParameters: { halfLifeMs: 43_200_000, tmaxMs: null }, doses: [],
 }
@@ -27,7 +27,7 @@ function config(scenarios: Scenario[]): ConfigPayload {
 
 function record(id: string, title: string): CalculationRecord {
   return {
-    id, createdAt: '2026-08-27T08:00:00.000Z', display: { title, color: 'blue-500' },
+    id, createdAt: '2026-08-27T08:00:00.000Z', display: { title, color: '#2563eb' },
     type: 'reconstitution', versions: { reconstitutionEngineVersion: '1.0.0', datasetVersion: 1 },
     input: { vialMassMg: 10, diluentVolumeMl: 2, desiredDoseMcg: 100,
       syringe: { family: 'U-100', capacityUnits: 100, unitsPerMl: 100, graduationUnits: 1 } },

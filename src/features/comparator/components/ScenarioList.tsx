@@ -8,7 +8,7 @@ export interface ScenarioListProps {
   activeScenarioId: string | null
   onSelectScenario: (scenarioId: string) => void
   onEditScenario: (scenario: Scenario) => void
-  onDeleteScenario: (scenarioId: string) => void
+  onDeleteScenario: (scenarioId: string) => Promise<{ ok: boolean; error?: string }>
   onAddNewScenario: () => void
   canAddScenario: boolean
 }
@@ -23,6 +23,23 @@ export function ScenarioList({
   canAddScenario,
 }: ScenarioListProps) {
   const [deletingScenarioId, setDeletingScenarioId] = useState<string | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [isDeleting, setIsDeleting] = useState(false)
+
+  const handleConfirmDelete = async (scenarioId: string) => {
+    setIsDeleting(true)
+    setDeleteError(null)
+    try {
+      const result = await onDeleteScenario(scenarioId)
+      if (!result || result.ok) {
+        setDeletingScenarioId(null)
+      } else {
+        setDeleteError(result.error ?? messages.comparator.deleteScenarioError)
+      }
+    } finally {
+      setIsDeleting(false)
+    }
+  }
 
   return (
     <div className="scenario-list-container">
@@ -74,21 +91,28 @@ export function ScenarioList({
                   className="scenario-delete-confirm"
                   onClick={(e) => e.stopPropagation()}
                 >
+                  {deleteError && (
+                    <div className="error-box text-danger" role="alert">
+                      <p>{deleteError}</p>
+                    </div>
+                  )}
                   <span>{messages.comparator.deleteScenarioConfirm}</span>
                   <button
                     type="button"
                     className="btn-link text-danger btn-sm"
-                    onClick={() => {
-                      onDeleteScenario(scenario.id)
-                      setDeletingScenarioId(null)
-                    }}
+                    disabled={isDeleting}
+                    onClick={() => handleConfirmDelete(scenario.id)}
                   >
                     {messages.comparator.confirmDelete}
                   </button>
                   <button
                     type="button"
                     className="btn-link btn-sm"
-                    onClick={() => setDeletingScenarioId(null)}
+                    disabled={isDeleting}
+                    onClick={() => {
+                      setDeletingScenarioId(null)
+                      setDeleteError(null)
+                    }}
                   >
                     {messages.comparator.cancel}
                   </button>
@@ -111,6 +135,7 @@ export function ScenarioList({
                     onClick={(e) => {
                       e.stopPropagation()
                       setDeletingScenarioId(scenario.id)
+                      setDeleteError(null)
                     }}
                   >
                     {messages.comparator.remove}

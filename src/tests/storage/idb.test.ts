@@ -23,7 +23,7 @@ import {
 const dummyScenario: Scenario = {
   id: 'sc-1',
   name: 'Cenário Teste',
-  color: 'blue-500',
+  color: '#2563eb',
   source: {
     type: 'manual',
     pkParametersSnapshot: { halfLife: { value: 24, unit: 'hours' }, tmax: null },

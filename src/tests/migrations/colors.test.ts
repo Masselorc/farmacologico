@@ -3,9 +3,9 @@ import { nearestPaletteColor, previewHormoTrackerMigration } from '../../migrati
 
 describe('E7 cores legadas', () => {
   it('resolve empate pelo menor id, independentemente da ordem', () => {
-    const palette = [{ id: 'z', hex: '#000000' }, { id: 'a', hex: '#000002' }]
-    expect(nearestPaletteColor('#000001', palette)).toBe('a')
-    expect(nearestPaletteColor('#000001', [...palette].reverse())).toBe('a')
+    const palette = [{ id: '#2c3e50' as const, hex: '#000000' }, { id: '#2563eb' as const, hex: '#000002' }]
+    expect(nearestPaletteColor('#000001', palette)).toBe('#2563eb')
+    expect(nearestPaletteColor('#000001', [...palette].reverse())).toBe('#2563eb')
   })
 
   it('remapeia hex válido externo e apenas faz fallback para cor inválida', () => {

@@ -92,7 +92,9 @@ export const durationSchema: z.ZodType<Duration> = z.union([
 ])
 
 
-export const paletteColorIdSchema: z.ZodType<PaletteColorId> = nonEmptyStringSchema
+import { PALETTE_ALLOWED } from '../../domain/shared/colors'
+
+export const paletteColorIdSchema: z.ZodType<PaletteColorId> = z.enum(PALETTE_ALLOWED)
 
 export const displayColorSchema: z.ZodType<DisplayColor> = z.strictObject({
   paletteColor: paletteColorIdSchema,

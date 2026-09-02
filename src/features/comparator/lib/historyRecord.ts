@@ -10,6 +10,8 @@ import type {
 import { messages } from '../../../app/i18n/pt-BR.messages'
 import type { ComparatorAnalyzedScenario } from './analysis'
 
+import { sanitizePaletteColor } from '../../../domain/shared/colors'
+
 export interface CreateComparatorCalculationRecordParams {
   id?: string
   createdAt?: InstantIso
@@ -67,26 +69,30 @@ export function createComparatorCalculationRecord(
     createdAt,
     display: {
       title,
-      color: primaryScenario.color,
+      color: sanitizePaletteColor(primaryScenario.color),
     },
     type: 'pharmacokinetics',
     versions: {
       pkEngineVersion,
       datasetVersion: CURRENT_DATASET_VERSION,
     },
-    scenarios: analyzedScenarios.map((item) => ({
-      scenarioId: item.scenario.id,
-      scenarioSnapshot: cloneValue(item.scenario),
-      simulationInput: cloneValue(item.simulationInput),
-      resultSnapshot: {
-        currentState: cloneValue(item.result.currentState),
-        analysisCurve: cloneValue(item.result.analysisCurve),
-        peak: cloneValue(item.result.peak),
-        milestones: cloneValue(item.result.milestones),
-        warnings: cloneValue(item.result.warnings),
-        metadata: cloneValue(item.result.metadata),
-      },
-    })),
+    scenarios: analyzedScenarios.map((item) => {
+      const clonedScenario = cloneValue(item.scenario)
+      clonedScenario.color = sanitizePaletteColor(clonedScenario.color)
+      return {
+        scenarioId: item.scenario.id,
+        scenarioSnapshot: clonedScenario,
+        simulationInput: cloneValue(item.simulationInput),
+        resultSnapshot: {
+          currentState: cloneValue(item.result.currentState),
+          analysisCurve: cloneValue(item.result.analysisCurve),
+          peak: cloneValue(item.result.peak),
+          milestones: cloneValue(item.result.milestones),
+          warnings: cloneValue(item.result.warnings),
+          metadata: cloneValue(item.result.metadata),
+        },
+      }
+    }),
     chartViewSnapshot: {
       displayWindow: cloneValue(displayWindow),
       calendarTimeZone,
@@ -95,7 +101,7 @@ export function createComparatorCalculationRecord(
       displayPointsByScenario: analyzedScenarios.map((item) => ({
         scenarioId: item.scenario.id,
         label: item.scenario.name,
-        color: item.scenario.color,
+        color: sanitizePaletteColor(item.scenario.color),
         points: cloneValue(item.snapshotPoints),
       })),
     },

@@ -233,15 +233,16 @@ describe('E5 Primitives Schemas — validações elementares (§6)', () => {
     })
 
     it('displayColorSchema valida paletteColor e legacyOriginalHex opcional, rejeitando unknown keys', () => {
-      expect(paletteColorIdSchema.safeParse('blue-500').success).toBe(true)
+      expect(paletteColorIdSchema.safeParse('#2563eb').success).toBe(true)
+      expect(paletteColorIdSchema.safeParse('blue-500').success).toBe(false)
       expect(paletteColorIdSchema.safeParse('').success).toBe(false)
-      expect(displayColorSchema.safeParse({ paletteColor: 'blue-500' }).success).toBe(true)
+      expect(displayColorSchema.safeParse({ paletteColor: '#2563eb' }).success).toBe(true)
       expect(
-        displayColorSchema.safeParse({ paletteColor: 'blue-500', legacyOriginalHex: '#0055ff' }).success,
+        displayColorSchema.safeParse({ paletteColor: '#2563eb', legacyOriginalHex: '#0055ff' }).success,
       ).toBe(true)
       expect(displayColorSchema.safeParse({ paletteColor: '' }).success).toBe(false)
       expect(
-        displayColorSchema.safeParse({ paletteColor: 'blue-500', extra: 123 }).success,
+        displayColorSchema.safeParse({ paletteColor: '#2563eb', extra: 123 }).success,
       ).toBe(false)
     })
   })

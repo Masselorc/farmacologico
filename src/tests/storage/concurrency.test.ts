@@ -25,7 +25,7 @@ function createDummyScenario(id: string, name: string): Scenario {
   return {
     id,
     name,
-    color: 'blue-500',
+    color: '#2563eb',
     source: {
       type: 'manual',
       pkParametersSnapshot: { halfLife: { value: 12, unit: 'hours' }, tmax: null },
@@ -40,7 +40,7 @@ function createDummyCalculationRecord(id: string, title: string): CalculationRec
   return {
     id,
     createdAt: '2026-08-27T08:00:00.000Z',
-    display: { title, color: 'blue-500' },
+    display: { title, color: '#2563eb' },
     type: 'reconstitution',
     versions: {
       reconstitutionEngineVersion: '1.0.0',

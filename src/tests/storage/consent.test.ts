@@ -23,7 +23,7 @@ import { createFaultController, readRawStore } from './idb-faults'
 const dummyScenario: Scenario = {
   id: 'sc-purge-test',
   name: 'Purge Scenario',
-  color: 'blue-500',
+  color: '#2563eb',
   source: {
     type: 'manual',
     pkParametersSnapshot: { halfLife: { value: 12, unit: 'hours' }, tmax: null },

@@ -12,13 +12,13 @@ import {
 import { createFaultController, readRawStore } from './idb-faults'
 
 const scenario = (id: string, name: string): Scenario => ({
-  id, name, color: 'blue-500', source: { type: 'manual',
+  id, name, color: '#2563eb', source: { type: 'manual',
     pkParametersSnapshot: { halfLife: { value: 12, unit: 'hours' }, tmax: null } },
   displayUnit: 'mg', selectedPkParameters: { halfLifeMs: 43_200_000, tmaxMs: null }, doses: [],
 })
 
 const record = (id: string): CalculationRecord => ({
-  id, createdAt: '2026-08-27T08:00:00.000Z', display: { title: id, color: 'blue-500' },
+  id, createdAt: '2026-08-27T08:00:00.000Z', display: { title: id, color: '#2563eb' },
   type: 'reconstitution', versions: { reconstitutionEngineVersion: '1.0.0', datasetVersion: 1 },
   input: { vialMassMg: 10, diluentVolumeMl: 2, desiredDoseMcg: 100,
     syringe: { family: 'U-100', capacityUnits: 100, unitsPerMl: 100, graduationUnits: 1 } },

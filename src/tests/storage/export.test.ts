@@ -22,7 +22,7 @@ const baseConfig: ConfigPayload = {
     {
       id: 'sc-1',
       name: 'Cenário Export',
-      color: 'blue-500',
+      color: '#2563eb',
       source: { type: 'manual' },
       displayUnit: 'mg',
       selectedPkParameters: { halfLifeMs: 86400000, tmaxMs: null },
@@ -36,7 +36,7 @@ const baseConfig: ConfigPayload = {
 const dummyRecord: CalculationRecord = {
   id: 'rec-exp-1',
   createdAt: '2026-08-27T12:00:00Z',
-  display: { title: 'Cálculo Export', color: 'blue-500' },
+  display: { title: 'Cálculo Export', color: '#2563eb' },
   type: 'reconstitution',
   versions: { reconstitutionEngineVersion: '1.0.0', datasetVersion: 1 },
   input: {

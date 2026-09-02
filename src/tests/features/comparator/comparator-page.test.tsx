@@ -4,6 +4,10 @@ import type { CalculationRecord, ConfigPayload, Scenario } from '../../../domain
 import { ComparatorPage } from '../../../features/comparator/pages/ComparatorPage'
 import * as storageModule from '../../../storage'
 
+vi.mock('../../../features/charts/CompareChart', () => ({
+  CompareChart: () => <div data-testid="mock-compare-chart" />,
+}))
+
 vi.mock('../../../storage', async (importOriginal) => {
   const actual = await importOriginal<typeof storageModule>()
   return {
