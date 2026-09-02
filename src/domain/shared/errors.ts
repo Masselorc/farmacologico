@@ -25,6 +25,15 @@ export function domainError(code: DomainErrorCode, params?: Record<string, numbe
   return params === undefined ? { code } : { code, params }
 }
 
+export function isDomainError(value: unknown): value is DomainError {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'code' in value &&
+    typeof (value as { code: unknown }).code === 'string'
+  )
+}
+
 // Códigos normativos de Data Management (§6).
 export type DataManagementErrorCode =
   | 'CONFIG_STORAGE_LIMIT_EXCEEDED'

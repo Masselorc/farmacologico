@@ -1,5 +1,5 @@
 import { Temporal } from '@js-temporal/polyfill'
-import { messages } from '../../../app/i18n/pt-BR.messages'
+import { formatDomainError, messages } from '../../../app/i18n/pt-BR.messages'
 import { civilToInstantIso, instantToZonedParts } from '../../../domain/shared/datetime'
 import type {
   ChartScaleMode,
@@ -13,11 +13,12 @@ import { MetricsPanel } from '../components/MetricsPanel'
 import { MilestonesTable } from '../components/MilestonesTable'
 import { ModelDetails } from '../components/ModelDetails'
 import { SaveAnalysisButton } from '../components/SaveAnalysisButton'
-import type { ComparatorAnalyzedScenario } from '../lib/analysis'
+import type { ComparatorAnalyzedScenario, ScenarioAnalysisError } from '../lib/analysis'
 
 export interface AnalysisPageProps {
   analyzedScenarios: ReadonlyArray<ComparatorAnalyzedScenario>
   nonContributingScenarios: ReadonlyArray<string>
+  scenarioErrors?: ReadonlyArray<ScenarioAnalysisError>
   displayWindow: DisplayWindow
   calendarTimeZone: TimeZoneId
   scaleMode: ChartScaleMode
@@ -30,6 +31,7 @@ export interface AnalysisPageProps {
 export function AnalysisPage({
   analyzedScenarios,
   nonContributingScenarios,
+  scenarioErrors = [],
   displayWindow,
   calendarTimeZone,
   scaleMode,
@@ -144,6 +146,17 @@ export function AnalysisPage({
         </div>
       </div>
 
+      {scenarioErrors.length > 0 && (
+        <div className="comparator-errors-box" role="alert">
+          <h4>{messages.comparator.scenarioErrorsTitle}</h4>
+          {scenarioErrors.map(({ scenario, error }) => (
+            <p key={scenario.id}>
+              <strong>{scenario.name}</strong>: {formatDomainError(error)}
+            </p>
+          ))}
+        </div>
+      )}
+
       {nonContributingScenarios.length > 0 && (
         <div className="comparator-notice no-contributing-notice" role="status">
           {nonContributingScenarios.map((name) => (
@@ -187,7 +200,7 @@ export function AnalysisPage({
         </>
       ) : (
         <div className="empty-analysis-state">
-          <p>Nenhum cenário possui doses relevantes para a janela de visualização atual.</p>
+          <p>{messages.comparator.emptyAnalysisState}</p>
         </div>
       )}
     </div>

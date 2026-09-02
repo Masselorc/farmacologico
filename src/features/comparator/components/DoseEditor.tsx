@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { messages } from '../../../app/i18n/pt-BR.messages'
 import { SAFETY_LIMITS } from '../../../validation/limits'
 import type { Dose, LocalDate, LocalTime, Scenario, TimeZoneId } from '../../../domain/types'
-import { buildDoseFromDraft, type DoseInputDraft } from '../lib/form'
+import { buildDoseFromDraft, doseToDraft, type DoseInputDraft } from '../lib/form'
 import { formatPresentationDateShort, formatPresentationMass } from '../lib/presentation'
 import { QuickDose } from './QuickDose'
 
@@ -17,6 +17,7 @@ export function DoseEditor({
   calendarTimeZone,
   onUpdateDoses,
 }: DoseEditorProps) {
+  const [editingDoseId, setEditingDoseId] = useState<string | null>(null)
   const [draft, setDraft] = useState<DoseInputDraft>({
     id: '',
     amountText: '',
@@ -27,21 +28,46 @@ export function DoseEditor({
 
   const canAddMore = scenario.doses.length < SAFETY_LIMITS.DOSES_PER_SCENARIO_MAX
 
-  const handleAddDose = (e: React.FormEvent) => {
+  const handleStartEdit = (dose: Dose) => {
+    const dDraft = doseToDraft(dose, scenario.displayUnit, calendarTimeZone)
+    setDraft(dDraft)
+    setEditingDoseId(dose.id)
+    setErrors([])
+  }
+
+  const handleCancelEdit = () => {
+    setEditingDoseId(null)
+    setDraft({
+      id: '',
+      amountText: '',
+      localDate: '' as LocalDate,
+      localTime: '' as LocalTime,
+    })
+    setErrors([])
+  }
+
+  const handleSubmitDose = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!canAddMore) {
+    if (!editingDoseId && !canAddMore) {
       setErrors([messages.comparator.dosesMaxReached(SAFETY_LIMITS.DOSES_PER_SCENARIO_MAX)])
       return
     }
 
-    const result = buildDoseFromDraft(draft, scenario.displayUnit, calendarTimeZone)
+    const draftToBuild: DoseInputDraft = editingDoseId ? { ...draft, id: editingDoseId } : draft
+    const result = buildDoseFromDraft(draftToBuild, scenario.displayUnit, calendarTimeZone)
     if (!result.ok) {
       setErrors(result.errors)
       return
     }
 
     setErrors([])
-    onUpdateDoses([...scenario.doses, result.dose])
+    if (editingDoseId) {
+      onUpdateDoses(scenario.doses.map((d) => (d.id === editingDoseId ? result.dose : d)))
+      setEditingDoseId(null)
+    } else {
+      onUpdateDoses([...scenario.doses, result.dose])
+    }
+
     setDraft({
       id: '',
       amountText: '',
@@ -51,8 +77,13 @@ export function DoseEditor({
   }
 
   const handleRemoveDose = (doseId: string) => {
+    if (editingDoseId === doseId) {
+      handleCancelEdit()
+    }
     onUpdateDoses(scenario.doses.filter((d) => d.id !== doseId))
   }
+
+  const editingIndex = editingDoseId ? scenario.doses.findIndex((d) => d.id === editingDoseId) : -1
 
   return (
     <div className="dose-editor-container">
@@ -68,8 +99,14 @@ export function DoseEditor({
         </div>
       )}
 
-      {canAddMore ? (
-        <form className="dose-form" onSubmit={handleAddDose}>
+      {editingIndex >= 0 && (
+        <p className="dose-edit-indicator">
+          {messages.comparator.editingDoseIndicator(editingIndex + 1)}
+        </p>
+      )}
+
+      {editingDoseId || canAddMore ? (
+        <form className="dose-form" onSubmit={handleSubmitDose}>
           <div className="form-row">
             <div className="form-group flex-1">
               <label htmlFor="dose-amount">
@@ -114,8 +151,17 @@ export function DoseEditor({
                 setDraft((d) => ({ ...d, localDate, localTime }))
               }
             />
+            {editingDoseId && (
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={handleCancelEdit}
+              >
+                {messages.comparator.cancel}
+              </button>
+            )}
             <button type="submit" className="btn btn-primary btn-sm">
-              + {messages.comparator.addDose}
+              {editingDoseId ? messages.comparator.saveDose : `+ ${messages.comparator.addDose}`}
             </button>
           </div>
         </form>
@@ -132,10 +178,10 @@ export function DoseEditor({
           <table className="doses-table">
             <thead>
               <tr>
-                <th>#</th>
-                <th>Dose</th>
-                <th>Data/Hora ({calendarTimeZone})</th>
-                <th>Ações</th>
+                <th>{messages.comparator.doseNumberHeader}</th>
+                <th>{messages.comparator.doseAmountHeader}</th>
+                <th>{messages.comparator.doseDateTimeHeader(calendarTimeZone)}</th>
+                <th>{messages.comparator.doseActionsHeader}</th>
               </tr>
             </thead>
             <tbody>
@@ -145,6 +191,13 @@ export function DoseEditor({
                   <td>{formatPresentationMass(dose.amountMg, scenario.displayUnit)}</td>
                   <td>{formatPresentationDateShort(dose.time, calendarTimeZone)}</td>
                   <td>
+                    <button
+                      type="button"
+                      className="btn-link btn-sm"
+                      onClick={() => handleStartEdit(dose)}
+                    >
+                      {messages.comparator.edit}
+                    </button>
                     <button
                       type="button"
                       className="btn-link text-danger btn-sm"

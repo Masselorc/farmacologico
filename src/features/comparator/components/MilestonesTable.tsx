@@ -2,6 +2,7 @@ import { Temporal } from '@js-temporal/polyfill'
 import { messages } from '../../../app/i18n/pt-BR.messages'
 import type { TimeZoneId } from '../../../domain/types'
 import type { ComparatorAnalyzedScenario } from '../lib/analysis'
+import { getToneColorClass } from '../lib/colors'
 import {
   formatPresentationDateLong,
   formatPresentationMass,
@@ -28,7 +29,7 @@ export function MilestonesTable({
 
         return (
           <div key={scenario.id} className="scenario-milestones-wrapper">
-            <h4 className="scenario-title" style={{ color: scenario.color }}>
+            <h4 className={`scenario-title ${getToneColorClass(scenario.color)}`}>
               {scenario.name}
             </h4>
 

@@ -1,6 +1,8 @@
 import { messages } from '../../../app/i18n/pt-BR.messages'
+import { MS_PER_DAY } from '../../../domain/units/convert'
 import { formatDuration } from '../../../domain/units/format'
 import type { ComparatorAnalyzedScenario } from '../lib/analysis'
+import { getToneColorClass } from '../lib/colors'
 import { formatPresentationNumber } from '../lib/presentation'
 
 export interface ModelDetailsProps {
@@ -18,14 +20,13 @@ export function ModelDetails({ analyzedScenarios }: ModelDetailsProps) {
         const { scenario, result } = item
         const { metadata } = result
 
-        // Conversão de taxas para /dia (1 dia = 86.400.000 ms)
-        const MS_PER_DAY = 86_400_000
+        // Conversão de taxas para /dia
         const kePerDay = metadata.kePerMs * MS_PER_DAY
         const kaPerDay = metadata.kaPerMs !== null ? metadata.kaPerMs * MS_PER_DAY : null
 
         return (
           <div key={scenario.id} className="model-details-card">
-            <h4 className="scenario-title" style={{ color: scenario.color }}>
+            <h4 className={`scenario-title ${getToneColorClass(scenario.color)}`}>
               {scenario.name}
             </h4>
 

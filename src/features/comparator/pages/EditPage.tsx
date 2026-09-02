@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { messages } from '../../../app/i18n/pt-BR.messages'
 import { SAFETY_LIMITS } from '../../../validation/limits'
 import type { Dose, Scenario, TimeZoneId } from '../../../domain/types'
 import { DoseEditor } from '../components/DoseEditor'
@@ -8,7 +9,7 @@ import { ScenarioList } from '../components/ScenarioList'
 export interface EditPageProps {
   scenarios: Scenario[]
   calendarTimeZone: TimeZoneId
-  onUpdateScenarios: (scenarios: Scenario[]) => void
+  onUpdateScenarios: (scenarios: Scenario[]) => Promise<{ ok: boolean; error?: string }>
 }
 
 export function EditPage({
@@ -21,41 +22,65 @@ export function EditPage({
   )
   const [editingScenario, setEditingScenario] = useState<Scenario | null>(null)
   const [isCreating, setIsCreating] = useState(false)
+  const [pageError, setPageError] = useState<string | null>(null)
 
   const activeScenario = scenarios.find((s) => s.id === activeScenarioId) || null
   const canAddMore = scenarios.length < SAFETY_LIMITS.SCENARIOS_MAX
 
-  const handleSaveScenario = (savedScenario: Scenario) => {
+  const handleSaveScenario = async (savedScenario: Scenario) => {
     const exists = scenarios.some((s) => s.id === savedScenario.id)
-    if (exists) {
-      onUpdateScenarios(scenarios.map((s) => (s.id === savedScenario.id ? savedScenario : s)))
-    } else {
-      onUpdateScenarios([...scenarios, savedScenario])
+    const candidate = exists
+      ? scenarios.map((s) => (s.id === savedScenario.id ? savedScenario : s))
+      : [...scenarios, savedScenario]
+
+    const result = await onUpdateScenarios(candidate)
+    if (!result.ok) {
+      setPageError(result.error ?? messages.comparator.saveScenarioError)
+      return
     }
+
+    setPageError(null)
     setActiveScenarioId(savedScenario.id)
     setEditingScenario(null)
     setIsCreating(false)
   }
 
-  const handleDeleteScenario = (scenarioId: string) => {
+  const handleDeleteScenario = async (scenarioId: string) => {
     const updated = scenarios.filter((s) => s.id !== scenarioId)
-    onUpdateScenarios(updated)
+    const result = await onUpdateScenarios(updated)
+    if (!result.ok) {
+      setPageError(result.error ?? messages.comparator.deleteScenarioError)
+      return
+    }
+
+    setPageError(null)
     if (activeScenarioId === scenarioId) {
       setActiveScenarioId(updated.length > 0 ? updated[0].id : null)
     }
   }
 
-  const handleUpdateDoses = (doses: Dose[]) => {
+  const handleUpdateDoses = async (doses: Dose[]) => {
     if (!activeScenario) return
     const updatedScenario: Scenario = {
       ...activeScenario,
       doses,
     }
-    onUpdateScenarios(scenarios.map((s) => (s.id === activeScenario.id ? updatedScenario : s)))
+    const candidate = scenarios.map((s) => (s.id === activeScenario.id ? updatedScenario : s))
+    const result = await onUpdateScenarios(candidate)
+    if (!result.ok) {
+      setPageError(result.error ?? messages.comparator.updateDosesError)
+      return
+    }
+    setPageError(null)
   }
 
   return (
     <div className="comparator-edit-panel">
+      {pageError && (
+        <div className="comparator-errors-box" role="alert">
+          <p>{pageError}</p>
+        </div>
+      )}
       {isCreating || editingScenario ? (
         <ScenarioForm
           initialScenario={editingScenario ?? undefined}

@@ -108,7 +108,7 @@ export function SaveAnalysisButton({
       {feedback && (
         <div
           className={`save-feedback ${feedback.type === 'success' ? 'feedback-success' : 'feedback-error'}`}
-          role="status"
+          role={feedback.type === 'error' ? 'alert' : 'status'}
         >
           {feedback.message}
         </div>

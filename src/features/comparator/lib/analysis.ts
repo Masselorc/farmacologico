@@ -2,6 +2,7 @@ import { analyze } from '../../../domain/pk/analysis'
 import { sampleForDisplay } from '../../../domain/pk/sampling'
 import { assembleScenarioInputs, selectRelevantScenarioDoses } from '../../../domain/simulation/assemble'
 import { deriveCalculationWindow } from '../../../domain/simulation/windows'
+import { domainError, isDomainError, type DomainError } from '../../../domain/shared/errors'
 import type {
   CalculationWindow,
   ChartScaleMode,
@@ -26,10 +27,15 @@ export interface ComparatorAnalyzedScenario {
   phaseHint: PhaseHint
 }
 
+export interface ScenarioAnalysisError {
+  scenario: Scenario
+  error: DomainError
+}
+
 export type ScenarioAnalysisResult =
   | { status: 'success'; data: ComparatorAnalyzedScenario }
   | { status: 'no_contributing_doses'; scenario: Scenario; calculationWindow: CalculationWindow }
-  | { status: 'error'; scenario: Scenario; error: string }
+  | { status: 'error'; scenario: Scenario; error: DomainError }
 
 /**
  * Executa o pipeline científico por cenário individual (§7, §15, E9):
@@ -78,10 +84,16 @@ export function analyzeScenario(
       },
     }
   } catch (err) {
+    const domainErr: DomainError = isDomainError(err)
+      ? err
+      : domainError('NUMERIC_FAILURE', {
+          message: err instanceof Error ? err.message : String(err),
+        })
+
     return {
       status: 'error',
       scenario,
-      error: err instanceof Error ? err.message : 'Erro ao processar cenário.',
+      error: domainErr,
     }
   }
 }

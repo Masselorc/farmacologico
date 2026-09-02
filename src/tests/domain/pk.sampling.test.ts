@@ -58,9 +58,38 @@ describe('sampleForDisplay (§15, E9)', () => {
     const original = Object.freeze([
       Object.freeze({ timeMs: 1000, amountMg: 10 }),
       Object.freeze({ timeMs: 2000, amountMg: 20 }),
-      Object.freeze({ timeMs: 3000, amountMg: 30 }),
     ])
 
-    expect(() => sampleForDisplay(original, { displayWindow })).not.toThrow()
+    const sampled = sampleForDisplay(original, { displayWindow })
+    expect(sampled).toHaveLength(2)
+    expect(sampled[0]).not.toBe(original[0])
+  })
+
+  it('comporta-se defensivamente com entradas não finitas ou limites inválidos', () => {
+    const curve = [
+      { timeMs: 1000, amountMg: 10 },
+      { timeMs: 2000, amountMg: 20 },
+    ]
+
+    // start >= end
+    expect(sampleForDisplay(curve, { displayWindow: { startMs: 5000, endMs: 1000 } })).toEqual([])
+    // NaN ou Infinity
+    expect(sampleForDisplay(curve, { displayWindow: { startMs: NaN, endMs: 5000 } })).toEqual([])
+    expect(sampleForDisplay(curve, { displayWindow: { startMs: 1000, endMs: Infinity } })).toEqual([])
+    // maxPoints <= 0
+    expect(sampleForDisplay(curve, { displayWindow, maxPoints: 0 })).toEqual([])
+    expect(sampleForDisplay(curve, { displayWindow, maxPoints: -5 })).toEqual([])
+    expect(sampleForDisplay(curve, { displayWindow, maxPoints: NaN })).toEqual([])
+
+    // maxPoints = 1
+    const p1 = sampleForDisplay(curve, { displayWindow, maxPoints: 1 })
+    expect(p1).toHaveLength(1)
+    expect(p1[0].timeMs).toBe(1000)
+
+    // maxPoints = 2
+    const p2 = sampleForDisplay(curve, { displayWindow, maxPoints: 2 })
+    expect(p2).toHaveLength(2)
+    expect(p2[0].timeMs).toBe(1000)
+    expect(p2[1].timeMs).toBe(2000)
   })
 })

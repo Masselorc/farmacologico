@@ -49,7 +49,7 @@ export function ScenarioForm({
 
       {errors.length > 0 && (
         <div className="error-box" role="alert">
-          <p className="error-title">Revise os dados:</p>
+          <p className="error-title">{messages.comparator.reviewDataTitle}</p>
           <ul>
             {errors.map((err, i) => (
               <li key={i}>{err}</li>

@@ -2,6 +2,7 @@ import { formatPkWarning, messages } from '../../../app/i18n/pt-BR.messages'
 import { Temporal } from '@js-temporal/polyfill'
 import type { TimeZoneId } from '../../../domain/types'
 import type { ComparatorAnalyzedScenario } from '../lib/analysis'
+import { getToneBorderTopClass } from '../lib/colors'
 import {
   formatPresentationDateLong,
   formatPresentationMass,
@@ -35,8 +36,7 @@ export function MetricsPanel({
           return (
             <div
               key={scenario.id}
-              className="metrics-card"
-              style={{ borderTop: `4px solid ${scenario.color}` }}
+              className={`metrics-card ${getToneBorderTopClass(scenario.color)}`}
             >
               <div className="metrics-card-header">
                 <h4 className="scenario-title">{scenario.name}</h4>
@@ -69,7 +69,12 @@ export function MetricsPanel({
 
                 <div className="metric-item">
                   <span className="metric-label">{messages.comparator.administeredCount}</span>
-                  <span className="metric-value">{result.administrations.length}</span>
+                  <span className="metric-value">{currentState.administeredCount}</span>
+                </div>
+
+                <div className="metric-item">
+                  <span className="metric-label">{messages.comparator.plannedCount}</span>
+                  <span className="metric-value">{currentState.plannedCount}</span>
                 </div>
 
                 <div className="metric-item">

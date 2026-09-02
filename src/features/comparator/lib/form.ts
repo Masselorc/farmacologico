@@ -1,3 +1,4 @@
+import { messages } from '../../../app/i18n/pt-BR.messages'
 import { civilToInstantIso, instantToZonedParts } from '../../../domain/shared/datetime'
 import { parseLocaleDecimal } from '../../../domain/units/decimal'
 import {
@@ -5,6 +6,8 @@ import {
   millisecondsToDays,
   millisecondsToHours,
   millisecondsToMinutes,
+  MS_PER_DAY,
+  MS_PER_HOUR,
   toMilliseconds,
   toMilligrams,
 } from '../../../domain/units/convert'
@@ -19,7 +22,7 @@ import type {
   TimeZoneId,
 } from '../../../domain/types'
 import { scenarioSchema, doseSchema } from '../../../validation/schemas/scenario'
-import { sanitizeColor } from './colors'
+import { getScenarioColorByIndex, sanitizeColor } from './colors'
 
 export interface ScenarioDraft {
   id: string
@@ -44,7 +47,7 @@ export function createEmptyScenarioDraft(index = 0): ScenarioDraft {
   return {
     id: crypto.randomUUID(),
     name: '',
-    color: sanitizeColor(String(index)),
+    color: getScenarioColorByIndex(index),
     halfLifeText: '',
     halfLifeUnit: 'days',
     tmaxText: '0',
@@ -78,10 +81,10 @@ export function scenarioToDraft(scenario: Scenario): ScenarioDraft {
     const halfLifeMs = scenario.selectedPkParameters.halfLifeMs
     const tmaxMs = scenario.selectedPkParameters.tmaxMs
 
-    if (halfLifeMs % (24 * 3600_000) === 0) {
+    if (halfLifeMs % MS_PER_DAY === 0) {
       halfLifeText = String(millisecondsToDays(halfLifeMs))
       halfLifeUnit = 'days'
-    } else if (halfLifeMs % 3600_000 === 0) {
+    } else if (halfLifeMs % MS_PER_HOUR === 0) {
       halfLifeText = String(millisecondsToHours(halfLifeMs))
       halfLifeUnit = 'hours'
     } else {
@@ -92,10 +95,10 @@ export function scenarioToDraft(scenario: Scenario): ScenarioDraft {
     if (tmaxMs === null || tmaxMs === 0) {
       tmaxText = '0'
       tmaxUnit = 'days'
-    } else if (tmaxMs % (24 * 3600_000) === 0) {
+    } else if (tmaxMs % MS_PER_DAY === 0) {
       tmaxText = String(millisecondsToDays(tmaxMs))
       tmaxUnit = 'days'
-    } else if (tmaxMs % 3600_000 === 0) {
+    } else if (tmaxMs % MS_PER_HOUR === 0) {
       tmaxText = String(millisecondsToHours(tmaxMs))
       tmaxUnit = 'hours'
     } else {
@@ -125,17 +128,17 @@ export function buildScenarioFromDraft(
 
   const trimmedName = draft.name.trim()
   if (!trimmedName) {
-    errors.push('Informe o nome do cenário.')
+    errors.push(messages.comparator.scenarioNameRequired)
   }
 
   const hlParsed = parseLocaleDecimal(draft.halfLifeText)
   if (!hlParsed.ok || hlParsed.value <= 0) {
-    errors.push('Informe uma meia-vida válida e maior que zero.')
+    errors.push(messages.comparator.halfLifeInvalid)
   }
 
   const tmaxParsed = parseLocaleDecimal(draft.tmaxText)
   if (!tmaxParsed.ok || tmaxParsed.value < 0) {
-    errors.push('Informe um Tmax válido (0 para absorção imediata).')
+    errors.push(messages.comparator.tmaxInvalid)
   }
 
   if (errors.length > 0) {

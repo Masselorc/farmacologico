@@ -1631,4 +1631,78 @@ Implementar integralmente a funcionalidade do Comparador / Meia-vida (E9) da FAR
 
 - Mensagem autorizada: `feat(farmakit): implementar comparador E9`.
 
+## 2026-09-02 — E9.1 — Fechamento corretivo do Comparador / Meia-vida
+
+### Objetivo
+
+Corrigir e fechar integralmente os problemas identificados pela auditoria externa após a E9:
+1. Apresentação de métricas: exibir `currentState.administeredCount` e `currentState.plannedCount` em vez de `result.administrations.length`.
+2. Preservação de erros de domínio: reter `DomainError` estruturado em vez de degradar para string e exibir alerta localizado na análise.
+3. Conformidade estrita com CSP: erradicar 100% dos estilos inline dinâmicos através de classes estáticas `.tone-*` mapeadas para a paleta fechada autorizada e proteger `sanitizeColor` contra hex arbitrários.
+4. CRUD de Doses e UX: implementar fluxo completo de edição de doses mantendo o mesmo identificador estável, confirmação explícita de exclusão de cenário e propagação de falhas de persistência.
+5. QA & Hardening: mock isolado do Chart.js para validação de ciclo de vida e clipping logarítmico, testes e2e Playwright do Comparador sob CSP e hardening defensivo em `sampleForDisplay`.
+
+### Alterações realizadas
+
+- `src/features/comparator/lib/colors.ts` & `src/features/comparator/comparator.css`:
+  - Definida `PALETTE_ALLOWED` como a união estrita da paleta padrão do comparador e cores históricas da migração.
+  - Implementado `sanitizeColor` com validação de pertencimento e fallback seguro determinístico.
+  - Adicionadas classes CSS estáticas `.tone-color-*`, `.tone-bg-*` e `.tone-border-top-*` para todos os 21 tons da paleta autorizada.
+  - Eliminados todos os estilos inline dinâmicos em `MetricsPanel.tsx`, `ScenarioList.tsx`, `ModelDetails.tsx` e `MilestonesTable.tsx`.
+- `src/features/comparator/components/MetricsPanel.tsx`:
+  - `Administrações realizadas` conectado a `currentState.administeredCount`.
+  - Adicionada métrica `Doses futuras na simulação` conectada a `currentState.plannedCount`.
+- `src/domain/shared/errors.ts` & `src/features/comparator/lib/analysis.ts`:
+  - Adicionado type guard `isDomainError`.
+  - Tipado `ScenarioAnalysisResult` com erro como `DomainError` estruturado, preservando códigos normativos como `ABSORPTION_SOLVER_FAILURE`.
+  - Coletados e propagados `scenarioErrors` pelo `ComparatorPage` para exibição no `AnalysisPage` com `role="alert"` e `formatDomainError`.
+- `src/features/comparator/components/DoseEditor.tsx`:
+  - Implementado fluxo completo de edição: ao clicar em "Editar", o draft é populado via `doseToDraft`, o formulário exibe o indicador da dose em edição e botão de cancelamento, e a submissão substitui o item preservando o mesmo `id`.
+  - Títulos de colunas e botões centralizados no catálogo i18n.
+- `src/features/comparator/components/ScenarioList.tsx`:
+  - Implementada confirmação explícita antes de remover cenário, com mensagens do i18n e opção de cancelar.
+  - Corrigida acessibilidade da seleção de cards sem controles interativos aninhados.
+- `src/features/comparator/pages/EditPage.tsx` & `src/features/comparator/pages/ComparatorPage.tsx`:
+  - `handleUpdateScenarios` atualizado para retornar status assíncrono `{ ok: boolean; error?: string }`.
+  - `EditPage` exibe alerta ao falhar mutação na persistência e mantém o formulário aberto para correção.
+- `src/domain/pk/sampling.ts`:
+  - Adicionado hardening defensivo contra limites não finitos, `startMs >= endMs` e `maxPoints <= 0`.
+- `src/features/comparator/components/SaveAnalysisButton.tsx`:
+  - Atributo `role` dinâmico: `role="alert"` para erros e `role="status"` para sucesso.
+- `src/app/i18n/pt-BR.messages.ts`:
+  - Adicionadas todas as mensagens necessárias para títulos de tabela, botões, estados vazios e erros de persistência.
+- Testes:
+  - `src/tests/features/comparator/e9.1-regressions.test.tsx`: suíte cobrindo regressões dos 4 blockers (métricas, erro estruturado, paleta fechada, edição de dose, confirmação de exclusão, falha de persistência e ausência de estilos inline).
+  - `src/tests/features/charts/compare-chart.test.tsx`: mock limpo do Chart.js validando instanciação, datasets, clipping para `y: null` no log e chamada a `destroy()` no unmount.
+  - `src/tests/domain/pk.sampling.test.ts`: testes de entradas não finitas e limites extremos.
+  - `src/tests/e2e/smoke-e1.spec.ts`: teste Playwright no build real de produção confirmando navegação, integridade sob CSP e ausência de estilos inline.
+
+### Decisões tomadas
+
+- O motor matemático (`analysis.ts`, `bateman.ts`, `rates.ts`, `state.ts`, `cutoff.ts`) permaneceu 100% puro e inalterado.
+- Nenhuma dependência externa ou CDN adicionada.
+- Zero estilos inline dinâmicos remanescentes em toda a feature do Comparador e Gráficos.
+- A persistência permanece ancorada exclusivamente em `loadConfigPayload` e `mutateConfigPayload`.
+
+### Validações executadas
+
+- `npm run lint`: PASS (0 erros, 0 warnings).
+- `npm run typecheck`: PASS (0 erros).
+- `npm run type-tests`: PASS (0 erros).
+- `npm run test:e9`: PASS (9 arquivos, 42 testes).
+- `npm run test:e8`: PASS (4 arquivos, 50 testes).
+- `npm run test:e7`: PASS (7 arquivos, 46 testes).
+- `npm run test:e6`: PASS (21 arquivos, 125 testes).
+- `npm run test:e5`: PASS (9 arquivos, 102 testes).
+- `npm run test:e4`: PASS (11 arquivos, 81 testes).
+- `npm test`: PASS (76 arquivos, 616 testes).
+- `npm run build`: PASS (Vite + PWA generateSW).
+- `npm run check:build-boundaries`: PASS (9 arquivos em dist, 0 referências a `.token-optimizer`).
+- `npm run test:e1`: PASS (3 testes Playwright em Chromium).
+- `git diff --check`: PASS (0 erros de formatação ou whitespace).
+
+### Commit
+
+- Mensagem autorizada: `fix(farmakit): fechar correcoes da E9`.
+
 

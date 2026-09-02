@@ -10,7 +10,7 @@ import type {
   Scenario,
   TimeZoneId,
 } from '../../../domain/types'
-import { analyzeScenario, type ComparatorAnalyzedScenario } from '../lib/analysis'
+import { analyzeScenario, type ComparatorAnalyzedScenario, type ScenarioAnalysisError } from '../lib/analysis'
 import { AnalysisPage } from './AnalysisPage'
 import { EditPage } from './EditPage'
 import '../comparator.css'
@@ -51,25 +51,28 @@ export function ComparatorPage() {
     config?.settings.calendarTimeZone ?? 'America/Sao_Paulo'
   const scenarios = useMemo<Scenario[]>(() => config?.scenarios ?? [], [config])
 
-  const handleUpdateScenarios = async (updatedScenarios: Scenario[]) => {
-    if (!config) return
+  const handleUpdateScenarios = async (updatedScenarios: Scenario[]): Promise<{ ok: boolean; error?: string }> => {
+    if (!config) return { ok: false, error: 'Configuração não carregada.' }
     const result = await mutateConfigPayload((current) => ({
       ...current,
       scenarios: updatedScenarios,
     }))
     if (result.ok) {
       setConfig(result.payload)
+      return { ok: true }
     }
+    return { ok: false, error: 'Erro ao salvar.' }
   }
 
   // Pipeline de análise memoizado
-  const { analyzedScenarios, nonContributingScenarios } = useMemo(() => {
+  const { analyzedScenarios, nonContributingScenarios, scenarioErrors } = useMemo(() => {
     if (!displayWindow || nowMs === 0) {
-      return { analyzedScenarios: [], nonContributingScenarios: [] }
+      return { analyzedScenarios: [], nonContributingScenarios: [], scenarioErrors: [] }
     }
 
     const analyzed: ComparatorAnalyzedScenario[] = []
     const nonContributing: string[] = []
+    const errors: ScenarioAnalysisError[] = []
 
     for (const scenario of scenarios) {
       const result = analyzeScenario(
@@ -84,10 +87,12 @@ export function ComparatorPage() {
         analyzed.push(result.data)
       } else if (result.status === 'no_contributing_doses') {
         nonContributing.push(scenario.name)
+      } else if (result.status === 'error') {
+        errors.push({ scenario: result.scenario, error: result.error })
       }
     }
 
-    return { analyzedScenarios: analyzed, nonContributingScenarios: nonContributing }
+    return { analyzedScenarios: analyzed, nonContributingScenarios: nonContributing, scenarioErrors: errors }
   }, [scenarios, displayWindow, nowMs, scaleMode, yAxisMode])
 
   if (!config || !displayWindow) {
@@ -133,6 +138,7 @@ export function ComparatorPage() {
           <AnalysisPage
             analyzedScenarios={analyzedScenarios}
             nonContributingScenarios={nonContributingScenarios}
+            scenarioErrors={scenarioErrors}
             displayWindow={displayWindow}
             calendarTimeZone={calendarTimeZone}
             scaleMode={scaleMode}

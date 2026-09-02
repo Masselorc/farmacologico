@@ -79,16 +79,17 @@ describe('ComparatorPage Component (§15, E9)', () => {
   })
 
   it('atualiza o relógio a cada 1 segundo sem persistir automaticamente no histórico', async () => {
+    vi.useFakeTimers()
     render(<ComparatorPage />)
 
-    await waitFor(() => {
-      expect(screen.getByRole('heading', { level: 1, name: /Meia-vida/i })).toBeTruthy()
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100)
     })
 
-    vi.useFakeTimers()
+    expect(screen.getByRole('heading', { level: 1, name: /Meia-vida/i })).toBeTruthy()
 
     await act(async () => {
-      vi.advanceTimersByTime(5000)
+      await vi.advanceTimersByTimeAsync(5000)
     })
 
     // addCalculationRecord NÃO deve ter sido chamado pelo tick do relógio

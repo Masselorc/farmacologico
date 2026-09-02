@@ -113,3 +113,31 @@ test('spike Chart.js renderiza gráfico real sob CSP no build de produção', as
 
   expect(problems).toEqual([])
 })
+
+test('Comparador E9 renderiza sob CSP sem violacoes nem inline styles', async ({ page }) => {
+  const problems = watchProblems(page)
+
+  await page.goto(`${BASE_PATH}#/meia-vida`)
+
+  await expect(page.getByRole('heading', { name: 'Meia-vida' })).toBeVisible()
+
+  // Verifica que não há estilos inline na aba de análise
+  const inlineStylesCountAnalysis = await page.evaluate(() => {
+    const root = document.querySelector('.comparator-page')
+    return root ? root.querySelectorAll('[style]').length : 0
+  })
+  expect(inlineStylesCountAnalysis).toBe(0)
+
+  // Alterna para aba de edição de cenários
+  await page.getByRole('button', { name: /Cenários/i }).click()
+  await expect(page.locator('.comparator-edit-panel')).toBeVisible()
+
+  // Verifica ausência de estilos inline na aba de edição
+  const inlineStylesCountEdit = await page.evaluate(() => {
+    const root = document.querySelector('.comparator-page')
+    return root ? root.querySelectorAll('[style]').length : 0
+  })
+  expect(inlineStylesCountEdit).toBe(0)
+
+  expect(problems).toEqual([])
+})

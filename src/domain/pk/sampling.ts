@@ -21,9 +21,45 @@ export function sampleForDisplay(
   const maxPoints = constraints.maxPoints ?? DEFAULT_MAX_POINTS
   const { startMs, endMs } = constraints.displayWindow
 
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || startMs >= endMs) {
+    return []
+  }
+  if (!Number.isFinite(maxPoints) || maxPoints <= 0) {
+    return []
+  }
+
   const filtered = analysisCurve.filter(
     (point) => point.timeMs >= startMs && point.timeMs <= endMs,
   )
+
+  if (filtered.length === 0) {
+    return []
+  }
+
+  if (maxPoints === 1) {
+    return [
+      {
+        timeMs: filtered[0].timeMs,
+        amountMg: filtered[0].amountMg,
+        clippedBelowLogEpsilon: false,
+      },
+    ]
+  }
+
+  if (maxPoints === 2) {
+    return [
+      {
+        timeMs: filtered[0].timeMs,
+        amountMg: filtered[0].amountMg,
+        clippedBelowLogEpsilon: false,
+      },
+      {
+        timeMs: filtered[filtered.length - 1].timeMs,
+        amountMg: filtered[filtered.length - 1].amountMg,
+        clippedBelowLogEpsilon: false,
+      },
+    ]
+  }
 
   if (filtered.length <= maxPoints) {
     return filtered.map((p) => ({
