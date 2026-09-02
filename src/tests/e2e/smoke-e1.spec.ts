@@ -145,6 +145,12 @@ test('Comparador E9 renderiza sob CSP sem violacoes nem inline styles', async ({
 test('Comparador E9 populado renderiza CompareChart real com pintura de pixels sob CSP', async ({ page }) => {
   const problems = watchProblems(page)
 
+  // Congela deterministicamente o relógio no ambiente do navegador antes de carregar a aplicação
+  await page.addInitScript(() => {
+    const FIXED_TIME = new Date('2026-09-02T18:00:00.000Z').getTime()
+    Date.now = () => FIXED_TIME
+  })
+
   // 1. Acessa a página do Comparador
   await page.goto(`${BASE_PATH}#/meia-vida`)
   await expect(page.getByRole('heading', { name: 'Meia-vida' })).toBeVisible()
@@ -187,10 +193,15 @@ test('Comparador E9 populado renderiza CompareChart real com pintura de pixels s
   await page.getByRole('button', { name: /Análise e visualização/i }).click()
   await expect(page.locator('.comparator-analysis-panel')).toBeVisible()
 
-  // A. Cenário realmente analisado
+  // A. Cenário realmente analisado e métricas semânticas comprovadas (1 administrada, 1 planejada)
   await expect(page.locator('.metrics-panel-container').getByText('Cenário Teste E2E')).toBeVisible()
-  await expect(page.getByText(/Administrações realizadas/i)).toBeVisible()
-  await expect(page.getByText(/Doses futuras na simulação/i)).toBeVisible()
+  const administeredItem = page.locator('.metric-item', { hasText: /Administrações realizadas/i })
+  await expect(administeredItem).toBeVisible()
+  await expect(administeredItem.locator('.metric-value')).toHaveText('1')
+
+  const plannedItem = page.locator('.metric-item', { hasText: /Doses futuras na simulação/i })
+  await expect(plannedItem).toBeVisible()
+  await expect(plannedItem.locator('.metric-value')).toHaveText('1')
 
   // B. CompareChart realmente montado e visível
   const canvas = page.locator('.compare-chart-frame canvas')

@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, cleanup } from '@testing-library/react'
+import { render, screen, fireEvent, cleanup, act } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MetricsPanel } from '../../../features/comparator/components/MetricsPanel'
 import { DoseEditor } from '../../../features/comparator/components/DoseEditor'
@@ -148,7 +148,7 @@ describe('E9.1 Regressions RED Phase', () => {
   })
 
   describe('Blocker 4 — Edição real de doses no DoseEditor', () => {
-    it('permite editar uma dose existente mantendo o mesmo ID', () => {
+    it('permite editar uma dose existente mantendo o mesmo ID', async () => {
       const initialDose: Dose = {
         id: 'dose-fixed-id-123',
         amountMg: 10,
@@ -164,7 +164,7 @@ describe('E9.1 Regressions RED Phase', () => {
         doses: [initialDose],
       }
 
-      const onUpdateDoses = vi.fn()
+      const onUpdateDoses = vi.fn().mockResolvedValue({ ok: true })
 
       render(
         <DoseEditor
@@ -188,7 +188,9 @@ describe('E9.1 Regressions RED Phase', () => {
 
       // Salva a alteração
       const saveBtn = screen.getByRole('button', { name: /salvar/i })
-      fireEvent.click(saveBtn)
+      await act(async () => {
+        fireEvent.click(saveBtn)
+      })
 
       expect(onUpdateDoses).toHaveBeenCalledTimes(1)
       const updatedDoses: Dose[] = onUpdateDoses.mock.calls[0][0]
@@ -210,7 +212,7 @@ describe('E9.1 Regressions RED Phase', () => {
         doses: [],
       }
 
-      const onDeleteScenario = vi.fn()
+      const onDeleteScenario = vi.fn().mockResolvedValue({ ok: true })
       const { ScenarioList } = await import('../../../features/comparator/components/ScenarioList')
 
       render(
@@ -242,7 +244,9 @@ describe('E9.1 Regressions RED Phase', () => {
       // Clica em Remover novamente e confirma
       fireEvent.click(screen.getByRole('button', { name: /^remover$/i }))
       const confirmBtn = screen.getByRole('button', { name: /confirmar/i })
-      fireEvent.click(confirmBtn)
+      await act(async () => {
+        fireEvent.click(confirmBtn)
+      })
 
       expect(onDeleteScenario).toHaveBeenCalledWith('sc-del')
     })

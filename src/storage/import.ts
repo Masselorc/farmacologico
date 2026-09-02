@@ -16,6 +16,10 @@ import { validateHistoricalInvariants } from './history-validation'
 import { addQuarantineItem } from './quarantine'
 import { enqueueStorageMutation } from './queue'
 import { validateConfigReferences } from './references'
+import {
+  normalizeConfigExportBundleColors,
+  normalizeFullBackupBundleColors,
+} from './compat/legacyColors'
 
 export { encodeProtocolComponentKey, validateHistoricalInvariants } from './history-validation'
 
@@ -104,7 +108,8 @@ export async function validateAndPreviewConfigImport(
     return { ok: false, error: kindMismatch('config', receivedKind) }
   }
 
-  const schema = configExportBundleSchema.safeParse(parsed)
+  const normalizedParsed = normalizeConfigExportBundleColors(parsed)
+  const schema = configExportBundleSchema.safeParse(normalizedParsed)
   if (!schema.success) {
     await quarantineFailure('config_import', 'SCHEMA_VALIDATION_FAILURE', rawText, rawBytes)
     return { ok: false, error: internalFailure('STRUCTURAL_VALIDATION_FAILED', schema.error.message), details: schema.error.message }
@@ -165,7 +170,8 @@ export async function validateAndPreviewFullBackupImport(
     return { ok: false, error: kindMismatch('full-backup', receivedKind) }
   }
 
-  const schema = fullBackupBundleSchema.safeParse(parsed)
+  const normalizedParsed = normalizeFullBackupBundleColors(parsed)
+  const schema = fullBackupBundleSchema.safeParse(normalizedParsed)
   if (!schema.success) {
     await quarantineFailure('full_backup_import', 'SCHEMA_VALIDATION_FAILURE', rawText, rawBytes)
     return { ok: false, error: internalFailure('STRUCTURAL_VALIDATION_FAILED', schema.error.message), details: schema.error.message }

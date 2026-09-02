@@ -1776,3 +1776,67 @@ Resolver os blockers apontados pela auditoria externa da E9.1:
 ### Commit
 
 - Mensagem autorizada: `fix(farmakit): fechar regressões finais da E9`.
+
+## 2026-09-02 — E9.3 — Compatibilidade v1, robustez assíncrona de storage e determinismo E2E
+
+### Objetivo
+
+Corrigir a compatibilidade de dados históricos FARMakit v1 emitidos anteriormente sem afrouxar o schema Zod ou reabrir `PaletteColorId`, blindar o fluxo de persistência contra `Promise.reject` não capturadas do storage preservando drafts e cenários na UI, congelar deterministicamente o relógio no Playwright com asserções semânticas de doses passadas e futuras, e eliminar warnings de React `act(...)`.
+
+### Alterações realizadas
+
+- `src/storage/compat/legacyColors.ts`: módulo puro de compatibilidade v1 mapeando aliases nominais históricos (`blue-500`, `emerald-500`, `purple-500`, etc.) exclusivamente para os hex canônicos autorizados da paleta, com normalizadores imutáveis para cenários, protocolos, histórico e bundles de export/backup. Cores desconhecidas continuam estritamente rejeitadas.
+- `src/storage/idb.ts`: normalização de cores legadas na hidratação da memória (`hydrateMemory`) antes dos schemas Zod em cenários, protocolos e histórico; agendamento de normalização física no IndexedDB quando cores são canonicalizadas, sem gerar quarentena indevida.
+- `src/storage/import.ts`: normalização de cores v1 antes da validação estrutural Zod em `validateAndPreviewConfigImport` e `validateAndPreviewFullBackupImport`, persistindo dados canônicos em hex após a importação.
+- `src/features/comparator/pages/ComparatorPage.tsx`: envolvimento de `mutateConfigPayload` em `try/catch` no boundary `handleUpdateScenarios`, retornando `{ ok: false, error: ... }` em caso de `Promise.reject`.
+- `src/features/comparator/components/DoseEditor.tsx`: remoção de verificações permissivas (`!mutationResult || mutationResult.ok`), adoção de `if (mutationResult.ok)`, tratamento com `try/catch` para manter campos de draft intactos e exibir alertas de erro amigáveis sem resetar o formulário em caso de falha assíncrona.
+- `src/features/comparator/components/ScenarioList.tsx`: adoção de `if (result.ok)` e `try/catch` na exclusão de cenário, mantendo o cenário intacto na lista sob falha do storage.
+- `src/features/comparator/pages/EditPage.tsx`: blindagem de `handleSaveScenario`, `handleDeleteScenario` e `handleUpdateDoses` com `try/catch`.
+- `src/tests/e2e/smoke-e1.spec.ts`: congelamento determinístico do relógio da aplicação via `page.addInitScript` fixando `Date.now()` em `2026-09-02T18:00:00.000Z`, provando na UI a contagem semântica exata de doses: `Administrações realizadas = 1` e `Doses futuras na simulação = 1`, mantendo asserções de Chart.js real, alternância de escalas, CSP e zero estilos inline.
+- `src/tests/features/comparator/e9.1-regressions.test.tsx`: eliminação de warnings de React `act(...)` com uso de `mockResolvedValue({ ok: true })` e wrapping de `await act(...)`.
+- `src/tests/storage/v1-color-compatibility.test.ts`: suíte de testes unitários e de integração provando compatibilidade de dados reais da E8, FullBackup e Config legados, invariante de rejeição direta por `paletteColorIdSchema` e quarentena de cores desconhecidas.
+- `src/tests/features/comparator/e9.3-regressions.test.tsx`: suíte de testes cobrindo `Promise.reject` e falhas assíncronas do storage no Comparador.
+
+### Arquivos principais
+
+- `src/storage/compat/legacyColors.ts`
+- `src/storage/idb.ts`
+- `src/storage/import.ts`
+- `src/features/comparator/pages/ComparatorPage.tsx`
+- `src/features/comparator/components/DoseEditor.tsx`
+- `src/features/comparator/components/ScenarioList.tsx`
+- `src/features/comparator/pages/EditPage.tsx`
+- `src/tests/e2e/smoke-e1.spec.ts`
+- `src/tests/features/comparator/e9.1-regressions.test.tsx`
+- `src/tests/features/comparator/e9.3-regressions.test.tsx`
+- `src/tests/storage/v1-color-compatibility.test.ts`
+- `docs/DIARIO-DE-BORDO.md`
+
+### Decisões tomadas
+
+- `PaletteColorId` permaneceu estritamente fechado como união de hex codes autorizados (`PALETTE_ALLOWED`).
+- Motores matemáticos e científicos (`bateman.ts`, `rates.ts`, `state.ts`, `cutoff.ts`, `analysis.ts`) 100% intactos.
+- Nenhum estilo inline (`style={{ ... }}`) introduzido.
+- `.token-optimizer/` versionado e preservado intacto.
+- A aprovação externa da E9 permanece pendente; a E10 não foi iniciada.
+
+### Validações executadas
+
+- `npm run lint`: PASS (0 erros, 0 warnings).
+- `npm run typecheck`: PASS (0 erros).
+- `npm run type-tests`: PASS (0 erros).
+- `npm run test:e9`: PASS.
+- `npm run test:e8`: PASS.
+- `npm run test:e7`: PASS.
+- `npm run test:e6`: PASS.
+- `npm run test:e5`: PASS.
+- `npm run test:e4`: PASS.
+- `npm test`: PASS (79 arquivos, 635 testes).
+- `npm run build`: PASS (Vite + PWA generateSW).
+- `npm run check:build-boundaries`: PASS (9 arquivos em dist, 0 referências a `.token-optimizer`).
+- `npm run test:e1`: PASS (4 testes Playwright em Chromium).
+- `git diff --check`: PASS (0 erros de formatação ou whitespace).
+
+### Commit
+
+- Mensagem autorizada: `fix(farmakit): preservar compatibilidade v1 da E9`.

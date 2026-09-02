@@ -69,7 +69,7 @@ export function DoseEditor({
         : [...scenario.doses, result.dose]
 
       const mutationResult = await onUpdateDoses(nextDoses)
-      if (!mutationResult || mutationResult.ok) {
+      if (mutationResult.ok) {
         setEditingDoseId(null)
         setDraft({
           id: '',
@@ -80,6 +80,8 @@ export function DoseEditor({
       } else {
         setErrors([mutationResult.error || messages.comparator.updateDosesError])
       }
+    } catch {
+      setErrors([messages.comparator.updateDosesError])
     } finally {
       setIsSubmitting(false)
     }
@@ -87,14 +89,18 @@ export function DoseEditor({
 
   const handleRemoveDose = async (doseId: string) => {
     setErrors([])
-    const nextDoses = scenario.doses.filter((d) => d.id !== doseId)
-    const mutationResult = await onUpdateDoses(nextDoses)
-    if (!mutationResult || mutationResult.ok) {
-      if (editingDoseId === doseId) {
-        handleCancelEdit()
+    try {
+      const nextDoses = scenario.doses.filter((d) => d.id !== doseId)
+      const mutationResult = await onUpdateDoses(nextDoses)
+      if (mutationResult.ok) {
+        if (editingDoseId === doseId) {
+          handleCancelEdit()
+        }
+      } else {
+        setErrors([mutationResult.error || messages.comparator.updateDosesError])
       }
-    } else {
-      setErrors([mutationResult.error || messages.comparator.updateDosesError])
+    } catch {
+      setErrors([messages.comparator.updateDosesError])
     }
   }
 

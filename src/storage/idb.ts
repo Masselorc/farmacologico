@@ -20,6 +20,11 @@ import { validateCalculationRecordRuntime, validateHistoricalInvariants } from '
 import { detectInitialCalendarTimeZone, getPersistenceConsent } from './consent'
 import { enqueueStorageMutation, resetMutationQueueForTesting } from './queue'
 import { validateConfigReferences } from './references'
+import {
+  normalizeHistoryValue,
+  normalizeProtocolColors,
+  normalizeScenarioColors,
+} from './compat/legacyColors'
 
 export const DB_NAME = 'farmakit_v1'
 export const DB_VERSION = 1
@@ -408,7 +413,11 @@ async function hydrateMemory(): Promise<void> {
       let configNeedsPhysicalNormalization = false
 
       for (const value of raw.scenarios) {
-        const parsed = scenarioSchema.safeParse(value)
+        const normalized = normalizeScenarioColors(value)
+        if (normalized !== value) {
+          configNeedsPhysicalNormalization = true
+        }
+        const parsed = scenarioSchema.safeParse(normalized)
         if (parsed.success) {
           next.scenarios.set(parsed.data.id, parsed.data)
         } else {
@@ -417,7 +426,11 @@ async function hydrateMemory(): Promise<void> {
         }
       }
       for (const value of raw.protocols) {
-        const parsed = protocolSchema.safeParse(value)
+        const normalized = normalizeProtocolColors(value)
+        if (normalized !== value) {
+          configNeedsPhysicalNormalization = true
+        }
+        const parsed = protocolSchema.safeParse(normalized)
         if (parsed.success) {
           next.protocols.set(parsed.data.id, parsed.data)
         } else {
@@ -433,10 +446,15 @@ async function hydrateMemory(): Promise<void> {
       }
 
       // ── Processa e normaliza histórico (§11, E6.4: validação individual ≤ 8 MiB) ──
+      let historyNormalizedColors = false
       const validHistory: StoredHistoryEntry[] = []
       const legacyHistory: CalculationRecord[] = []
       for (const value of raw.history) {
-        const entry = storedHistoryEntrySchema.safeParse(value)
+        const normalized = normalizeHistoryValue(value)
+        if (normalized !== value) {
+          historyNormalizedColors = true
+        }
+        const entry = storedHistoryEntrySchema.safeParse(normalized)
         if (
           entry.success &&
           entry.data.id === entry.data.record.id &&
@@ -445,7 +463,7 @@ async function hydrateMemory(): Promise<void> {
         ) {
           validHistory.push(entry.data)
         } else {
-          const record = calculationRecordSchema.safeParse(value)
+          const record = calculationRecordSchema.safeParse(normalized)
           if (
             record.success &&
             validateCalculationRecordRuntime(record.data).valid &&
@@ -492,7 +510,8 @@ async function hydrateMemory(): Promise<void> {
       if (
         raw.history.length !== finalHistoryEntries.length ||
         legacyHistory.length > 0 ||
-        validHistory.some((v, idx) => v.insertionOrder !== (idx + 1))
+        validHistory.some((v, idx) => v.insertionOrder !== (idx + 1)) ||
+        historyNormalizedColors
       ) {
         normalization.push({ kind: 'clear', store: 'history' })
         for (const entry of finalHistoryEntries) {

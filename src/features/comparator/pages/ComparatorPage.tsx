@@ -53,15 +53,19 @@ export function ComparatorPage() {
 
   const handleUpdateScenarios = async (updatedScenarios: Scenario[]): Promise<{ ok: boolean; error?: string }> => {
     if (!config) return { ok: false, error: messages.comparator.configNotLoaded }
-    const result = await mutateConfigPayload((current) => ({
-      ...current,
-      scenarios: updatedScenarios,
-    }))
-    if (result.ok) {
-      setConfig(result.payload)
-      return { ok: true }
+    try {
+      const result = await mutateConfigPayload((current) => ({
+        ...current,
+        scenarios: updatedScenarios,
+      }))
+      if (result.ok) {
+        setConfig(result.payload)
+        return { ok: true }
+      }
+      return { ok: false, error: messages.comparator.saveError }
+    } catch {
+      return { ok: false, error: messages.comparator.saveError }
     }
-    return { ok: false, error: messages.comparator.saveError }
   }
 
   // Pipeline de análise memoizado

@@ -31,11 +31,13 @@ export function ScenarioList({
     setDeleteError(null)
     try {
       const result = await onDeleteScenario(scenarioId)
-      if (!result || result.ok) {
+      if (result.ok) {
         setDeletingScenarioId(null)
       } else {
         setDeleteError(result.error ?? messages.comparator.deleteScenarioError)
       }
+    } catch {
+      setDeleteError(messages.comparator.deleteScenarioError)
     } finally {
       setIsDeleting(false)
     }

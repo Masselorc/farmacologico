@@ -33,31 +33,40 @@ export function EditPage({
       ? scenarios.map((s) => (s.id === savedScenario.id ? savedScenario : s))
       : [...scenarios, savedScenario]
 
-    const result = await onUpdateScenarios(candidate)
-    if (!result.ok) {
-      setPageError(result.error ?? messages.comparator.saveScenarioError)
-      return
-    }
+    try {
+      const result = await onUpdateScenarios(candidate)
+      if (!result.ok) {
+        setPageError(result.error ?? messages.comparator.saveScenarioError)
+        return
+      }
 
-    setPageError(null)
-    setActiveScenarioId(savedScenario.id)
-    setEditingScenario(null)
-    setIsCreating(false)
+      setPageError(null)
+      setActiveScenarioId(savedScenario.id)
+      setEditingScenario(null)
+      setIsCreating(false)
+    } catch {
+      setPageError(messages.comparator.saveScenarioError)
+    }
   }
 
   const handleDeleteScenario = async (scenarioId: string): Promise<{ ok: boolean; error?: string }> => {
     const updated = scenarios.filter((s) => s.id !== scenarioId)
-    const result = await onUpdateScenarios(updated)
-    if (!result.ok) {
-      setPageError(result.error ?? messages.comparator.deleteScenarioError)
-      return result
-    }
+    try {
+      const result = await onUpdateScenarios(updated)
+      if (!result.ok) {
+        setPageError(result.error ?? messages.comparator.deleteScenarioError)
+        return result
+      }
 
-    setPageError(null)
-    if (activeScenarioId === scenarioId) {
-      setActiveScenarioId(updated.length > 0 ? updated[0].id : null)
+      setPageError(null)
+      if (activeScenarioId === scenarioId) {
+        setActiveScenarioId(updated.length > 0 ? updated[0].id : null)
+      }
+      return { ok: true }
+    } catch {
+      setPageError(messages.comparator.deleteScenarioError)
+      return { ok: false, error: messages.comparator.deleteScenarioError }
     }
-    return { ok: true }
   }
 
   const handleUpdateDoses = async (doses: Dose[]): Promise<{ ok: boolean; error?: string }> => {
@@ -67,13 +76,18 @@ export function EditPage({
       doses,
     }
     const candidate = scenarios.map((s) => (s.id === activeScenario.id ? updatedScenario : s))
-    const result = await onUpdateScenarios(candidate)
-    if (!result.ok) {
-      setPageError(result.error ?? messages.comparator.updateDosesError)
-      return result
+    try {
+      const result = await onUpdateScenarios(candidate)
+      if (!result.ok) {
+        setPageError(result.error ?? messages.comparator.updateDosesError)
+        return result
+      }
+      setPageError(null)
+      return { ok: true }
+    } catch {
+      setPageError(messages.comparator.updateDosesError)
+      return { ok: false, error: messages.comparator.updateDosesError }
     }
-    setPageError(null)
-    return { ok: true }
   }
 
   return (
