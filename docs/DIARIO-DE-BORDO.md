@@ -1832,6 +1832,201 @@ Corrigir a compatibilidade de dados históricos FARMakit v1 emitidos anteriormen
 - `npm run test:e5`: PASS.
 - `npm run test:e4`: PASS.
 - `npm test`: PASS (79 arquivos, 635 testes).
+2. Preservação de erros de domínio: reter `DomainError` estruturado em vez de degradar para string e exibir alerta localizado na análise.
+3. Conformidade estrita com CSP: erradicar 100% dos estilos inline dinâmicos através de classes estáticas `.tone-*` mapeadas para a paleta fechada autorizada e proteger `sanitizeColor` contra hex arbitrários.
+4. CRUD de Doses e UX: implementar fluxo completo de edição de doses mantendo o mesmo identificador estável, confirmação explícita de exclusão de cenário e propagação de falhas de persistência.
+5. QA & Hardening: mock isolado do Chart.js para validação de ciclo de vida e clipping logarítmico, testes e2e Playwright do Comparador sob CSP e hardening defensivo em `sampleForDisplay`.
+
+### Alterações realizadas
+
+- `src/features/comparator/lib/colors.ts` & `src/features/comparator/comparator.css`:
+  - Definida `PALETTE_ALLOWED` como a união estrita da paleta padrão do comparador e cores históricas da migração.
+  - Implementado `sanitizeColor` com validação de pertencimento e fallback seguro determinístico.
+  - Adicionadas classes CSS estáticas `.tone-color-*`, `.tone-bg-*` e `.tone-border-top-*` para todos os 21 tons da paleta autorizada.
+  - Eliminados todos os estilos inline dinâmicos em `MetricsPanel.tsx`, `ScenarioList.tsx`, `ModelDetails.tsx` e `MilestonesTable.tsx`.
+- `src/features/comparator/components/MetricsPanel.tsx`:
+  - `Administrações realizadas` conectado a `currentState.administeredCount`.
+  - Adicionada métrica `Doses futuras na simulação` conectada a `currentState.plannedCount`.
+- `src/domain/shared/errors.ts` & `src/features/comparator/lib/analysis.ts`:
+  - Adicionado type guard `isDomainError`.
+  - Tipado `ScenarioAnalysisResult` com erro como `DomainError` estruturado, preservando códigos normativos como `ABSORPTION_SOLVER_FAILURE`.
+  - Coletados e propagados `scenarioErrors` pelo `ComparatorPage` para exibição no `AnalysisPage` com `role="alert"` e `formatDomainError`.
+- `src/features/comparator/components/DoseEditor.tsx`:
+  - Implementado fluxo completo de edição: ao clicar em "Editar", o draft é populado via `doseToDraft`, o formulário exibe o indicador da dose em edição e botão de cancelamento, e a submissão substitui o item preservando o mesmo `id`.
+  - Títulos de colunas e botões centralizados no catálogo i18n.
+- `src/features/comparator/components/ScenarioList.tsx`:
+  - Implementada confirmação explícita antes de remover cenário, com mensagens do i18n e opção de cancelar.
+  - Corrigida acessibilidade da seleção de cards sem controles interativos aninhados.
+- `src/features/comparator/pages/EditPage.tsx` & `src/features/comparator/pages/ComparatorPage.tsx`:
+  - `handleUpdateScenarios` atualizado para retornar status assíncrono `{ ok: boolean; error?: string }`.
+  - `EditPage` exibe alerta ao falhar mutação na persistência e mantém o formulário aberto para correção.
+- `src/domain/pk/sampling.ts`:
+  - Adicionado hardening defensivo contra limites não finitos, `startMs >= endMs` e `maxPoints <= 0`.
+- `src/features/comparator/components/SaveAnalysisButton.tsx`:
+  - Atributo `role` dinâmico: `role="alert"` para erros e `role="status"` para sucesso.
+- `src/app/i18n/pt-BR.messages.ts`:
+  - Adicionadas todas as mensagens necessárias para títulos de tabela, botões, estados vazios e erros de persistência.
+- Testes:
+  - `src/tests/features/comparator/e9.1-regressions.test.tsx`: suíte cobrindo regressões dos 4 blockers (métricas, erro estruturado, paleta fechada, edição de dose, confirmação de exclusão, falha de persistência e ausência de estilos inline).
+  - `src/tests/features/charts/compare-chart.test.tsx`: mock limpo do Chart.js validando instanciação, datasets, clipping para `y: null` no log e chamada a `destroy()` no unmount.
+  - `src/tests/domain/pk.sampling.test.ts`: testes de entradas não finitas e limites extremos.
+  - `src/tests/e2e/smoke-e1.spec.ts`: teste Playwright no build real de produção confirmando navegação, integridade sob CSP e ausência de estilos inline.
+
+### Decisões tomadas
+
+- O motor matemático (`analysis.ts`, `bateman.ts`, `rates.ts`, `state.ts`, `cutoff.ts`) permaneceu 100% puro e inalterado.
+- Nenhuma dependência externa ou CDN adicionada.
+- Zero estilos inline dinâmicos remanescentes em toda a feature do Comparador e Gráficos.
+- A persistência permanece ancorada exclusivamente em `loadConfigPayload` e `mutateConfigPayload`.
+
+### Validações executadas
+
+- `npm run lint`: PASS (0 erros, 0 warnings).
+- `npm run typecheck`: PASS (0 erros).
+- `npm run type-tests`: PASS (0 erros).
+- `npm run test:e9`: PASS (9 arquivos, 42 testes).
+- `npm run test:e8`: PASS (4 arquivos, 50 testes).
+- `npm run test:e7`: PASS (7 arquivos, 46 testes).
+- `npm run test:e6`: PASS (21 arquivos, 125 testes).
+- `npm run test:e5`: PASS (9 arquivos, 102 testes).
+- `npm run test:e4`: PASS (11 arquivos, 81 testes).
+- `npm test`: PASS (76 arquivos, 616 testes).
+- `npm run build`: PASS (Vite + PWA generateSW).
+- `npm run check:build-boundaries`: PASS (9 arquivos em dist, 0 referências a `.token-optimizer`).
+- `npm run test:e1`: PASS (3 testes Playwright em Chromium).
+- `git diff --check`: PASS (0 erros de formatação ou whitespace).
+
+### Commit
+
+- Mensagem autorizada: `fix(farmakit): fechar correcoes da E9`.
+
+## 2026-09-02 — E9.2 — Fechamento final das regressões do Comparador
+
+### Objetivo
+
+Resolver os blockers apontados pela auditoria externa da E9.1:
+1. Playwright real do Comparador populado provando o CompareChart montado e com pixels renderizados sob CSP;
+2. Paleta autorizada fechada de 21 cores ponta a ponta (`src/domain/shared/colors.ts`, schemas Zod, sanitização em CompareChart e snapshots de CalculationRecord);
+3. CRUD transacional assíncrono para Dose e exclusão de Cenário preservando draft/UI em falha e exibindo alerta de erro;
+4. Eliminação de falsos positivos de Chart.js nos testes jsdom do Comparador;
+5. Teste real específico para ABSORPTION_SOLVER_FAILURE (`halfLifeMs = 1`, `tmaxMs = 86400000`);
+6. Endurecimento de `isDomainError()` para aceitar apenas códigos do catálogo fechado `DOMAIN_ERROR_CODES`;
+7. Centralização de i18n da E9 em `pt-BR.messages.ts`.
+
+### Alterações realizadas
+
+- `src/domain/shared/colors.ts`: módulo canônico exportando 21 cores autorizadas (`DEFAULT_SCENARIO_COLORS` + `LEGACY_SCENARIO_COLORS`), tipo `PaletteColorId` e helpers `isAllowedPaletteColor` e `sanitizePaletteColor`.
+- `src/validation/schemas/primitives.ts`: `paletteColorIdSchema = z.enum(PALETTE_ALLOWED)`.
+- `src/domain/types.ts`: re-export de `PaletteColorId` a partir do módulo canônico.
+- `src/domain/shared/errors.ts`: tupla constante `DOMAIN_ERROR_CODES` endurecendo `isDomainError`.
+- `src/features/charts/CompareChart.tsx`: sanitização de cor via `sanitizePaletteColor` antes do repasse ao Chart.js.
+- `src/features/comparator/lib/historyRecord.ts` e `src/features/reconstitution/lib/historyRecord.ts`: sanitização e atualização de cores para a paleta canônica fechada.
+- `src/features/comparator/components/DoseEditor.tsx` e `src/features/comparator/components/ScenarioList.tsx`: mutações transacionais aguardáveis que preservam draft e estado de edição em caso de falha.
+- `src/features/comparator/pages/EditPage.tsx`: repasse e retorno do status das mutações.
+- `src/app/i18n/pt-BR.messages.ts`: centralização de strings de formulário e unidades de massa.
+- `src/tests/features/comparator/e9.2-regressions.test.tsx`: suíte de regressões cobrindo os blockers normativos da E9.2.
+- `src/tests/e2e/smoke-e1.spec.ts`: teste Playwright E2E do Comparador populado com 2 doses (passada e futura), validação de montagem do canvas de `CompareChart`, contagem de pixels coloridos via `getImageData`, alternância de escalas (Absoluta/Normalizada) e eixos (Linear/Log), integridade CSP e ausência de estilos inline na árvore React.
+- Fixtures de teste de storage e validação atualizadas para a paleta canônica autorizada (`#2563eb`, `#059669`, `#7c3aed`, `#e74c3c`).
+
+### Arquivos principais
+
+- `src/domain/shared/colors.ts`
+- `src/domain/shared/errors.ts`
+- `src/domain/types.ts`
+- `src/validation/schemas/primitives.ts`
+- `src/features/charts/CompareChart.tsx`
+- `src/features/comparator/components/DoseEditor.tsx`
+- `src/features/comparator/components/ScenarioList.tsx`
+- `src/features/comparator/pages/EditPage.tsx`
+- `src/features/comparator/lib/historyRecord.ts`
+- `src/features/comparator/lib/colors.ts`
+- `src/app/i18n/pt-BR.messages.ts`
+- `src/tests/features/comparator/e9.2-regressions.test.tsx`
+- `src/tests/e2e/smoke-e1.spec.ts`
+
+### Decisões tomadas
+
+- Nenhum contrato científico ou motor matemático alterado (`bateman.ts`, `rates.ts`, `state.ts`, `cutoff.ts` intactos).
+- Nenhum estilo inline (`style={{ ... }}`) introduzido.
+- `.token-optimizer/` versionado e preservado intacto.
+- A aprovação externa da E9 permanece pendente; a E10 não foi iniciada.
+
+### Validações executadas
+
+- `npm run lint`: PASS (0 erros, 0 warnings).
+- `npm run typecheck`: PASS (0 erros).
+- `npm run type-tests`: PASS (0 erros).
+- `npm run test:e9`: PASS (10 arquivos, 52 testes).
+- `npm run test:e8`: PASS (4 arquivos, 50 testes).
+- `npm run test:e7`: PASS (7 arquivos, 46 testes).
+- `npm run test:e6`: PASS (21 arquivos, 125 testes).
+- `npm run test:e5`: PASS (9 arquivos, 102 testes).
+- `npm run test:e4`: PASS (11 arquivos, 81 testes).
+- `npm test`: PASS (77 arquivos, 626 testes).
+- `npm run build`: PASS (Vite + PWA generateSW).
+- `npm run check:build-boundaries`: PASS (9 arquivos em dist, 0 referências a `.token-optimizer`).
+- `npm run test:e1`: PASS (4 testes Playwright em Chromium).
+- `git diff --check`: PASS (0 erros de formatação ou whitespace).
+
+### Commit
+
+- Mensagem autorizada: `fix(farmakit): fechar regressões finais da E9`.
+
+## 2026-09-02 — E9.3 — Compatibilidade v1, robustez assíncrona de storage e determinismo E2E
+
+### Objetivo
+
+Corrigir a compatibilidade de dados históricos FARMakit v1 emitidos anteriormente sem afrouxar o schema Zod ou reabrir `PaletteColorId`, blindar o fluxo de persistência contra `Promise.reject` não capturadas do storage preservando drafts e cenários na UI, congelar deterministicamente o relógio no Playwright com asserções semânticas de doses passadas e futuras, e eliminar warnings de React `act(...)`.
+
+### Alterações realizadas
+
+- `src/storage/compat/legacyColors.ts`: módulo puro de compatibilidade v1 mapeando aliases nominais históricos (`blue-500`, `emerald-500`, `purple-500`, etc.) exclusivamente para os hex canônicos autorizados da paleta, com normalizadores imutáveis para cenários, protocolos, histórico e bundles de export/backup. Cores desconhecidas continuam estritamente rejeitadas.
+- `src/storage/idb.ts`: normalização de cores legadas na hidratação da memória (`hydrateMemory`) antes dos schemas Zod em cenários, protocolos e histórico; agendamento de normalização física no IndexedDB quando cores são canonicalizadas, sem gerar quarentena indevida.
+- `src/storage/import.ts`: normalização de cores v1 antes da validação estrutural Zod em `validateAndPreviewConfigImport` e `validateAndPreviewFullBackupImport`, persistindo dados canônicos em hex após a importação.
+- `src/features/comparator/pages/ComparatorPage.tsx`: envolvimento de `mutateConfigPayload` em `try/catch` no boundary `handleUpdateScenarios`, retornando `{ ok: false, error: ... }` em caso de `Promise.reject`.
+- `src/features/comparator/components/DoseEditor.tsx`: remoção de verificações permissivas (`!mutationResult || mutationResult.ok`), adoção de `if (mutationResult.ok)`, tratamento com `try/catch` para manter campos de draft intactos e exibir alertas de erro amigáveis sem resetar o formulário em caso de falha assíncrona.
+- `src/features/comparator/components/ScenarioList.tsx`: adoção de `if (result.ok)` e `try/catch` na exclusão de cenário, mantendo o cenário intacto na lista sob falha do storage.
+- `src/features/comparator/pages/EditPage.tsx`: blindagem de `handleSaveScenario`, `handleDeleteScenario` e `handleUpdateDoses` com `try/catch`.
+- `src/tests/e2e/smoke-e1.spec.ts`: congelamento determinístico do relógio da aplicação via `page.addInitScript` fixando `Date.now()` em `2026-09-02T18:00:00.000Z`, provando na UI a contagem semântica exata de doses: `Administrações realizadas = 1` e `Doses futuras na simulação = 1`, mantendo asserções de Chart.js real, alternância de escalas, CSP e zero estilos inline.
+- `src/tests/features/comparator/e9.1-regressions.test.tsx`: eliminação de warnings de React `act(...)` com uso de `mockResolvedValue({ ok: true })` e wrapping de `await act(...)`.
+- `src/tests/storage/v1-color-compatibility.test.ts`: suíte de testes unitários e de integração provando compatibilidade de dados reais da E8, FullBackup e Config legados, invariante de rejeição direta por `paletteColorIdSchema` e quarentena de cores desconhecidas.
+- `src/tests/features/comparator/e9.3-regressions.test.tsx`: suíte de testes cobrindo `Promise.reject` e falhas assíncronas do storage no Comparador.
+
+### Arquivos principais
+
+- `src/storage/compat/legacyColors.ts`
+- `src/storage/idb.ts`
+- `src/storage/import.ts`
+- `src/features/comparator/pages/ComparatorPage.tsx`
+- `src/features/comparator/components/DoseEditor.tsx`
+- `src/features/comparator/components/ScenarioList.tsx`
+- `src/features/comparator/pages/EditPage.tsx`
+- `src/tests/e2e/smoke-e1.spec.ts`
+- `src/tests/features/comparator/e9.1-regressions.test.tsx`
+- `src/tests/features/comparator/e9.3-regressions.test.tsx`
+- `src/tests/storage/v1-color-compatibility.test.ts`
+- `docs/DIARIO-DE-BORDO.md`
+
+### Decisões tomadas
+
+- `PaletteColorId` permaneceu estritamente fechado como união de hex codes autorizados (`PALETTE_ALLOWED`).
+- Motores matemáticos e científicos (`bateman.ts`, `rates.ts`, `state.ts`, `cutoff.ts`, `analysis.ts`) 100% intactos.
+- Nenhum estilo inline (`style={{ ... }}`) introduzido.
+- `.token-optimizer/` versionado e preservado intacto.
+- A aprovação externa da E9 permanece pendente; a E10 não foi iniciada.
+
+### Validações executadas
+
+- `npm run lint`: PASS (0 erros, 0 warnings).
+- `npm run typecheck`: PASS (0 erros).
+- `npm run type-tests`: PASS (0 erros).
+- `npm run test:e9`: PASS.
+- `npm run test:e8`: PASS.
+- `npm run test:e7`: PASS.
+- `npm run test:e6`: PASS.
+- `npm run test:e5`: PASS.
+- `npm run test:e4`: PASS.
+- `npm test`: PASS (79 arquivos, 635 testes).
 - `npm run build`: PASS (Vite + PWA generateSW).
 - `npm run check:build-boundaries`: PASS (9 arquivos em dist, 0 referências a `.token-optimizer`).
 - `npm run test:e1`: PASS (4 testes Playwright em Chromium).
@@ -1840,3 +2035,86 @@ Corrigir a compatibilidade de dados históricos FARMakit v1 emitidos anteriormen
 ### Commit
 
 - Mensagem autorizada: `fix(farmakit): preservar compatibilidade v1 da E9`.
+
+## 2026-09-02 — E10 — Biblioteca e dataset oficial v1
+
+### Objetivo
+
+Implementar integralmente a etapa E10 da FARMakit: dataset oficial v1 bundled com 19 entidades internas (16 visíveis e 3 componentOnly para a Landergold), identidade oficial estável com chave composta `(substanceId, profileId)`, resolver oficial resiliente a versões com encadeamento de migrações, validação semântica de dataset, interface da Biblioteca com busca e filtros por procedência, modal acessível de ficha de substância com seletor de faixas/Tmax e semântica de CTAs gerando intents em memória preservando a fronteira com a E12.
+
+### Alterações realizadas
+
+- Definidos tipos e contratos de domínio em `src/domain/library/types.ts` (`Source`, `PharmacokineticProfile`, `SingleSubstance`, `BlendSubstance`, `Substance`, `OfficialDataset`, `DatasetIdMigration`).
+- Criado dataset oficial v1 bundled em `src/data/substances/legacy.dataset.ts` com 19 entidades, proporções 0.2/0.4/0.4 para Durateston LANDERGOLD, parâmetros golden históricos e cores exatas mapeadas para `PALETTE_ALLOWED`.
+- Implementado validador semântico em `src/data/substances/validate.ts` checando unicidade de IDs e slugs, integridade de referências de blend, proporções (`proportionSumClose`) e ausência de ciclos/bifurcações/becos em migrações.
+- Implementado resolver oficial em `src/data/substances/resolver.ts` com suporte à identidade composta `(substanceId, profileId)` e resolução sequencial de migrações por versão de dataset.
+- Atualizado `src/storage/references.ts` para verificar `hasSingleSubstance` e `hasProfile(substanceId, profileId)` em `CustomProfile`, `Scenario` e `ProtocolComponent`.
+- Implementados construtores puros de seleção de faixas em `src/features/library/lib/selection.ts` e construtores de intents transitórios em `src/features/library/lib/intents.ts` (sem dose ou agenda, rejeitando Comparador para Blend).
+- Implementados componentes da Biblioteca: `OriginBadge`, `RangeSelector`, `LibrarySearch`, `OriginFilter`, `SubstanceCard`, `SubstanceSheet` e página `LibraryPage`.
+- Implementado `src/features/library/library.css` 100% baseado em tokens do design system, com zero estilos inline e suporte responsivo a viewport mobile de 390px.
+- Adicionado catálogo `messages.library` em `src/app/i18n/pt-BR.messages.ts`.
+- Adicionado script `"test:e10"` no `package.json` e teste Playwright E2E da Biblioteca em `src/tests/e2e/smoke-e1.spec.ts`.
+
+### Arquivos principais
+
+- `src/domain/library/types.ts`
+- `src/data/sources/index.ts`
+- `src/data/substances/legacy.dataset.ts`
+- `src/data/substances/index.ts`
+- `src/data/substances/validate.ts`
+- `src/data/substances/resolver.ts`
+- `src/validation/schemas/library.ts`
+- `src/storage/references.ts`
+- `src/features/library/lib/selection.ts`
+- `src/features/library/lib/intents.ts`
+- `src/features/library/lib/view.ts`
+- `src/features/library/components/OriginBadge.tsx`
+- `src/features/library/components/RangeSelector.tsx`
+- `src/features/library/components/LibrarySearch.tsx`
+- `src/features/library/components/OriginFilter.tsx`
+- `src/features/library/components/SubstanceCard.tsx`
+- `src/features/library/components/SubstanceSheet.tsx`
+- `src/features/library/pages/LibraryPage.tsx`
+- `src/features/library/library.css`
+- `src/app/i18n/pt-BR.messages.ts`
+- `src/tests/data/library.dataset.test.ts`
+- `src/tests/data/dataset-resolver.test.ts`
+- `src/tests/validation/library.schemas.test.ts`
+- `src/tests/features/library/profile-selection.test.ts`
+- `src/tests/features/library/cta-intents.test.ts`
+- `src/tests/features/library/library-page.test.tsx`
+- `src/tests/e2e/smoke-e1.spec.ts`
+- `package.json`
+- `docs/DIARIO-DE-BORDO.md`
+
+### Decisões tomadas
+
+- Identidade de perfis farmacocinéticos estruturada em par composto `(substanceId, profileId)`.
+- `CustomProfile.owner.type === 'official'` restrito estritamente a `SingleSubstance` (rejeitando Blends como donos de perfis customizados).
+- CTA "Comparar" desabilitado e indisponível para BlendSubstance com aviso textual explicativo acessível.
+- Zero estilos inline (`style={{ ... }}`) em toda a árvore da Biblioteca.
+- Zero requisições de rede externas no runtime.
+- Preservação estrita dos motores matemáticos existentes.
+- A aprovação externa da E10 permanece pendente; a E11 não foi iniciada.
+
+### Validações executadas
+
+- `npm run lint`: PASS (0 erros, 0 warnings).
+- `npm run typecheck`: PASS (0 erros).
+- `npm run type-tests`: PASS (0 erros).
+- `npm run test:e10`: PASS (6 arquivos, 39 testes).
+- `npm run test:e9`: PASS (11 arquivos, 56 testes).
+- `npm run test:e8`: PASS (4 arquivos, 50 testes).
+- `npm run test:e7`: PASS (7 arquivos, 46 testes).
+- `npm run test:e6`: PASS (22 arquivos, 131 testes).
+- `npm run test:e5`: PASS (10 arquivos, 113 testes).
+- `npm run test:e4`: PASS (11 arquivos, 81 testes).
+- `npm test`: PASS (85 arquivos, 675 testes).
+- `npm run build`: PASS (Vite + PWA generateSW).
+- `npm run check:build-boundaries`: PASS (9 arquivos em dist, 0 referências a `.token-optimizer`).
+- `npm run test:e1`: PASS (5 testes Playwright em Chromium sob CSP e mobile 390px).
+- `git diff --check`: PASS (0 erros de formatação ou whitespace).
+
+### Commit
+
+- Mensagem autorizada: `feat(farmakit): implementar biblioteca E10`.

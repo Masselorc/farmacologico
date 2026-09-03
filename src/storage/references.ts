@@ -15,7 +15,8 @@ export interface ConfigReferenceValidationResult {
  */
 export interface OfficialEntityResolver {
   hasSubstance(substanceId: string, datasetVersion: number): boolean
-  hasProfile(profileId: string, datasetVersion: number): boolean
+  hasSingleSubstance(substanceId: string, datasetVersion: number): boolean
+  hasProfile(substanceId: string, profileId: string, datasetVersion: number): boolean
 }
 
 /**
@@ -77,10 +78,10 @@ export function validateConfigReferences(
         }
       }
     } else if (p.owner.type === 'official' && officialResolver) {
-      if (!officialResolver.hasSubstance(p.owner.substanceId, currentDatasetVersion)) {
+      if (!officialResolver.hasSingleSubstance(p.owner.substanceId, currentDatasetVersion)) {
         return {
           valid: false,
-          error: `CustomProfile ${p.id} referencia official substance não encontrada no dataset: ${p.owner.substanceId}`,
+          error: `CustomProfile ${p.id} referencia official substance não encontrada ou inválida (blend) no dataset: ${p.owner.substanceId}`,
         }
       }
     }
@@ -102,10 +103,18 @@ export function validateConfigReferences(
           error: `Scenario ${sc.id} referencia datasetVersion futuro (${sc.source.datasetVersion} > ${currentDatasetVersion})`,
         }
       }
-      if (officialResolver && !officialResolver.hasProfile(sc.source.profileId, sc.source.datasetVersion)) {
-        return {
-          valid: false,
-          error: `Scenario ${sc.id} referencia library profile não encontrado no dataset: ${sc.source.profileId}`,
+      if (officialResolver) {
+        if (!officialResolver.hasSingleSubstance(sc.source.substanceId, sc.source.datasetVersion)) {
+          return {
+            valid: false,
+            error: `Scenario ${sc.id} referencia library substance inexistente no dataset: ${sc.source.substanceId}`,
+          }
+        }
+        if (!officialResolver.hasProfile(sc.source.substanceId, sc.source.profileId, sc.source.datasetVersion)) {
+          return {
+            valid: false,
+            error: `Scenario ${sc.id} referencia library profile não encontrado no dataset: ${sc.source.substanceId}:${sc.source.profileId}`,
+          }
         }
       }
     }
@@ -128,10 +137,18 @@ export function validateConfigReferences(
             error: `ProtocolComponent ${comp.id} referencia datasetVersion futuro (${comp.source.datasetVersion} > ${currentDatasetVersion})`,
           }
         }
-        if (officialResolver && !officialResolver.hasProfile(comp.source.profileId, comp.source.datasetVersion)) {
-          return {
-            valid: false,
-            error: `ProtocolComponent ${comp.id} referencia library profile não encontrado: ${comp.source.profileId}`,
+        if (officialResolver) {
+          if (!officialResolver.hasSingleSubstance(comp.source.substanceId, comp.source.datasetVersion)) {
+            return {
+              valid: false,
+              error: `ProtocolComponent ${comp.id} referencia library substance inexistente no dataset: ${comp.source.substanceId}`,
+            }
+          }
+          if (!officialResolver.hasProfile(comp.source.substanceId, comp.source.profileId, comp.source.datasetVersion)) {
+            return {
+              valid: false,
+              error: `ProtocolComponent ${comp.id} referencia library profile não encontrado: ${comp.source.substanceId}:${comp.source.profileId}`,
+            }
           }
         }
       }

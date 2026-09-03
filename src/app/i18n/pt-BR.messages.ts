@@ -235,6 +235,44 @@ export const messages = {
     tmaxInvalid: 'O Tmax deve ser maior ou igual a zero (0 para absorção imediata).',
     scenarioNameRequired: 'Informe o nome do cenário.',
   },
+  library: {
+    title: 'Biblioteca',
+    subtitle: 'Catálogo de substâncias e parâmetros farmacocinéticos de referência.',
+    searchLabel: 'Buscar substâncias',
+    searchPlaceholder: 'Nome, apelido ou categoria...',
+    filterOriginLabel: 'Filtrar por origem:',
+    filterAll: 'Todas as origens',
+    filterLegacy: 'Legado sem fonte',
+    filterLiterature: 'Fonte citada',
+    filterUser: 'Criado por você',
+    legacyBadge: 'Legado sem fonte',
+    literatureBadge: 'Fonte citada',
+    userBadge: 'Criado por você',
+    singleKind: 'Fármaco simples',
+    blendKind: 'Composição (Blend)',
+    componentOnlyBadge: 'Componente exclusivo',
+    compare: 'Comparar no Meia-vida',
+    addToProtocols: 'Adicionar a Protocolos',
+    blendComparatorUnavailable:
+      'Composições (blends) são analisadas no módulo de Protocolos através de seus múltiplos componentes.',
+    bioavailabilityDisclaimer:
+      'Biodisponibilidade exibida apenas como metadado educacional (F relativo = 1 no modelo).',
+    halfLifeLabel: 'Meia-vida:',
+    tmaxLabel: 'Tmax:',
+    tmaxInstant: 'Absorção instantânea (Tmax = 0)',
+    routeLabel: 'Via de administração:',
+    esterLabel: 'Éster:',
+    formulationLabel: 'Formulação:',
+    componentsTitle: 'Componentes da composição:',
+    closeSheet: 'Fechar detalhes',
+    rangeSelectionRequired: 'Selecione um valor dentro do intervalo para prosseguir:',
+    rangeMinMax: (min: string, max: string) => `Faixa: de ${min} a ${max}`,
+    noResults: 'Nenhuma substância encontrada para os critérios selecionados.',
+    intentPreviewTitle: 'Ação preparada (transitória em memória):',
+    intentPreviewNotice:
+      'A integração direta entre módulos será ativada na etapa E12. O intent gerado não altera nem persiste dados de simulação ou protocolos.',
+    profilesCount: (count: number) => `${count} perfil(is)`,
+  },
 } as const
 
 export type Messages = typeof messages
@@ -408,4 +446,21 @@ export function formatReconstitutionWarning(
 
 export function formatRecurrenceReason(reason: RecurrenceInvalidReason): string {
   return recurrenceReasonMessages[reason]
+}
+
+export function formatTimeUnit(unit: string): string {
+  switch (unit) {
+    case 'minutes':
+      return messages.comparator.timeUnitMinutes
+    case 'hours':
+      return messages.comparator.timeUnitHours
+    case 'days':
+      return messages.comparator.timeUnitDays
+    default:
+      return unit
+  }
+}
+
+export function formatDuration(duration: { value: number; unit: string }): string {
+  return `${duration.value} ${formatTimeUnit(duration.unit)}`
 }

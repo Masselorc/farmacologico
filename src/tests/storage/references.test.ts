@@ -230,4 +230,76 @@ describe('Config References Validation (§6, §11, E6.1)', () => {
     expect(res2.valid).toBe(false)
     expect(res2.error).toContain('datasetVersion futuro')
   })
+
+  it('valida referências oficiais com officialResolver composto', () => {
+    const payload = createBasePayload()
+    payload.scenarios = [
+      {
+        id: 'sc-1',
+        name: 'Cenário Retatrutida',
+        color: '#9b59b6',
+        source: {
+          type: 'library',
+          substanceId: 'retatrutida',
+          profileId: 'legacy-v1',
+          datasetVersion: 1,
+          pkParametersSnapshot: { halfLife: { value: 6, unit: 'days' }, tmax: { value: 2, unit: 'days' } },
+        },
+        displayUnit: 'mg',
+        selectedPkParameters: { halfLifeMs: 6 * 86400000, tmaxMs: 2 * 86400000 },
+        doses: [],
+      },
+    ]
+
+    const mockResolver = {
+      hasSubstance: (s: string) => s === 'retatrutida' || s === 'durateston-landergold',
+      hasSingleSubstance: (s: string) => s === 'retatrutida',
+      hasProfile: (s: string, p: string) => s === 'retatrutida' && p === 'legacy-v1',
+    }
+
+    const ok = validateConfigReferences(payload, 1, mockResolver)
+    expect(ok.valid).toBe(true)
+
+    // Rejeita CustomProfile oficial apontando para Blend
+    const payloadBlendOwner = createBasePayload()
+    payloadBlendOwner.customProfiles = [
+      {
+        id: 'cp-blend',
+        owner: { type: 'official', substanceId: 'durateston-landergold' },
+        route: 'unknown',
+        halfLife: { value: 6, unit: 'days' },
+        tmaxSpec: { kind: 'instant' },
+        origin: { kind: 'user_defined', reviewStatus: 'not_applicable' },
+        createdAt: '2026-08-27T08:00:00.000Z',
+        updatedAt: '2026-08-27T08:00:00.000Z',
+      },
+    ]
+
+    const blendOwnerRes = validateConfigReferences(payloadBlendOwner, 1, mockResolver)
+    expect(blendOwnerRes.valid).toBe(false)
+    expect(blendOwnerRes.error).toContain('inválida (blend)')
+
+    // Rejeita Scenario com profile inexistente para a substância
+    const payloadBadProfile = createBasePayload()
+    payloadBadProfile.scenarios = [
+      {
+        id: 'sc-bad',
+        name: 'Cenário Inválido',
+        color: '#9b59b6',
+        source: {
+          type: 'library',
+          substanceId: 'retatrutida',
+          profileId: 'outro-perfil',
+          datasetVersion: 1,
+          pkParametersSnapshot: { halfLife: { value: 6, unit: 'days' }, tmax: null },
+        },
+        displayUnit: 'mg',
+        selectedPkParameters: { halfLifeMs: 6 * 86400000, tmaxMs: null },
+        doses: [],
+      },
+    ]
+    const badProfileRes = validateConfigReferences(payloadBadProfile, 1, mockResolver)
+    expect(badProfileRes.valid).toBe(false)
+    expect(badProfileRes.error).toContain('library profile não encontrado')
+  })
 })

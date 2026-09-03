@@ -6,7 +6,7 @@ import { CSP_META_CONTENT } from '../../app/config/csp'
 const BASE_PATH = '/farmacologico/'
 
 const structuralRoutes = [
-  { navLabel: 'Biblioteca', heading: 'Biblioteca', placeholder: /prevista na E10\./ },
+  { navLabel: 'Biblioteca', heading: 'Biblioteca', placeholder: /Catálogo de substâncias e parâmetros/ },
   { navLabel: 'Meia-vida', heading: 'Meia-vida', placeholder: /Compare cenários farmacocinéticos/ },
   {
     navLabel: 'Reconstituir',
@@ -259,5 +259,71 @@ test('Comparador E9 populado renderiza CompareChart real com pintura de pixels s
   expect(inlineStyles).toHaveLength(0)
 
   // F. CSP: sem erros nem requisições indevidas
+  expect(problems).toEqual([])
+})
+
+test('Biblioteca E10 navega, filtra, exibe ficha, respeita regras de Blend e responsividade mobile 390px sob CSP', async ({
+  page,
+}) => {
+  const problems = watchProblems(page)
+
+  // 1. Acessa a página da Biblioteca
+  await page.goto(`${BASE_PATH}#/biblioteca`)
+  await expect(page.getByRole('heading', { name: 'Biblioteca', level: 1 })).toBeVisible()
+
+  // 2. 16 cards visíveis na carga inicial
+  const cards = page.locator('.substance-card')
+  await expect(cards).toHaveCount(16)
+
+  // ComponentOnly ocultos
+  await expect(page.getByText('LANDERGOLD — Propionato')).toHaveCount(0)
+
+  // 3. Busca por "retatrutida"
+  const searchInput = page.getByLabel('Buscar substâncias')
+  await searchInput.fill('retatrutida')
+  await expect(cards).toHaveCount(1)
+  await expect(page.getByRole('heading', { name: 'Retatrutida' })).toBeVisible()
+
+  // 4. Abre ficha de SingleSubstance (Retatrutida)
+  await page.getByRole('button', { name: /Ver detalhes de Retatrutida/i }).click()
+  const sheet = page.locator('.sheet-modal')
+  await expect(sheet).toBeVisible()
+  await expect(sheet.getByText('6 dias')).toBeVisible()
+  await expect(sheet.getByRole('button', { name: 'Comparar no Meia-vida' })).toBeVisible()
+  await expect(sheet.getByRole('button', { name: 'Adicionar a Protocolos' })).toBeVisible()
+
+  // Fecha ficha
+  await page.getByRole('button', { name: 'Fechar detalhes' }).click()
+  await expect(sheet).toHaveCount(0)
+
+  // 5. Limpa busca e testa Blend (Durateston LANDERGOLD)
+  await searchInput.fill('')
+  await expect(cards).toHaveCount(16)
+
+  await page.getByRole('button', { name: /Ver detalhes de Durateston LANDERGOLD/i }).click()
+  await expect(sheet).toBeVisible()
+  // No Blend: CTA Comparar NÃO existe e mensagem explicativa está presente
+  await expect(sheet.getByRole('button', { name: 'Comparar no Meia-vida' })).toHaveCount(0)
+  await expect(sheet.getByText(/Composições \(blends\) são analisadas no módulo de Protocolos/i)).toBeVisible()
+  await expect(sheet.getByRole('button', { name: 'Adicionar a Protocolos' })).toBeVisible()
+
+  // Fecha ficha
+  await page.getByRole('button', { name: 'Fechar detalhes' }).click()
+
+  // 6. Inline styles: estritamente zero na árvore da Biblioteca
+  const inlineStylesCount = await page.evaluate(() => {
+    const root = document.querySelector('.library-page')
+    return root ? root.querySelectorAll('[style]').length : 0
+  })
+  expect(inlineStylesCount).toBe(0)
+
+  // 7. Responsividade mobile (390px x 844px) sem overflow horizontal
+  await page.setViewportSize({ width: 390, height: 844 })
+  const hasHorizontalScroll = await page.evaluate(() => {
+    return document.documentElement.scrollWidth > document.documentElement.clientWidth
+  })
+  expect(hasHorizontalScroll).toBe(false)
+
+  // 8. CSP limpo e sem requisições de rede indevidas
   expect(problems).toEqual([])
 })
