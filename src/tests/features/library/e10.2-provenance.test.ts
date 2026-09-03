@@ -5,7 +5,6 @@ import {
   createComparatorIntent,
   createProtocolIntent,
 } from '../../../features/library/lib/intents'
-import { resolveProfileParameters } from '../../../features/library/lib/selection'
 import type { CustomProfile, CustomSubstance } from '../../../domain/data-management/types'
 
 const officialItem = buildLibraryView(OFFICIAL_DATASET_V1).find((item) => item.id === 'retatrutida')
@@ -41,17 +40,6 @@ const customSubstanceProfile: CustomProfile = {
   ...customProfile,
   id: 'cp-e102-custom-substance',
   owner: { type: 'custom', substanceId: customSubstance.id },
-}
-
-function resolvedWith(overrides: { halfLifeMs?: number; tmaxMs?: number | null }) {
-  const resolved = resolveProfileParameters(officialProfile.profile)
-  return {
-    ...resolved,
-    selectedPkParameters: {
-      ...resolved.selectedPkParameters,
-      ...overrides,
-    },
-  }
 }
 
 describe('E10.2 — proveniência e validação dos builders', () => {
@@ -114,12 +102,19 @@ describe('E10.2 — proveniência e validação dos builders', () => {
     ['Infinity', Number.POSITIVE_INFINITY],
     ['negativa', -1],
     ['zero', 0],
-  ])('rejeita halfLifeMs %s na fronteira do Comparator', (_label, halfLifeMs) => {
+  ])('rejeita halfLifeMs %s na fronteira do Comparator', (_label, halfLifeVal) => {
+    const invalidProfile = {
+      ...officialProfile.profile,
+      halfLife: { value: halfLifeVal, unit: 'days' as const },
+    }
+    const invalidView = {
+      ...officialProfile,
+      profile: invalidProfile,
+    }
     expect(() =>
       createComparatorIntent({
         substance: officialSubstance,
-        selectedProfile: officialProfile,
-        resolvedSelection: resolvedWith({ halfLifeMs }),
+        selectedProfile: invalidView,
       }),
     ).toThrow()
   })
@@ -128,23 +123,41 @@ describe('E10.2 — proveniência e validação dos builders', () => {
     ['NaN', Number.NaN],
     ['Infinity', Number.POSITIVE_INFINITY],
     ['negativo', -1],
-  ])('rejeita tmaxMs %s na fronteira do Protocol', (_label, tmaxMs) => {
+  ])('rejeita tmaxMs %s na fronteira do Protocol', (_label, tmaxVal) => {
+    const invalidProfile = {
+      ...officialProfile.profile,
+      tmaxSpec: { kind: 'value' as const, value: { value: tmaxVal, unit: 'hours' as const } },
+    }
+    const invalidView = {
+      ...officialProfile,
+      profile: invalidProfile,
+    }
     expect(() =>
       createProtocolIntent({
         substance: officialSubstance,
-        selectedProfile: officialProfile,
-        resolvedSelection: resolvedWith({ tmaxMs }),
+        selectedProfile: invalidView,
       }),
     ).toThrow()
   })
 
-  it.each([null, 0, 12 * 60 * 60 * 1000])('aceita tmaxMs %s quando válido', (tmaxMs) => {
+  it.each([
+    ['instantâneo', 'instant' as const, null],
+    ['numérico', { value: 12, unit: 'hours' as const }, 12 * 3600000],
+  ])('aceita tmax %s quando válido', (_label, chosenTmax, expectedMs) => {
+    const unknownProfile = {
+      ...officialProfile.profile,
+      tmaxSpec: { kind: 'unknown' as const },
+    }
+    const unknownView = {
+      ...officialProfile,
+      profile: unknownProfile,
+    }
     const intent = createComparatorIntent({
       substance: officialSubstance,
-      selectedProfile: officialProfile,
-      resolvedSelection: resolvedWith({ tmaxMs }),
+      selectedProfile: unknownView,
+      parameterSelection: { chosenTmax },
     })
 
-    expect(intent.selectedPkParameters.tmaxMs).toBe(tmaxMs)
+    expect(intent.selectedPkParameters.tmaxMs).toBe(expectedMs)
   })
 })

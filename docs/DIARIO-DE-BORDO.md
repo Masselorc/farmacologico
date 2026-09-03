@@ -2221,3 +2221,59 @@ Resolver integralmente todos os 16 blockers identificados na auditoria técnica 
 - SHA final, push e execução remota serão registrados no relatório desta execução após o staging.
 
 E10.2 implementada; aguardando auditoria externa.
+
+## 2026-09-03 — E10.3 — Fechamento final dos blockers contratuais da Biblioteca
+
+### Base e escopo
+
+- Branch `main`; SHA-base e `origin/main` validados em `7e1bec2d4f3aad6e78a9a2cb3b4be35abaa7bf5d`.
+- E9 permanece fechada; E10 concluída com fechamento cirúrgico dos blockers contratuais residuais; E11 e E12 não foram iniciadas.
+- Nenhuma alteração em `FARMakit-especificacao-final.md`, `README.md`, `.token-optimizer/`, dataset oficial, resolver, engines, recurrence, simulation, reconstitution ou storage.
+
+### Correções contratuais e arquiteturais
+
+- **Blocker 1 (Derivação atômica PK e eliminação de API bifurcada)**:
+  - Removidos completamente da API pública de `createComparatorIntent` e `createProtocolIntent` os parâmetros `resolvedSelection?: ResolvedProfileParameters` e `selection?: { halfLifeMs, tmaxMs, snapshot, selectionNote }`.
+  - Builders aceitam exclusivamente `selectedProfile: LibraryProfileView` e `parameterSelection?: ProfileParameterSelectionInput`.
+  - Derivação científica de `selectedPkParameters` e `pkParametersSnapshot` é atômica e simultânea através de `resolveProfileParameters`, garantindo que não haja qualquer possibilidade de divergência entre a parametrização do engine e o snapshot de histórico.
+  - Snapshot de parâmetros é validado por `pkParametersSnapshotSchema` e `selectedPkParameters` é validado por `selectedPkParametersSchema`.
+- **Blocker 2 (Invariante de pertencimento e proveniência cross-substance)**:
+  - Implementada função guard `assertSelectedProfileBelongsToSubstance(substance: SingleSubstance, selectedProfile: LibraryProfileView): void`.
+  - Perfis oficiais exigem estritamente `selectedProfile.substanceId === substance.id`.
+  - Perfis customizados exigem estritamente `selectedProfile.owner.substanceId === substance.id`.
+  - Perfis customizados com `owner.type === 'official'` são restritos a substâncias oficiais existentes; `owner.type === 'custom'` são restritos a substâncias customizadas.
+  - Qualquer tentativa de associar perfil de substância B à substância A falha com erro explícito antes de qualquer cálculo PK.
+- **Blocker 3 (Isolamento de estado no RangeSelector por identidade estável de perfil)**:
+  - Implementada função pura `profileViewIdentity(view: LibraryProfileView): string` em `src/features/library/lib/view.ts`.
+  - No `SubstanceSheet.tsx`, aplicadas chaves React estáveis `key={`half-life:${profileIdentity}`}` e `key={`tmax:${profileIdentity}`}` nos componentes `RangeSelector`.
+  - A alternância entre perfis com faixas numericamente idênticas força o remount completo do componente, limpando qualquer texto digitado e impedindo reaproveitamento indevido de seleção entre perfis.
+  - O estado de `preparedIntent` é resetado imediatamente na troca de perfil.
+  - Preservado o comportamento de composição do Blend (3 componentes, 0.2/0.4/0.4, sem doses).
+
+### RED/GREEN e gates locais
+
+- Fase RED comprovada com falhas em:
+  - Rejeição de APIs com `resolvedSelection` e `selection` em `type-tests`;
+  - Rejeição de perfis cruzados entre substâncias em `e10.3-regressions.test.tsx`;
+  - Vazamento de valor de texto no `RangeSelector` entre perfis com faixas idênticas.
+- Fase GREEN atingida com 100% dos testes aprovados:
+  - `npm run lint`: PASS (0 erros, 0 avisos).
+  - `npm run typecheck`: PASS (0 erros).
+  - `npm run type-tests`: PASS (0 erros).
+  - `npm run test:e10`: PASS (11 arquivos, 104 testes).
+  - `npm run test:e9`: PASS (11 arquivos, 56 testes).
+  - `npm run test:e8`: PASS (4 arquivos, 50 testes).
+  - `npm run test:e7`: PASS (7 arquivos, 46 testes).
+  - `npm run test:e6`: PASS (22 arquivos, 131 testes).
+  - `npm run test:e5`: PASS (10 arquivos, 113 testes).
+  - `npm run test:e4`: PASS (11 arquivos, 81 testes).
+  - `npm test`: PASS (90 arquivos, 740 testes).
+  - `npm run build`: PASS (Vite + PWA generateSW).
+  - `npm run check:build-boundaries`: PASS (9 arquivos em dist, 0 referências a `.token-optimizer`).
+  - `npm run test:e1`: PASS (5 testes Playwright em Chromium sob CSP e mobile 390px).
+  - `git diff --check`: PASS (0 erros de formatação ou whitespace).
+
+### Commit e publicação
+
+- Commit normativo: `fix(farmakit): garantir coerencia final da E10`.
+

@@ -13,10 +13,11 @@ import type {
   PharmacokineticProfile,
   SingleSubstance,
 } from '../../../domain/library/types'
+import { OFFICIAL_DATASET_V1 } from '../../../data/substances'
 import { CURRENT_DATASET_VERSION } from '../../../domain/version'
 import { LEGACY_SUBSTANCE_COLORS } from '../../../data/substances/legacy.dataset'
 import { pkParametersSnapshotSchema, selectedPkParametersSchema } from '../../../validation/schemas/pk'
-import { resolveProfileParameters, type ResolvedProfileParameters } from './selection'
+import { resolveProfileParameters, type ProfileParameterSelectionInput } from './selection'
 import type { LibraryProfileView } from './view'
 
 export interface LibraryComparatorIntent {
@@ -42,30 +43,18 @@ export interface LibraryProtocolIntent {
   components: LibraryProtocolComponentIntent[]
 }
 
-interface SingleProfileIntentParams {
-  /** Perfil exibido e selecionado na Biblioteca, com proveniência explícita. */
-  selectedProfile: LibraryProfileView
-  resolvedSelection?: ResolvedProfileParameters
-  /** Compatibilidade transitória para uma seleção já convertida pela UI. */
-  selection?: {
-    halfLifeMs: number
-    tmaxMs: number | null
-    snapshot: PkParametersSnapshot
-    selectionNote?: SelectedPkParameters['selectionNote']
-  }
-}
-
 export interface CreateComparatorIntentParams {
   substance: SingleSubstance
   selectedProfile: LibraryProfileView
-  resolvedSelection?: ResolvedProfileParameters
-  selection?: SingleProfileIntentParams['selection']
+  parameterSelection?: ProfileParameterSelectionInput
   displayUnit?: MassUnit
   color?: PaletteColorId
 }
 
-export interface CreateSingleProtocolIntentParams extends SingleProfileIntentParams {
+export interface CreateSingleProtocolIntentParams {
   substance: SingleSubstance
+  selectedProfile: LibraryProfileView
+  parameterSelection?: ProfileParameterSelectionInput
   dataset?: never
 }
 
@@ -90,32 +79,48 @@ interface ValidatedProfileSelection {
 }
 
 /**
- * Resolve a seleção e valida novamente sua fronteira pública.
- * `ResolvedProfileParameters` é um tipo de transporte, não uma prova de
- * validade: chamadas externas também podem fornecer NaN, Infinity ou limites
- * inválidos em runtime.
+ * Valida a invariante de identidade e proveniência: o perfil deve pertencer
+ * estritamente à substância fornecida antes de qualquer resolução PK.
+ */
+export function assertSelectedProfileBelongsToSubstance(
+  substance: SingleSubstance,
+  selectedProfile: LibraryProfileView,
+): void {
+  if (selectedProfile.provenance === 'official') {
+    if (selectedProfile.substanceId !== substance.id) {
+      throw new Error(
+        `Perfil oficial ${selectedProfile.profileId} pertence à substância ${selectedProfile.substanceId}, não a ${substance.id}`,
+      )
+    }
+  } else if (selectedProfile.provenance === 'custom_profile') {
+    if (selectedProfile.owner.substanceId !== substance.id) {
+      throw new Error(
+        `Perfil customizado ${selectedProfile.customProfileId} pertence à substância ${selectedProfile.owner.substanceId}, não a ${substance.id}`,
+      )
+    }
+    const isOfficialSubstance = OFFICIAL_DATASET_V1.substances.some((s) => s.id === substance.id)
+    if (selectedProfile.owner.type === 'official' && !isOfficialSubstance) {
+      throw new Error(
+        `Perfil customizado com owner.type 'official' (${selectedProfile.owner.substanceId}) não pode ser associado a substância não-oficial ${substance.id}`,
+      )
+    }
+    if (selectedProfile.owner.type === 'custom' && isOfficialSubstance) {
+      throw new Error(
+        `Perfil customizado com owner.type 'custom' (${selectedProfile.owner.substanceId}) não pode ser associado a substância oficial ${substance.id}`,
+      )
+    }
+  }
+}
+
+/**
+ * Resolve a seleção atômica a partir do perfil e das escolhas do usuário,
+ * garantindo coerência matemática e de snapshot em uma única operação.
  */
 function resolveAndValidateProfileSelection(
   profile: PharmacokineticProfile,
-  params: Pick<SingleProfileIntentParams, 'resolvedSelection' | 'selection'>,
+  parameterSelection?: ProfileParameterSelectionInput,
 ): ValidatedProfileSelection {
-  let resolved: ResolvedProfileParameters
-  if (params.resolvedSelection) {
-    resolved = params.resolvedSelection
-  } else if (params.selection) {
-    resolved = {
-      selectedPkParameters: {
-        halfLifeMs: params.selection.halfLifeMs,
-        tmaxMs: params.selection.tmaxMs,
-        ...(params.selection.selectionNote ? { selectionNote: params.selection.selectionNote } : {}),
-      },
-      pkParametersSnapshot: params.selection.snapshot,
-      needsUserSelection: false,
-      missingFields: [],
-    }
-  } else {
-    resolved = resolveProfileParameters(profile)
-  }
+  const resolved = resolveProfileParameters(profile, parameterSelection)
 
   if (resolved.needsUserSelection) {
     throw new Error(`Seleção incompleta para os parâmetros: ${resolved.missingFields.join(', ')}`)
@@ -191,9 +196,12 @@ export function createComparatorIntent(params: CreateComparatorIntentParams): Li
 
   const single = params.substance
   const selectedProfile = params.selectedProfile
+
+  assertSelectedProfileBelongsToSubstance(single, selectedProfile)
+
   const { selectedPkParameters, pkParametersSnapshot } = resolveAndValidateProfileSelection(
     selectedProfile.profile,
-    params,
+    params.parameterSelection,
   )
 
   const color = params.color ?? LEGACY_SUBSTANCE_COLORS[single.id] ?? '#2563eb'
@@ -220,9 +228,12 @@ export function createProtocolIntent(params: CreateProtocolIntentParams): Librar
       throw new Error('Proveniência do perfil selecionado é obrigatória')
     }
     const selectedProfile = params.selectedProfile
+
+    assertSelectedProfileBelongsToSubstance(single, selectedProfile)
+
     const { selectedPkParameters, pkParametersSnapshot } = resolveAndValidateProfileSelection(
       selectedProfile.profile,
-      params,
+      params.parameterSelection,
     )
 
     return {

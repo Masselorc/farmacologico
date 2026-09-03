@@ -103,11 +103,7 @@ describe('ComparatorPage Component (§15, E9)', () => {
   it('salva análise no histórico mediante clique explícito no botão', async () => {
     render(<ComparatorPage />)
 
-    await waitFor(() => {
-      expect(screen.getByRole('heading', { level: 1, name: /Meia-vida/i })).toBeTruthy()
-    })
-
-    const saveBtn = screen.getByRole('button', { name: /Salvar análise no histórico/i })
+    const saveBtn = await screen.findByRole('button', { name: /Salvar análise no histórico/i })
     expect(saveBtn).toBeTruthy()
 
     fireEvent.click(saveBtn)

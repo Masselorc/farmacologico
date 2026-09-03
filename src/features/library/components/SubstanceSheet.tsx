@@ -4,14 +4,13 @@ import type { Duration, DurationRange, DurationValue, TimeUnit } from '../../../
 import type { PharmacokineticProfile } from '../../../domain/library/types'
 import { OFFICIAL_DATASET_V1 } from '../../../data/substances'
 import { parseLocaleDecimal } from '../../../domain/units/decimal'
-import type { LibraryItemView } from '../lib/view'
+import { type LibraryItemView, profileViewIdentity } from '../lib/view'
 import {
   createComparatorIntent,
   createProtocolIntent,
   type LibraryComparatorIntent,
   type LibraryProtocolIntent,
 } from '../lib/intents'
-import { resolveProfileParameters } from '../lib/selection'
 import { OriginBadge } from './OriginBadge'
 import { RangeSelector } from './RangeSelector'
 
@@ -29,6 +28,7 @@ export function SubstanceSheet({ item, onClose }: SubstanceSheetProps) {
   const [selectedProfileIndex, setSelectedProfileIndex] = useState(0)
   const currentProfileView = item.profileViews?.[selectedProfileIndex]
   const currentProfile: PharmacokineticProfile | undefined = currentProfileView?.profile
+  const profileIdentity = currentProfileView ? profileViewIdentity(currentProfileView) : ''
 
   const [chosenHalfLife, setChosenHalfLife] = useState<DurationValue | undefined>(undefined)
   const [chosenTmax, setChosenTmax] = useState<'instant' | DurationValue | undefined>(undefined)
@@ -64,24 +64,21 @@ export function SubstanceSheet({ item, onClose }: SubstanceSheetProps) {
 
     setErrorMessage(null)
     try {
-      const resolved = resolveProfileParameters(currentProfile, {
-        chosenHalfLife,
-        chosenTmax,
-      })
-
-      if (resolved.needsUserSelection) {
-        setErrorMessage(messages.library.selectionRequiredAlert)
-        return
-      }
-
       const intent = createComparatorIntent({
         substance: item.substance,
         selectedProfile: currentProfileView,
-        resolvedSelection: resolved,
+        parameterSelection: {
+          chosenHalfLife,
+          chosenTmax,
+        },
       })
       setPreparedIntent(intent)
-    } catch {
-      setErrorMessage(messages.library.actionError)
+    } catch (err: unknown) {
+      if (err instanceof Error && err.message.startsWith('Seleção incompleta')) {
+        setErrorMessage(messages.library.selectionRequiredAlert)
+      } else {
+        setErrorMessage(messages.library.actionError)
+      }
     }
   }
 
@@ -97,24 +94,22 @@ export function SubstanceSheet({ item, onClose }: SubstanceSheetProps) {
         setPreparedIntent(intent)
       } else {
         if (item.substance.kind !== 'single' || !currentProfile || !currentProfileView) return
-        const resolved = resolveProfileParameters(currentProfile, {
-          chosenHalfLife,
-          chosenTmax,
-        })
-        if (resolved.needsUserSelection) {
-          setErrorMessage(messages.library.selectionRequiredAlert)
-          return
-        }
-
         const intent = createProtocolIntent({
           substance: item.substance,
           selectedProfile: currentProfileView,
-          resolvedSelection: resolved,
+          parameterSelection: {
+            chosenHalfLife,
+            chosenTmax,
+          },
         })
         setPreparedIntent(intent)
       }
-    } catch {
-      setErrorMessage(messages.library.actionError)
+    } catch (err: unknown) {
+      if (err instanceof Error && err.message.startsWith('Seleção incompleta')) {
+        setErrorMessage(messages.library.selectionRequiredAlert)
+      } else {
+        setErrorMessage(messages.library.actionError)
+      }
     }
   }
 
@@ -153,8 +148,11 @@ export function SubstanceSheet({ item, onClose }: SubstanceSheetProps) {
           {/* Seletor de perfis se houver mais de um */}
           {!isBlend && item.profileViews.length > 1 && (
             <div className="sheet-profiles-selector">
-              <label className="sheet-field-label">{messages.library.profilesCount(item.profileViews.length)}:</label>
+              <label htmlFor="sheet-profile-select" className="sheet-field-label">
+                {messages.library.profilesCount(item.profileViews.length)}:
+              </label>
               <select
+                id="sheet-profile-select"
                 className="sheet-select"
                 value={selectedProfileIndex}
                 onChange={(e) => {
@@ -245,6 +243,7 @@ export function SubstanceSheet({ item, onClose }: SubstanceSheetProps) {
               {isDurationRange(currentProfile.halfLife) && (
                 <div className="sheet-range-group">
                   <RangeSelector
+                    key={`half-life:${profileIdentity}`}
                     label={messages.library.selectHalfLifeFromRange}
                     range={currentProfile.halfLife}
                     value={chosenHalfLife}
@@ -261,6 +260,7 @@ export function SubstanceSheet({ item, onClose }: SubstanceSheetProps) {
               {currentProfile.tmaxSpec.kind === 'range' && (
                 <div className="sheet-range-group">
                   <RangeSelector
+                    key={`tmax:${profileIdentity}`}
                     label={messages.library.selectTmaxFromRange}
                     range={currentProfile.tmaxSpec.range}
                     value={typeof chosenTmax === 'object' ? chosenTmax : undefined}

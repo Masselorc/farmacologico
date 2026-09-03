@@ -21,6 +21,16 @@ export type LibraryProfileView =
       profile: PharmacokineticProfile
     }
 
+/**
+ * Constrói uma chave de identidade determinística para o LibraryProfileView.
+ */
+export function profileViewIdentity(view: LibraryProfileView): string {
+  if (view.provenance === 'official') {
+    return `official:${view.substanceId}:${view.profileId}:${view.datasetVersion}`
+  }
+  return `custom:${view.customProfileId}`
+}
+
 export interface LibraryItemView {
   id: string
   slug: string

@@ -18,14 +18,6 @@ describe('E10 — CTA Intents Semânticos (Fronteira E10 × E12)', () => {
       const intent = createComparatorIntent({
         substance: retatrutida,
         selectedProfile,
-        selection: {
-          halfLifeMs: 6 * 86400000,
-          tmaxMs: 2 * 86400000,
-          snapshot: {
-            halfLife: { value: 6, unit: 'days' },
-            tmax: { value: 2, unit: 'days' },
-          },
-        },
       })
 
       expect(intent.kind).toBe('comparator')
@@ -49,14 +41,6 @@ describe('E10 — CTA Intents Semânticos (Fronteira E10 × E12)', () => {
       const intent = createProtocolIntent({
         substance: retatrutida,
         selectedProfile,
-        selection: {
-          halfLifeMs: 6 * 86400000,
-          tmaxMs: 2 * 86400000,
-          snapshot: {
-            halfLife: { value: 6, unit: 'days' },
-            tmax: { value: 2, unit: 'days' },
-          },
-        },
       })
 
       expect(intent.kind).toBe('protocol')
