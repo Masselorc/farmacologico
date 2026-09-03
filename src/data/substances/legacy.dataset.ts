@@ -35,7 +35,7 @@ export const LEGACY_SUBSTANCES: Substance[] = [
     slug: 'retatrutida',
     name: 'Retatrutida',
     aliases: [],
-    category: 'peptide',
+    category: 'other',
     tags: [],
     profiles: [
       {
@@ -82,7 +82,7 @@ export const LEGACY_SUBSTANCES: Substance[] = [
     slug: 'landergold-propionato',
     name: 'LANDERGOLD — Propionato',
     aliases: [],
-    category: 'steroid_ester',
+    category: 'other',
     tags: [],
     componentOnly: true,
     profiles: [
@@ -102,7 +102,7 @@ export const LEGACY_SUBSTANCES: Substance[] = [
     slug: 'landergold-fenilpropionato',
     name: 'LANDERGOLD — Fenilpropionato',
     aliases: [],
-    category: 'steroid_ester',
+    category: 'other',
     tags: [],
     componentOnly: true,
     profiles: [
@@ -122,7 +122,7 @@ export const LEGACY_SUBSTANCES: Substance[] = [
     slug: 'landergold-isocaproato',
     name: 'LANDERGOLD — Isocaproato',
     aliases: [],
-    category: 'steroid_ester',
+    category: 'other',
     tags: [],
     componentOnly: true,
     profiles: [
@@ -142,7 +142,7 @@ export const LEGACY_SUBSTANCES: Substance[] = [
     slug: 'testosterona-enantato',
     name: 'Enantato de Testosterona',
     aliases: [],
-    category: 'steroid_ester',
+    category: 'other',
     tags: [],
     profiles: [
       {
@@ -161,7 +161,7 @@ export const LEGACY_SUBSTANCES: Substance[] = [
     slug: 'trembolona-enantato',
     name: 'Enantato de Trembolona',
     aliases: [],
-    category: 'steroid_ester',
+    category: 'other',
     tags: [],
     profiles: [
       {
@@ -180,7 +180,7 @@ export const LEGACY_SUBSTANCES: Substance[] = [
     slug: 'masteron-enantato',
     name: 'Enantato de Masteron',
     aliases: [],
-    category: 'steroid_ester',
+    category: 'other',
     tags: [],
     profiles: [
       {
@@ -199,7 +199,7 @@ export const LEGACY_SUBSTANCES: Substance[] = [
     slug: 'testosterona-cipionato',
     name: 'Cipionato de Testosterona',
     aliases: [],
-    category: 'steroid_ester',
+    category: 'other',
     tags: [],
     profiles: [
       {
@@ -218,7 +218,7 @@ export const LEGACY_SUBSTANCES: Substance[] = [
     slug: 'testosterona-propionato',
     name: 'Propionato de Testosterona',
     aliases: [],
-    category: 'steroid_ester',
+    category: 'other',
     tags: [],
     profiles: [
       {
@@ -237,7 +237,7 @@ export const LEGACY_SUBSTANCES: Substance[] = [
     slug: 'testosterona-undecanoato',
     name: 'Undecanoato de Testosterona',
     aliases: [],
-    category: 'steroid_ester',
+    category: 'other',
     tags: [],
     profiles: [
       {
@@ -256,7 +256,7 @@ export const LEGACY_SUBSTANCES: Substance[] = [
     slug: 'trembolona-acetato',
     name: 'Acetato de Trembolona',
     aliases: [],
-    category: 'steroid_ester',
+    category: 'other',
     tags: [],
     profiles: [
       {
@@ -275,7 +275,7 @@ export const LEGACY_SUBSTANCES: Substance[] = [
     slug: 'nandrolona-decanoato',
     name: 'Decanoato de Nandrolona',
     aliases: [],
-    category: 'steroid_ester',
+    category: 'other',
     tags: [],
     profiles: [
       {
@@ -294,7 +294,7 @@ export const LEGACY_SUBSTANCES: Substance[] = [
     slug: 'primobolan-enantato',
     name: 'Primobolan (Enantato)',
     aliases: [],
-    category: 'steroid_ester',
+    category: 'other',
     tags: [],
     profiles: [
       {
@@ -313,7 +313,7 @@ export const LEGACY_SUBSTANCES: Substance[] = [
     slug: 'boldenona-undecilenato',
     name: 'Boldenona (Undecilenato)',
     aliases: [],
-    category: 'steroid_ester',
+    category: 'other',
     tags: [],
     profiles: [
       {
@@ -332,7 +332,7 @@ export const LEGACY_SUBSTANCES: Substance[] = [
     slug: 'oxandrolona',
     name: 'Oxandrolona',
     aliases: [],
-    category: 'steroid',
+    category: 'other',
     tags: [],
     profiles: [
       {
@@ -351,7 +351,7 @@ export const LEGACY_SUBSTANCES: Substance[] = [
     slug: 'hemogenin',
     name: 'Hemogenin',
     aliases: [],
-    category: 'steroid',
+    category: 'other',
     tags: [],
     profiles: [
       {
@@ -370,7 +370,7 @@ export const LEGACY_SUBSTANCES: Substance[] = [
     slug: 'dianabol',
     name: 'Dianabol',
     aliases: [],
-    category: 'steroid',
+    category: 'other',
     tags: [],
     profiles: [
       {

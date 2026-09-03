@@ -2118,3 +2118,74 @@ Implementar integralmente a etapa E10 da FARMakit: dataset oficial v1 bundled co
 ### Commit
 
 - Mensagem autorizada: `feat(farmakit): implementar biblioteca E10`.
+
+## 2026-09-03 — E10.1 — Fechamento da auditoria da Biblioteca e Dataset Oficial V1
+
+### Objetivo
+
+Resolver integralmente todos os 16 blockers identificados na auditoria técnica da E10 (Biblioteca e Dataset Oficial V1), cobrindo proveniência de perfis customizados, integridade de seleção farmacocinética, contratos de intent, rigor de validação de schemas, conformidade do dataset e acessibilidade da UI.
+
+### Alterações realizadas
+
+- **Proveniência de perfis e intents tipados**: Definido `LibraryProfileView` como tipo discriminado (`provenance: 'official'` vs `provenance: 'custom_profile'`) em `src/features/library/lib/view.ts`. Em `src/features/library/lib/intents.ts`, cenários e componentes derivados de `CustomProfile` produzem rigorosamente `source.type = 'custom_profile'` com `customProfileId`, sem falsificar identificadores de biblioteca oficial.
+- **Badge dinâmico de origem**: `SubstanceSheet.tsx` atualizado para exibir `displayedOrigin` acompanhando o perfil selecionado em tempo real (oficial vs customizado).
+- **Proibição estrita de instantâneo em Tmax range**: Em `src/features/library/lib/selection.ts`, `tmaxSpec.kind === 'range'` rejeita `chosenTmax === 'instant'` lançando erro normativo e exigindo `DurationValue` estritamente contido no intervalo permitido.
+- **Bloqueio de intents com seleção incompleta**: `createComparatorIntent` e `createProtocolIntent` bloqueiam a criação de intents quando `needsUserSelection === true` ou `halfLifeMs <= 0`.
+- **Preservação de metadados de seleção**: `selectionNote` e `selectedFromRange` são preservados intactos em `selectedPkParameters` e `pkParametersSnapshot`.
+- **Correção de snapshot em Blends**: No intent de Protocolos para BlendSubstance, `pkParametersSnapshot` foi reposicionado para a raiz do componente (`LibraryProtocolComponentIntent`), mantendo `source` limpa.
+- **Controles acessíveis para Tmax unknown**: Adicionada interface com opções explícitas de "Informar valor numérico" e "Absorção instantânea (Tmax = 0)" quando o perfil possui Tmax não especificado na literatura.
+- **Invalidação imediata do RangeSelector**: `RangeSelector.tsx` invoca `onChange(undefined)` imediatamente na alteração de texto inválido, impedindo retenção de valores stale no componente pai.
+- **Schemas Zod estritos**: `profileOriginSchema`, `sourceSchema`, `pharmacokineticProfileSchema`, `singleSubstanceSchema`, `blendComponentSchema`, `blendSubstanceSchema`, `datasetMetadataSchema` e `officialDatasetSchema` tornados `.strict()`, rejeitando quaisquer propriedades desconhecidas.
+- **Paleta autorizada em BlendComponent**: `blendComponentSchema` utiliza `displayColorSchema` fechado com `PALETTE_ALLOWED`.
+- **Rejeição prioritária de versões futuras no Resolver**: `createOfficialEntityResolver` verifica `fromVersion > currentVersion` antes de qualquer resolução de ID direto em todas as funções públicas.
+- **Validação semântica de fontes**: `validateOfficialDataset` valida a unicidade global de `Source.id` e `validateRuntimeOfficialDataset` valida a versão do runtime.
+- **Exibição de biodisponibilidade de referência**: `SubstanceSheet.tsx` exibe valor numérico de referência (pontual ou faixa) acompanhado de aviso educacional.
+- **Internacionalização e acessibilidade**: Removidos alertas via `alert()`, adotando banner inline com `role="alert"`. Todas as strings movidas para `messages.library` em `src/app/i18n/pt-BR.messages.ts`.
+- **Classificação taxonômica conservadora**: Todas as substâncias do dataset oficial v1 normalizadas com `category: 'other'` para eliminar taxonomias inventadas não sustentadas pelo documento congelado.
+- **Suíte de regressões RED/GREEN**: Criado `src/tests/features/library/e10.1-regressions.test.tsx` cobrindo todos os cenários auditados.
+
+### Arquivos principais
+
+- `src/validation/schemas/library.ts`
+- `src/data/substances/legacy.dataset.ts`
+- `src/data/substances/validate.ts`
+- `src/data/substances/resolver.ts`
+- `src/data/substances/index.ts`
+- `src/features/library/lib/selection.ts`
+- `src/features/library/lib/intents.ts`
+- `src/features/library/lib/view.ts`
+- `src/features/library/components/RangeSelector.tsx`
+- `src/features/library/components/SubstanceCard.tsx`
+- `src/features/library/components/SubstanceSheet.tsx`
+- `src/features/library/library.css`
+- `src/app/i18n/pt-BR.messages.ts`
+- `src/tests/features/library/e10.1-regressions.test.tsx`
+- `docs/DIARIO-DE-BORDO.md`
+
+### Decisões tomadas
+
+- Toda e qualquer customização de perfil criada pelo usuário produz intents com `source.type = 'custom_profile'`, prevenindo qualquer colisão ou adulteração da proveniência oficial.
+- `category: 'other'` mantida como diretriz estrita para todas as entidades onde a especificação congelada não define taxonomia formal.
+- Preservação de zero requisições de rede, zero estilos inline, zero auto-doses e isolamento total das etapas E11 e E12.
+
+### Validações executadas
+
+- `npm run lint`: PASS (0 erros, 0 warnings).
+- `npm run typecheck`: PASS (0 erros).
+- `npm run type-tests`: PASS (0 erros).
+- `npm run test:e10`: PASS (7 arquivos, 65 testes).
+- `npm run test:e9`: PASS (11 arquivos, 56 testes).
+- `npm run test:e8`: PASS (4 arquivos, 50 testes).
+- `npm run test:e7`: PASS (7 arquivos, 46 testes).
+- `npm run test:e6`: PASS (22 arquivos, 131 testes).
+- `npm run test:e5`: PASS (10 arquivos, 113 testes).
+- `npm run test:e4`: PASS (11 arquivos, 81 testes).
+- `npm test`: PASS (86 arquivos, 701 testes).
+- `npm run build`: PASS (Vite + PWA generateSW).
+- `npm run check:build-boundaries`: PASS (9 arquivos em dist, 0 referências a `.token-optimizer`).
+- `npm run test:e1`: PASS (5 testes Playwright em Chromium sob CSP e mobile 390px).
+- `git diff --check`: PASS (0 erros de formatação ou whitespace).
+
+### Commit
+
+- Mensagem autorizada: `fix(farmakit): fechar auditoria E10 da biblioteca`.

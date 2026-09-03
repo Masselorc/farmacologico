@@ -30,6 +30,11 @@ export function createOfficialEntityResolver(
   const currentVersion = dataset.metadata.datasetVersion
 
   function resolveSubstanceId(substanceId: string, fromVersion: number): string | undefined {
+    // 0. Rejeita imediatamente versões futuras ao dataset carregado (§9.1)
+    if (fromVersion > currentVersion) {
+      return undefined
+    }
+
     // 1. Verificação direta no dataset atual
     if (dataset.substances.some((s) => s.id === substanceId)) {
       return substanceId
@@ -74,6 +79,11 @@ export function createOfficialEntityResolver(
     profileId: string,
     fromVersion: number,
   ): { substanceId: string; profileId: string } | undefined {
+    // 0. Rejeita imediatamente versões futuras ao dataset carregado (§9.1)
+    if (fromVersion > currentVersion) {
+      return undefined
+    }
+
     // 1. Verificação direta
     const directSub = dataset.substances.find((s) => s.id === substanceId)
     if (directSub && directSub.kind === 'single') {

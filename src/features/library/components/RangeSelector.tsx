@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { formatDuration, messages } from '../../../app/i18n/pt-BR.messages'
 import type { DurationRange, DurationValue, TimeUnit } from '../../../domain/shared/types.datetime'
 import { normalizeDurationRange, toMilliseconds } from '../../../domain/units/convert'
 import { parseLocaleDecimal } from '../../../domain/units/decimal'
@@ -7,7 +8,7 @@ export interface RangeSelectorProps {
   label: string
   range: DurationRange
   value?: DurationValue
-  onChange: (value: DurationValue) => void
+  onChange: (value: DurationValue | undefined) => void
 }
 
 export function RangeSelector({ label, range, value, onChange }: RangeSelectorProps) {
@@ -18,19 +19,22 @@ export function RangeSelector({ label, range, value, onChange }: RangeSelectorPr
 
   function handleBlur() {
     if (!text.trim()) {
-      setError('Informe um valor.')
+      setError(messages.library.enterValue)
+      onChange(undefined)
       return
     }
     const res = parseLocaleDecimal(text)
     if (!res.ok || !Number.isFinite(res.value) || res.value <= 0) {
-      setError('Número inválido.')
+      setError(messages.library.invalidNumber)
+      onChange(undefined)
       return
     }
 
     const num = res.value
     const ms = toMilliseconds(num, unit)
     if (ms < norm.minMs || ms > norm.maxMs) {
-      setError(`O valor deve estar entre ${range.min.value} ${range.min.unit} e ${range.max.value} ${range.max.unit}.`)
+      setError(messages.library.valueMustBeBetween(formatDuration(range.min), formatDuration(range.max)))
+      onChange(undefined)
       return
     }
 
@@ -42,7 +46,7 @@ export function RangeSelector({ label, range, value, onChange }: RangeSelectorPr
     <div className="range-selector">
       <label className="range-label">{label}</label>
       <div className="range-bounds-text">
-        Faixa permitida: {range.min.value} {range.min.unit} a {range.max.value} {range.max.unit}
+        {messages.library.rangeAllowed(formatDuration(range.min), formatDuration(range.max))}
       </div>
       <div className="range-inputs-row">
         <input
@@ -53,6 +57,7 @@ export function RangeSelector({ label, range, value, onChange }: RangeSelectorPr
           onChange={(e) => {
             setText(e.target.value)
             setError(null)
+            onChange(undefined)
           }}
           onBlur={handleBlur}
           aria-label={label}
@@ -71,17 +76,23 @@ export function RangeSelector({ label, range, value, onChange }: RangeSelectorPr
                 if (ms >= norm.minMs && ms <= norm.maxMs) {
                   setError(null)
                   onChange({ value: num, unit: nextUnit })
+                  return
                 }
               }
             }
+            onChange(undefined)
           }}
         >
-          <option value="minutes">minutos</option>
-          <option value="hours">horas</option>
-          <option value="days">dias</option>
+          <option value="minutes">{messages.comparator.timeUnitMinutes}</option>
+          <option value="hours">{messages.comparator.timeUnitHours}</option>
+          <option value="days">{messages.comparator.timeUnitDays}</option>
         </select>
       </div>
-      {error && <span className="range-error">{error}</span>}
+      {error && (
+        <span className="range-error" role="alert">
+          {error}
+        </span>
+      )}
     </div>
   )
 }

@@ -14,7 +14,8 @@ import type {
 } from '../../../domain/library/types'
 import { CURRENT_DATASET_VERSION } from '../../../domain/version'
 import { LEGACY_SUBSTANCE_COLORS } from '../../../data/substances/legacy.dataset'
-import { resolveProfileParameters } from './selection'
+import { resolveProfileParameters, type ResolvedProfileParameters } from './selection'
+import type { LibraryProfileView } from './view'
 
 export interface LibraryComparatorIntent {
   kind: 'comparator'
@@ -43,11 +44,14 @@ export interface LibraryProtocolIntent {
 
 export interface CreateComparatorIntentParams {
   substance: Substance
+  profileView?: LibraryProfileView
   profile?: PharmacokineticProfile
+  resolvedSelection?: ResolvedProfileParameters
   selection?: {
     halfLifeMs: number
     tmaxMs: number | null
     snapshot: PkParametersSnapshot
+    selectionNote?: SelectedPkParameters['selectionNote']
   }
   displayUnit?: MassUnit
   color?: PaletteColorId
@@ -64,20 +68,53 @@ export function createComparatorIntent(params: CreateComparatorIntentParams): Li
   }
 
   const single = params.substance
-  const profile = params.profile ?? single.profiles[0]
+  const profileView = params.profileView
+  const profile = profileView?.profile ?? params.profile ?? single.profiles[0]
   if (!profile) {
     throw new Error(`Substância ${single.id} não possui perfis disponíveis`)
   }
 
-  const resolved = params.selection
-    ? {
-        selectedPkParameters: {
-          halfLifeMs: params.selection.halfLifeMs,
-          tmaxMs: params.selection.tmaxMs,
-        },
-        pkParametersSnapshot: params.selection.snapshot,
-      }
-    : resolveProfileParameters(profile)
+  let resolved: ResolvedProfileParameters
+  if (params.resolvedSelection) {
+    resolved = params.resolvedSelection
+  } else if (params.selection) {
+    resolved = {
+      selectedPkParameters: {
+        halfLifeMs: params.selection.halfLifeMs,
+        tmaxMs: params.selection.tmaxMs,
+        ...(params.selection.selectionNote ? { selectionNote: params.selection.selectionNote } : {}),
+      },
+      pkParametersSnapshot: params.selection.snapshot,
+      needsUserSelection: false,
+      missingFields: [],
+    }
+  } else {
+    resolved = resolveProfileParameters(profile)
+  }
+
+  if (resolved.needsUserSelection) {
+    throw new Error(`Seleção incompleta para os parâmetros: ${resolved.missingFields.join(', ')}`)
+  }
+  if (resolved.selectedPkParameters.halfLifeMs <= 0) {
+    throw new Error('halfLifeMs deve ser maior que zero')
+  }
+
+  let source: ScenarioSource
+  if (profileView && profileView.provenance === 'custom_profile') {
+    source = {
+      type: 'custom_profile',
+      customProfileId: profileView.customProfileId,
+      pkParametersSnapshot: resolved.pkParametersSnapshot,
+    }
+  } else {
+    source = {
+      type: 'library',
+      substanceId: profileView?.substanceId ?? single.id,
+      profileId: profileView?.profileId ?? profile.id,
+      datasetVersion: profileView?.datasetVersion ?? CURRENT_DATASET_VERSION,
+      pkParametersSnapshot: resolved.pkParametersSnapshot,
+    }
+  }
 
   const color = params.color ?? LEGACY_SUBSTANCE_COLORS[single.id] ?? '#2563eb'
 
@@ -86,24 +123,21 @@ export function createComparatorIntent(params: CreateComparatorIntentParams): Li
     name: single.name,
     color,
     displayUnit: params.displayUnit ?? 'mg',
-    source: {
-      type: 'library',
-      substanceId: single.id,
-      profileId: profile.id,
-      datasetVersion: CURRENT_DATASET_VERSION,
-      pkParametersSnapshot: resolved.pkParametersSnapshot,
-    },
+    source,
     selectedPkParameters: resolved.selectedPkParameters,
   }
 }
 
 export interface CreateProtocolIntentParams {
   substance: Substance
+  profileView?: LibraryProfileView
   profile?: PharmacokineticProfile
+  resolvedSelection?: ResolvedProfileParameters
   selection?: {
     halfLifeMs: number
     tmaxMs: number | null
     snapshot: PkParametersSnapshot
+    selectionNote?: SelectedPkParameters['selectionNote']
   }
   dataset?: OfficialDataset
 }
@@ -116,20 +150,51 @@ export interface CreateProtocolIntentParams {
 export function createProtocolIntent(params: CreateProtocolIntentParams): LibraryProtocolIntent {
   if (params.substance.kind === 'single') {
     const single = params.substance
-    const profile = params.profile ?? single.profiles[0]
+    const profileView = params.profileView
+    const profile = profileView?.profile ?? params.profile ?? single.profiles[0]
     if (!profile) {
       throw new Error(`Substância ${single.id} não possui perfil`)
     }
 
-    const resolved = params.selection
-      ? {
-          selectedPkParameters: {
-            halfLifeMs: params.selection.halfLifeMs,
-            tmaxMs: params.selection.tmaxMs,
-          },
-          pkParametersSnapshot: params.selection.snapshot,
-        }
-      : resolveProfileParameters(profile)
+    let resolved: ResolvedProfileParameters
+    if (params.resolvedSelection) {
+      resolved = params.resolvedSelection
+    } else if (params.selection) {
+      resolved = {
+        selectedPkParameters: {
+          halfLifeMs: params.selection.halfLifeMs,
+          tmaxMs: params.selection.tmaxMs,
+          ...(params.selection.selectionNote ? { selectionNote: params.selection.selectionNote } : {}),
+        },
+        pkParametersSnapshot: params.selection.snapshot,
+        needsUserSelection: false,
+        missingFields: [],
+      }
+    } else {
+      resolved = resolveProfileParameters(profile)
+    }
+
+    if (resolved.needsUserSelection) {
+      throw new Error(`Seleção incompleta para os parâmetros: ${resolved.missingFields.join(', ')}`)
+    }
+    if (resolved.selectedPkParameters.halfLifeMs <= 0) {
+      throw new Error('halfLifeMs deve ser maior que zero')
+    }
+
+    let compSource: ProtocolComponentSource
+    if (profileView && profileView.provenance === 'custom_profile') {
+      compSource = {
+        type: 'custom_profile',
+        customProfileId: profileView.customProfileId,
+      }
+    } else {
+      compSource = {
+        type: 'library',
+        substanceId: profileView?.substanceId ?? single.id,
+        profileId: profileView?.profileId ?? profile.id,
+        datasetVersion: profileView?.datasetVersion ?? CURRENT_DATASET_VERSION,
+      }
+    }
 
     return {
       kind: 'protocol',
@@ -142,12 +207,7 @@ export function createProtocolIntent(params: CreateProtocolIntentParams): Librar
           displayColor: {
             paletteColor: LEGACY_SUBSTANCE_COLORS[single.id] ?? '#2563eb',
           },
-          source: {
-            type: 'library',
-            substanceId: single.id,
-            profileId: profile.id,
-            datasetVersion: CURRENT_DATASET_VERSION,
-          },
+          source: compSource,
           selectedPkParameters: resolved.selectedPkParameters,
           pkParametersSnapshot: resolved.pkParametersSnapshot,
         },
@@ -173,6 +233,9 @@ export function createProtocolIntent(params: CreateProtocolIntentParams): Librar
     }
 
     const resolved = resolveProfileParameters(targetProf)
+    if (resolved.needsUserSelection) {
+      throw new Error(`Seleção incompleta no componente ${comp.substanceId}`)
+    }
 
     return {
       substanceId: comp.substanceId,
@@ -183,10 +246,10 @@ export function createProtocolIntent(params: CreateProtocolIntentParams): Librar
         type: 'library',
         substanceId: comp.substanceId,
         profileId: comp.profileId,
-        datasetVersion: CURRENT_DATASET_VERSION,
-        pkParametersSnapshot: resolved.pkParametersSnapshot,
+        datasetVersion: dataset.metadata.datasetVersion ?? CURRENT_DATASET_VERSION,
       },
       selectedPkParameters: resolved.selectedPkParameters,
+      pkParametersSnapshot: resolved.pkParametersSnapshot,
     }
   })
 

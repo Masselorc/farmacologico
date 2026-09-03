@@ -3,7 +3,7 @@ import { CURRENT_DATASET_VERSION } from '../../domain/version'
 import { OFFICIAL_SOURCES_V1 } from '../sources'
 import { LEGACY_SUBSTANCES } from './legacy.dataset'
 
-export { LEGACY_SUBSTANCE_COLORS } from './legacy.dataset'
+export { LEGACY_SUBSTANCES, LEGACY_SUBSTANCE_COLORS } from './legacy.dataset'
 
 export const DATASET_METADATA_V1: DatasetMetadata = {
   datasetVersion: CURRENT_DATASET_VERSION,

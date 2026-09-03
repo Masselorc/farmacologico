@@ -1,6 +1,7 @@
 import type { DatasetIdMigration, OfficialDataset } from '../../domain/library/types'
 import { officialDatasetSchema } from '../../validation/schemas/library'
 import { proportionSumClose } from '../../domain/shared/tolerances'
+import { CURRENT_DATASET_VERSION } from '../../domain/version'
 
 export interface DatasetSemanticValidationResult {
   valid: boolean
@@ -26,7 +27,16 @@ export function validateOfficialDataset(dataset: OfficialDataset): DatasetSemant
     )
   }
 
-  // 3. Substance ID & slug uniqueness
+  // 3. Source ID uniqueness
+  const sourceIds = new Set<string>()
+  for (const src of dataset.sources) {
+    if (sourceIds.has(src.id)) {
+      errors.push(`ID duplicado em sources: ${src.id}`)
+    }
+    sourceIds.add(src.id)
+  }
+
+  // 4. Substance ID & slug uniqueness
   const substanceIds = new Set<string>()
   const slugs = new Set<string>()
 
@@ -53,8 +63,7 @@ export function validateOfficialDataset(dataset: OfficialDataset): DatasetSemant
     }
   }
 
-  // 4. Source resolution for literature profiles
-  const sourceIds = new Set(dataset.sources.map((src) => src.id))
+  // 5. Source resolution for literature profiles
   for (const s of dataset.substances) {
     if (s.kind === 'single') {
       for (const p of s.profiles) {
@@ -194,5 +203,28 @@ function validateMigrations(
         currProf = next.toProfileId
       }
     }
+  }
+}
+
+/**
+ * Valida o dataset oficial contra os requisitos de execução do runtime atual (§9, §9.1).
+ */
+export function validateRuntimeOfficialDataset(
+  dataset: OfficialDataset,
+): DatasetSemanticValidationResult {
+  const errors: string[] = []
+
+  if (dataset.metadata.datasetVersion !== CURRENT_DATASET_VERSION) {
+    errors.push(
+      `datasetVersion em metadata (${dataset.metadata.datasetVersion}) difere da versão esperada no runtime (${CURRENT_DATASET_VERSION})`,
+    )
+  }
+
+  const semantic = validateOfficialDataset(dataset)
+  errors.push(...semantic.errors)
+
+  return {
+    valid: errors.length === 0,
+    errors,
   }
 }

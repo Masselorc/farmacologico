@@ -4,27 +4,27 @@ import {
   substanceCategorySchema,
   tmaxSpecificationSchema,
 } from './data-management'
-import { durationSchema, instantIsoSchema } from './primitives'
+import { displayColorSchema, durationSchema, instantIsoSchema } from './primitives'
 import { SAFETY_LIMITS, UX_LIMITS } from '../limits'
 import { proportionSumClose } from '../../domain/shared/tolerances'
 
 export const profileOriginSchema = z.discriminatedUnion('kind', [
-  z.object({
+  z.strictObject({
     kind: z.literal('legacy_unattributed'),
     reviewStatus: z.enum(['legacy_unreviewed', 'needs_review', 'reviewed']),
   }),
-  z.object({
+  z.strictObject({
     kind: z.literal('literature'),
     reviewStatus: z.enum(['needs_review', 'reviewed']),
     sourceIds: z.array(z.string().min(1)).min(1, 'sourceIds não pode ser vazio para origin literature'),
   }),
-  z.object({
+  z.strictObject({
     kind: z.literal('user_defined'),
     reviewStatus: z.literal('not_applicable'),
   }),
 ])
 
-export const sourceSchema = z.object({
+export const sourceSchema = z.strictObject({
   id: z.string().min(1),
   doi: z.string().optional(),
   pmid: z.string().optional(),
@@ -37,7 +37,7 @@ export const sourceSchema = z.object({
   reviewedAt: instantIsoSchema.optional(),
 })
 
-export const pharmacokineticProfileSchema = z.object({
+export const pharmacokineticProfileSchema = z.strictObject({
   id: z.string().min(1),
   route: administrationRouteSchema,
   formulation: z.string().optional(),
@@ -47,7 +47,7 @@ export const pharmacokineticProfileSchema = z.object({
   bioavailability: z
     .union([
       z.number().min(0).max(1),
-      z.object({ min: z.number().min(0).max(1), max: z.number().min(0).max(1) }),
+      z.strictObject({ min: z.number().min(0).max(1), max: z.number().min(0).max(1) }),
     ])
     .optional(),
   populationContext: z.string().optional(),
@@ -55,7 +55,7 @@ export const pharmacokineticProfileSchema = z.object({
   deprecated: z.boolean().optional(),
 })
 
-export const singleSubstanceSchema = z.object({
+export const singleSubstanceSchema = z.strictObject({
   kind: z.literal('single'),
   id: z.string().min(1),
   slug: z.string().min(1),
@@ -68,19 +68,14 @@ export const singleSubstanceSchema = z.object({
   deprecated: z.boolean().optional(),
 })
 
-export const blendComponentSchema = z.object({
+export const blendComponentSchema = z.strictObject({
   substanceId: z.string().min(1),
   profileId: z.string().min(1),
   proportion: z.number().finite().gt(0, 'proportion deve ser maior que 0').lte(1),
-  displayColor: z
-    .object({
-      paletteColor: z.string(),
-      legacyOriginalHex: z.string().optional(),
-    })
-    .optional(),
+  displayColor: displayColorSchema.optional(),
 })
 
-export const blendSubstanceSchema = z.object({
+export const blendSubstanceSchema = z.strictObject({
   kind: z.literal('blend'),
   id: z.string().min(1),
   slug: z.string().min(1),
@@ -104,14 +99,14 @@ export const substanceSchema = z.discriminatedUnion('kind', [
 ])
 
 export const datasetIdMigrationSchema = z.discriminatedUnion('entityKind', [
-  z.object({
+  z.strictObject({
     entityKind: z.literal('substance'),
     fromId: z.string().min(1),
     toId: z.string().min(1),
     sinceDatasetVersion: z.number().int().min(1),
     reason: z.string().min(1),
   }),
-  z.object({
+  z.strictObject({
     entityKind: z.literal('profile'),
     fromSubstanceId: z.string().min(1),
     fromProfileId: z.string().min(1),
@@ -122,13 +117,13 @@ export const datasetIdMigrationSchema = z.discriminatedUnion('entityKind', [
   }),
 ])
 
-export const datasetMetadataSchema = z.object({
+export const datasetMetadataSchema = z.strictObject({
   datasetVersion: z.number().int().min(1),
   updatedAt: instantIsoSchema,
   substanceCount: z.number().int().min(0),
   changelog: z
     .array(
-      z.object({
+      z.strictObject({
         version: z.number().int().min(1),
         date: instantIsoSchema,
         summary: z.string().min(1),
@@ -138,7 +133,7 @@ export const datasetMetadataSchema = z.object({
   idMigrations: z.array(datasetIdMigrationSchema).optional(),
 })
 
-export const officialDatasetSchema = z.object({
+export const officialDatasetSchema = z.strictObject({
   metadata: datasetMetadataSchema,
   sources: z.array(sourceSchema),
   substances: z.array(substanceSchema),

@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import { formatDuration, messages } from '../../../app/i18n/pt-BR.messages'
-import type { Duration, DurationRange, DurationValue } from '../../../domain/shared/types.datetime'
+import type { Duration, DurationRange, DurationValue, TimeUnit } from '../../../domain/shared/types.datetime'
 import type { PharmacokineticProfile } from '../../../domain/library/types'
 import { OFFICIAL_DATASET_V1 } from '../../../data/substances'
+import { parseLocaleDecimal } from '../../../domain/units/decimal'
 import type { LibraryItemView } from '../lib/view'
 import {
   createComparatorIntent,
@@ -26,14 +27,29 @@ export interface SubstanceSheetProps {
 export function SubstanceSheet({ item, onClose }: SubstanceSheetProps) {
   const isBlend = item.kind === 'blend'
   const [selectedProfileIndex, setSelectedProfileIndex] = useState(0)
-  const currentProfile: PharmacokineticProfile | undefined = item.profiles[selectedProfileIndex]
+  const currentProfileView = item.profileViews?.[selectedProfileIndex]
+  const currentProfile: PharmacokineticProfile | undefined =
+    currentProfileView?.profile ?? item.profiles[selectedProfileIndex]
 
   const [chosenHalfLife, setChosenHalfLife] = useState<DurationValue | undefined>(undefined)
   const [chosenTmax, setChosenTmax] = useState<'instant' | DurationValue | undefined>(undefined)
 
+  // Controle para Tmax unknown
+  const [tmaxUnknownMode, setTmaxUnknownMode] = useState<'none' | 'value' | 'instant'>('none')
+  const [tmaxUnknownText, setTmaxUnknownText] = useState('')
+  const [tmaxUnknownUnit, setTmaxUnknownUnit] = useState<TimeUnit>('hours')
+
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [preparedIntent, setPreparedIntent] = useState<
     LibraryComparatorIntent | LibraryProtocolIntent | null
   >(null)
+
+  // Origem dinâmica: acompanha o perfil selecionado
+  const displayedOrigin = isBlend
+    ? item.origin
+    : currentProfile
+      ? currentProfile.origin
+      : item.origin
 
   // Fecha no ESC
   useEffect(() => {
@@ -48,6 +64,7 @@ export function SubstanceSheet({ item, onClose }: SubstanceSheetProps) {
     if (isBlend) return
     if (!currentProfile) return
 
+    setErrorMessage(null)
     try {
       const resolved = resolveProfileParameters(currentProfile, {
         chosenHalfLife,
@@ -55,26 +72,24 @@ export function SubstanceSheet({ item, onClose }: SubstanceSheetProps) {
       })
 
       if (resolved.needsUserSelection) {
-        alert('Selecione os parâmetros obrigatórios antes de prosseguir.')
+        setErrorMessage(messages.library.selectionRequiredAlert)
         return
       }
 
       const intent = createComparatorIntent({
         substance: item.substance,
+        profileView: currentProfileView,
         profile: currentProfile,
-        selection: {
-          halfLifeMs: resolved.selectedPkParameters.halfLifeMs,
-          tmaxMs: resolved.selectedPkParameters.tmaxMs,
-          snapshot: resolved.pkParametersSnapshot,
-        },
+        resolvedSelection: resolved,
       })
       setPreparedIntent(intent)
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : String(err))
+      setErrorMessage(err instanceof Error ? err.message : String(err))
     }
   }
 
   function handleCreateProtocol() {
+    setErrorMessage(null)
     try {
       if (isBlend) {
         const intent = createProtocolIntent({
@@ -89,23 +104,20 @@ export function SubstanceSheet({ item, onClose }: SubstanceSheetProps) {
           chosenTmax,
         })
         if (resolved.needsUserSelection) {
-          alert('Selecione os parâmetros obrigatórios antes de prosseguir.')
+          setErrorMessage(messages.library.selectionRequiredAlert)
           return
         }
 
         const intent = createProtocolIntent({
           substance: item.substance,
+          profileView: currentProfileView,
           profile: currentProfile,
-          selection: {
-            halfLifeMs: resolved.selectedPkParameters.halfLifeMs,
-            tmaxMs: resolved.selectedPkParameters.tmaxMs,
-            snapshot: resolved.pkParametersSnapshot,
-          },
+          resolvedSelection: resolved,
         })
         setPreparedIntent(intent)
       }
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : String(err))
+      setErrorMessage(err instanceof Error ? err.message : String(err))
     }
   }
 
@@ -127,7 +139,7 @@ export function SubstanceSheet({ item, onClose }: SubstanceSheetProps) {
               <span className={`kind-badge ${isBlend ? 'kind-badge-blend' : 'kind-badge-single'}`}>
                 {isBlend ? messages.library.blendKind : messages.library.singleKind}
               </span>
-              <OriginBadge origin={item.origin} />
+              <OriginBadge origin={displayedOrigin} />
             </div>
           </div>
           <button
@@ -152,7 +164,10 @@ export function SubstanceSheet({ item, onClose }: SubstanceSheetProps) {
                   setSelectedProfileIndex(Number(e.target.value))
                   setChosenHalfLife(undefined)
                   setChosenTmax(undefined)
+                  setTmaxUnknownMode('none')
+                  setTmaxUnknownText('')
                   setPreparedIntent(null)
+                  setErrorMessage(null)
                 }}
               >
                 {item.profiles.map((p, idx) => (
@@ -174,7 +189,7 @@ export function SubstanceSheet({ item, onClose }: SubstanceSheetProps) {
                       <span className="component-color" data-color={c.displayColor?.paletteColor} />
                       <span className="component-name">{c.substanceId}</span>
                       <span className="component-prop">
-                        Proporção: {(c.proportion * 100).toFixed(0)}% ({c.proportion})
+                        {messages.library.proportionLabel((c.proportion * 100).toFixed(0), c.proportion)}
                       </span>
                     </li>
                   ))}
@@ -203,7 +218,10 @@ export function SubstanceSheet({ item, onClose }: SubstanceSheetProps) {
                   <span className="sheet-field-label">{messages.library.halfLifeLabel}</span>
                   <span className="sheet-field-value">
                     {isDurationRange(currentProfile.halfLife)
-                      ? `Faixa de ${formatDuration(currentProfile.halfLife.min)} a ${formatDuration(currentProfile.halfLife.max)}`
+                      ? messages.library.rangeMinMax(
+                          formatDuration(currentProfile.halfLife.min),
+                          formatDuration(currentProfile.halfLife.max),
+                        )
                       : formatDuration(currentProfile.halfLife)}
                   </span>
                 </div>
@@ -215,32 +233,145 @@ export function SubstanceSheet({ item, onClose }: SubstanceSheetProps) {
                       : currentProfile.tmaxSpec.kind === 'instant'
                         ? messages.library.tmaxInstant
                         : currentProfile.tmaxSpec.kind === 'range'
-                          ? `Faixa de ${formatDuration(currentProfile.tmaxSpec.range.min)} a ${formatDuration(currentProfile.tmaxSpec.range.max)}`
-                          : 'Não especificado'}
+                          ? messages.library.rangeMinMax(
+                              formatDuration(currentProfile.tmaxSpec.range.min),
+                              formatDuration(currentProfile.tmaxSpec.range.max),
+                            )
+                          : messages.library.unspecified}
                   </span>
                 </div>
               </div>
 
-              {/* Seletor de faixas quando necessário */}
+              {/* Seletor de faixas para Meia-vida */}
               {isDurationRange(currentProfile.halfLife) && (
                 <div className="sheet-range-group">
                   <RangeSelector
-                    label="Selecionar Meia-vida da faixa"
+                    label={messages.library.selectHalfLifeFromRange}
                     range={currentProfile.halfLife}
                     value={chosenHalfLife}
-                    onChange={setChosenHalfLife}
+                    onChange={(val) => {
+                      setChosenHalfLife(val)
+                      setPreparedIntent(null)
+                      setErrorMessage(null)
+                    }}
                   />
                 </div>
               )}
 
+              {/* Seletor de faixas para Tmax */}
               {currentProfile.tmaxSpec.kind === 'range' && (
                 <div className="sheet-range-group">
                   <RangeSelector
-                    label="Selecionar Tmax da faixa"
+                    label={messages.library.selectTmaxFromRange}
                     range={currentProfile.tmaxSpec.range}
                     value={typeof chosenTmax === 'object' ? chosenTmax : undefined}
-                    onChange={setChosenTmax}
+                    onChange={(val) => {
+                      setChosenTmax(val)
+                      setPreparedIntent(null)
+                      setErrorMessage(null)
+                    }}
                   />
+                </div>
+              )}
+
+              {/* Controles para Tmax unknown */}
+              {currentProfile.tmaxSpec.kind === 'unknown' && (
+                <div className="sheet-range-group">
+                  <label className="sheet-field-label">{messages.library.tmaxUnknownOptionTitle}</label>
+                  <div className="unknown-tmax-options-row">
+                    <label className="unknown-tmax-radio-label">
+                      <input
+                        type="radio"
+                        name="tmax-unknown-selection"
+                        checked={tmaxUnknownMode === 'value'}
+                        onChange={() => {
+                          setTmaxUnknownMode('value')
+                          setPreparedIntent(null)
+                          setErrorMessage(null)
+                          const res = parseLocaleDecimal(tmaxUnknownText)
+                          if (res.ok && res.value > 0) {
+                            setChosenTmax({ value: res.value, unit: tmaxUnknownUnit })
+                          } else {
+                            setChosenTmax(undefined)
+                          }
+                        }}
+                      />
+                      {messages.library.tmaxUnknownProvideValue}
+                    </label>
+                    <label className="unknown-tmax-radio-label">
+                      <input
+                        type="radio"
+                        name="tmax-unknown-selection"
+                        checked={tmaxUnknownMode === 'instant'}
+                        onChange={() => {
+                          setTmaxUnknownMode('instant')
+                          setPreparedIntent(null)
+                          setErrorMessage(null)
+                          setChosenTmax('instant')
+                        }}
+                      />
+                      {messages.library.tmaxUnknownInstantOption}
+                    </label>
+                  </div>
+                  {tmaxUnknownMode === 'value' && (
+                    <div className="range-inputs-row unknown-tmax-inputs">
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        className="range-input"
+                        placeholder={messages.library.enterValue}
+                        value={tmaxUnknownText}
+                        onChange={(e) => {
+                          setTmaxUnknownText(e.target.value)
+                          setPreparedIntent(null)
+                          setErrorMessage(null)
+                          const res = parseLocaleDecimal(e.target.value)
+                          if (res.ok && Number.isFinite(res.value) && res.value > 0) {
+                            setChosenTmax({ value: res.value, unit: tmaxUnknownUnit })
+                          } else {
+                            setChosenTmax(undefined)
+                          }
+                        }}
+                        aria-label={messages.library.tmaxUnknownValueLabel}
+                      />
+                      <select
+                        className="range-unit-select"
+                        value={tmaxUnknownUnit}
+                        onChange={(e) => {
+                          const nextUnit = e.target.value as TimeUnit
+                          setTmaxUnknownUnit(nextUnit)
+                          setPreparedIntent(null)
+                          setErrorMessage(null)
+                          const res = parseLocaleDecimal(tmaxUnknownText)
+                          if (res.ok && Number.isFinite(res.value) && res.value > 0) {
+                            setChosenTmax({ value: res.value, unit: nextUnit })
+                          } else {
+                            setChosenTmax(undefined)
+                          }
+                        }}
+                      >
+                        <option value="minutes">{messages.comparator.timeUnitMinutes}</option>
+                        <option value="hours">{messages.comparator.timeUnitHours}</option>
+                        <option value="days">{messages.comparator.timeUnitDays}</option>
+                      </select>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Biodisponibilidade de referência quando presente */}
+              {currentProfile.bioavailability !== undefined && (
+                <div className="sheet-field bioavailability-field">
+                  <span className="sheet-field-label">
+                    {typeof currentProfile.bioavailability === 'number'
+                      ? messages.library.bioavailabilityReference(
+                          `${(currentProfile.bioavailability * 100).toFixed(0)}%`,
+                        )
+                      : messages.library.bioavailabilityRange(
+                          `${(currentProfile.bioavailability.min * 100).toFixed(0)}%`,
+                          `${(currentProfile.bioavailability.max * 100).toFixed(0)}%`,
+                        )}
+                  </span>
                 </div>
               )}
 
@@ -248,6 +379,13 @@ export function SubstanceSheet({ item, onClose }: SubstanceSheetProps) {
               <p className="bioavailability-note">{messages.library.bioavailabilityDisclaimer}</p>
             </div>
           ) : null}
+
+          {/* Banner de erro acessível inline */}
+          {errorMessage && (
+            <div className="sheet-error-banner" role="alert">
+              {errorMessage}
+            </div>
+          )}
 
           {/* Seção de CTAs */}
           <div className="sheet-actions">

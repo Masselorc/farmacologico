@@ -35,7 +35,7 @@ export function SubstanceCard({ item, onSelect }: SubstanceCardProps) {
         {isBlend ? (
           <p className="card-summary">
             {item.substance.kind === 'blend'
-              ? `${item.substance.components.length} componentes proporcionais`
+              ? messages.library.proportionalComponents(item.substance.components.length)
               : ''}
           </p>
         ) : primaryProfile ? (
@@ -43,7 +43,10 @@ export function SubstanceCard({ item, onSelect }: SubstanceCardProps) {
             <span className="pk-metric">
               <strong>T½:</strong>{' '}
               {isDurationRange(primaryProfile.halfLife)
-                ? `Faixa de ${formatDuration(primaryProfile.halfLife.min)} a ${formatDuration(primaryProfile.halfLife.max)}`
+                ? messages.library.rangeMinMax(
+                    formatDuration(primaryProfile.halfLife.min),
+                    formatDuration(primaryProfile.halfLife.max),
+                  )
                 : formatDuration(primaryProfile.halfLife)}
             </span>
             <span className="pk-metric">
@@ -51,8 +54,8 @@ export function SubstanceCard({ item, onSelect }: SubstanceCardProps) {
               {primaryProfile.tmaxSpec.kind === 'value'
                 ? formatDuration(primaryProfile.tmaxSpec.value)
                 : primaryProfile.tmaxSpec.kind === 'instant'
-                  ? 'instantânea'
-                  : 'faixa'}
+                  ? messages.library.instantaneous
+                  : messages.library.rangeKind}
             </span>
           </div>
         ) : null}
@@ -66,9 +69,9 @@ export function SubstanceCard({ item, onSelect }: SubstanceCardProps) {
             e.stopPropagation()
             onSelect(item)
           }}
-          aria-label={`Ver detalhes de ${item.name}`}
+          aria-label={messages.library.viewDetails(item.name)}
         >
-          Ver detalhes
+          {messages.library.viewDetailsButton}
         </button>
       </div>
     </article>

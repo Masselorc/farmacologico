@@ -91,8 +91,7 @@ export function resolveProfileParameters(
       if (!input?.chosenTmax) {
         missingFields.push('tmax')
       } else if (input.chosenTmax === 'instant') {
-        tmaxMs = null
-        tmaxSnapshot = null
+        throw new Error('Tmax definido por faixa não admite absorção instantânea; informe um valor dentro do intervalo')
       } else {
         const norm = normalizeDurationRange(range)
         const chosenMs = durationValueToMs(input.chosenTmax)

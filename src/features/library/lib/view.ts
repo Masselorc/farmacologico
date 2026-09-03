@@ -1,10 +1,25 @@
-import type { CustomProfile, CustomSubstance } from '../../../domain/data-management/types'
+import type { CustomProfile, CustomProfileOwner, CustomSubstance } from '../../../domain/data-management/types'
 import type { OfficialDataset, PharmacokineticProfile, SingleSubstance, Substance } from '../../../domain/library/types'
 import type { PaletteColorId } from '../../../domain/shared/colors'
 import type { ProfileOrigin } from '../../../domain/types'
 import { LEGACY_SUBSTANCE_COLORS } from '../../../data/substances/legacy.dataset'
 
 export type OriginFilterKind = 'all' | 'legacy_unattributed' | 'literature' | 'user_defined'
+
+export type LibraryProfileView =
+  | {
+      provenance: 'official'
+      substanceId: string
+      profileId: string
+      datasetVersion: number
+      profile: PharmacokineticProfile
+    }
+  | {
+      provenance: 'custom_profile'
+      customProfileId: string
+      owner: CustomProfileOwner
+      profile: PharmacokineticProfile
+    }
 
 export interface LibraryItemView {
   id: string
@@ -16,6 +31,7 @@ export interface LibraryItemView {
   kind: 'single' | 'blend'
   substance: Substance
   profiles: PharmacokineticProfile[]
+  profileViews: LibraryProfileView[]
   origin: ProfileOrigin
   color: PaletteColorId
   componentOnly: boolean
@@ -48,28 +64,45 @@ export function buildLibraryView(
     const isComponentOnly = s.kind === 'single' && s.componentOnly === true
     const isDeprecated = s.deprecated === true
 
-    // Perfis oficiais da substância
-    const profiles: PharmacokineticProfile[] = s.kind === 'single' ? [...s.profiles] : []
+    const profileViews: LibraryProfileView[] = []
 
-    // Adiciona perfis customizados vinculados a esta substância oficial
     if (s.kind === 'single') {
+      // Perfis oficiais da substância
+      for (const p of s.profiles) {
+        profileViews.push({
+          provenance: 'official',
+          substanceId: s.id,
+          profileId: p.id,
+          datasetVersion: officialDataset.metadata.datasetVersion,
+          profile: p,
+        })
+      }
+
+      // Adiciona perfis customizados vinculados a esta substância oficial
       const userProfiles = customProfiles.filter(
         (cp) => cp.owner.type === 'official' && cp.owner.substanceId === s.id,
       )
       for (const up of userProfiles) {
-        profiles.push({
-          id: up.id,
-          route: up.route,
-          formulation: up.formulation,
-          ester: up.ester,
-          halfLife: up.halfLife,
-          tmaxSpec: up.tmaxSpec,
-          bioavailability: up.bioavailability,
-          populationContext: up.populationContext,
-          origin: up.origin,
+        profileViews.push({
+          provenance: 'custom_profile',
+          customProfileId: up.id,
+          owner: up.owner,
+          profile: {
+            id: up.id,
+            route: up.route,
+            formulation: up.formulation,
+            ester: up.ester,
+            halfLife: up.halfLife,
+            tmaxSpec: up.tmaxSpec,
+            bioavailability: up.bioavailability,
+            populationContext: up.populationContext,
+            origin: up.origin,
+          },
         })
       }
     }
+
+    const profiles = profileViews.map((pv) => pv.profile)
 
     const origin = s.kind === 'blend' ? s.origin : profiles[0]?.origin ?? {
       kind: 'legacy_unattributed' as const,
@@ -88,6 +121,7 @@ export function buildLibraryView(
       kind: s.kind,
       substance: s,
       profiles,
+      profileViews,
       origin,
       color,
       componentOnly: isComponentOnly,
@@ -100,17 +134,24 @@ export function buildLibraryView(
     const userProfiles = customProfiles.filter(
       (cp) => cp.owner.type === 'custom' && cp.owner.substanceId === cs.id,
     )
-    const profiles: PharmacokineticProfile[] = userProfiles.map((up) => ({
-      id: up.id,
-      route: up.route,
-      formulation: up.formulation,
-      ester: up.ester,
-      halfLife: up.halfLife,
-      tmaxSpec: up.tmaxSpec,
-      bioavailability: up.bioavailability,
-      populationContext: up.populationContext,
-      origin: up.origin,
+    const profileViews: LibraryProfileView[] = userProfiles.map((up) => ({
+      provenance: 'custom_profile' as const,
+      customProfileId: up.id,
+      owner: up.owner,
+      profile: {
+        id: up.id,
+        route: up.route,
+        formulation: up.formulation,
+        ester: up.ester,
+        halfLife: up.halfLife,
+        tmaxSpec: up.tmaxSpec,
+        bioavailability: up.bioavailability,
+        populationContext: up.populationContext,
+        origin: up.origin,
+      },
     }))
+
+    const profiles = profileViews.map((pv) => pv.profile)
 
     const syntheticSubstance: SingleSubstance = {
       kind: 'single',
@@ -133,6 +174,7 @@ export function buildLibraryView(
       kind: 'single',
       substance: syntheticSubstance,
       profiles,
+      profileViews,
       origin: { kind: 'user_defined', reviewStatus: 'not_applicable' },
       color: '#2563eb',
       componentOnly: false,
