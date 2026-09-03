@@ -28,8 +28,7 @@ export function SubstanceSheet({ item, onClose }: SubstanceSheetProps) {
   const isBlend = item.kind === 'blend'
   const [selectedProfileIndex, setSelectedProfileIndex] = useState(0)
   const currentProfileView = item.profileViews?.[selectedProfileIndex]
-  const currentProfile: PharmacokineticProfile | undefined =
-    currentProfileView?.profile ?? item.profiles[selectedProfileIndex]
+  const currentProfile: PharmacokineticProfile | undefined = currentProfileView?.profile
 
   const [chosenHalfLife, setChosenHalfLife] = useState<DurationValue | undefined>(undefined)
   const [chosenTmax, setChosenTmax] = useState<'instant' | DurationValue | undefined>(undefined)
@@ -61,8 +60,7 @@ export function SubstanceSheet({ item, onClose }: SubstanceSheetProps) {
   }, [onClose])
 
   function handleCreateComparator() {
-    if (isBlend) return
-    if (!currentProfile) return
+    if (isBlend || item.substance.kind !== 'single' || !currentProfile || !currentProfileView) return
 
     setErrorMessage(null)
     try {
@@ -78,13 +76,12 @@ export function SubstanceSheet({ item, onClose }: SubstanceSheetProps) {
 
       const intent = createComparatorIntent({
         substance: item.substance,
-        profileView: currentProfileView,
-        profile: currentProfile,
+        selectedProfile: currentProfileView,
         resolvedSelection: resolved,
       })
       setPreparedIntent(intent)
-    } catch (err: unknown) {
-      setErrorMessage(err instanceof Error ? err.message : String(err))
+    } catch {
+      setErrorMessage(messages.library.actionError)
     }
   }
 
@@ -92,13 +89,14 @@ export function SubstanceSheet({ item, onClose }: SubstanceSheetProps) {
     setErrorMessage(null)
     try {
       if (isBlend) {
+        if (item.substance.kind !== 'blend') return
         const intent = createProtocolIntent({
           substance: item.substance,
           dataset: OFFICIAL_DATASET_V1,
         })
         setPreparedIntent(intent)
       } else {
-        if (!currentProfile) return
+        if (item.substance.kind !== 'single' || !currentProfile || !currentProfileView) return
         const resolved = resolveProfileParameters(currentProfile, {
           chosenHalfLife,
           chosenTmax,
@@ -110,14 +108,13 @@ export function SubstanceSheet({ item, onClose }: SubstanceSheetProps) {
 
         const intent = createProtocolIntent({
           substance: item.substance,
-          profileView: currentProfileView,
-          profile: currentProfile,
+          selectedProfile: currentProfileView,
           resolvedSelection: resolved,
         })
         setPreparedIntent(intent)
       }
-    } catch (err: unknown) {
-      setErrorMessage(err instanceof Error ? err.message : String(err))
+    } catch {
+      setErrorMessage(messages.library.actionError)
     }
   }
 
@@ -154,9 +151,9 @@ export function SubstanceSheet({ item, onClose }: SubstanceSheetProps) {
 
         <div className="sheet-body">
           {/* Seletor de perfis se houver mais de um */}
-          {!isBlend && item.profiles.length > 1 && (
+          {!isBlend && item.profileViews.length > 1 && (
             <div className="sheet-profiles-selector">
-              <label className="sheet-field-label">{messages.library.profilesCount(item.profiles.length)}:</label>
+              <label className="sheet-field-label">{messages.library.profilesCount(item.profileViews.length)}:</label>
               <select
                 className="sheet-select"
                 value={selectedProfileIndex}
@@ -170,9 +167,11 @@ export function SubstanceSheet({ item, onClose }: SubstanceSheetProps) {
                   setErrorMessage(null)
                 }}
               >
-                {item.profiles.map((p, idx) => (
-                  <option key={p.id} value={idx}>
-                    {p.id} {p.formulation ? `(${p.formulation})` : ''} {p.ester ? `[${p.ester}]` : ''}
+                {item.profileViews.map((profileView, idx) => (
+                  <option key={profileView.profile.id} value={idx}>
+                    {profileView.profile.id}{' '}
+                    {profileView.profile.formulation ? `(${profileView.profile.formulation})` : ''}{' '}
+                    {profileView.profile.ester ? `[${profileView.profile.ester}]` : ''}
                   </option>
                 ))}
               </select>
@@ -378,7 +377,11 @@ export function SubstanceSheet({ item, onClose }: SubstanceSheetProps) {
               {/* Aviso educacional de biodisponibilidade */}
               <p className="bioavailability-note">{messages.library.bioavailabilityDisclaimer}</p>
             </div>
-          ) : null}
+          ) : (
+            <p id="sheet-no-profile-message" className="sheet-no-profile-message" role="status">
+              {messages.library.profileRequiredForAction}
+            </p>
+          )}
 
           {/* Banner de erro acessível inline */}
           {errorMessage && (
@@ -408,6 +411,8 @@ export function SubstanceSheet({ item, onClose }: SubstanceSheetProps) {
                   type="button"
                   className="btn-secondary cta-button"
                   onClick={handleCreateComparator}
+                  disabled={!currentProfile}
+                  aria-describedby={!currentProfile ? 'sheet-no-profile-message' : undefined}
                 >
                   {messages.library.compare}
                 </button>
@@ -415,6 +420,8 @@ export function SubstanceSheet({ item, onClose }: SubstanceSheetProps) {
                   type="button"
                   className="btn-primary cta-button"
                   onClick={handleCreateProtocol}
+                  disabled={!currentProfile}
+                  aria-describedby={!currentProfile ? 'sheet-no-profile-message' : undefined}
                 >
                   {messages.library.addToProtocols}
                 </button>

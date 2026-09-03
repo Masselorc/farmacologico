@@ -444,6 +444,12 @@
   color: var(--color-accent);
 }
 
+.cta-button:disabled,
+.cta-button:disabled:hover {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 /* Range Selector */
 .range-selector {
   display: flex;
@@ -521,6 +527,15 @@
   font-size: 0.85rem;
   color: var(--color-danger);
   margin-top: var(--space-2);
+}
+
+.sheet-no-profile-message {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-text-muted);
+  background: var(--color-surface-raised);
+  border-left: 3px solid var(--color-border);
+  border-radius: var(--radius-sm);
 }
 
 .bioavailability-field {

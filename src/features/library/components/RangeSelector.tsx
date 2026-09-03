@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { formatDuration, messages } from '../../../app/i18n/pt-BR.messages'
 import type { DurationRange, DurationValue, TimeUnit } from '../../../domain/shared/types.datetime'
 import { normalizeDurationRange, toMilliseconds } from '../../../domain/units/convert'
@@ -11,22 +11,58 @@ export interface RangeSelectorProps {
   onChange: (value: DurationValue | undefined) => void
 }
 
+function durationRangeKey(range: DurationRange): string {
+  return [range.min.value, range.min.unit, range.max.value, range.max.unit].join('|')
+}
+
+function durationValueKey(value: DurationValue | undefined): string {
+  return value ? `${value.value}|${value.unit}` : 'none'
+}
+
 export function RangeSelector({ label, range, value, onChange }: RangeSelectorProps) {
   const norm = normalizeDurationRange(range)
-  const [text, setText] = useState(value ? String(value.value) : '')
-  const [unit, setUnit] = useState<TimeUnit>(value?.unit ?? range.min.unit)
+  const rangeKey = durationRangeKey(range)
+  const valueKey = durationValueKey(value)
+  const propText = value ? String(value.value) : ''
+  const propUnit = value?.unit ?? range.min.unit
+  const [text, setText] = useState(propText)
+  const [unit, setUnit] = useState<TimeUnit>(propUnit)
   const [error, setError] = useState<string | null>(null)
+  const previousRangeKey = useRef(rangeKey)
+  const previousValueKey = useRef(valueKey)
+  const localEchoValueKey = useRef<string | null>(null)
+
+  useEffect(() => {
+    const rangeChanged = rangeKey !== previousRangeKey.current
+    const valueChanged = valueKey !== previousValueKey.current
+    const valueWasEmittedByThisControl = valueKey === localEchoValueKey.current
+
+    if (rangeChanged || (valueChanged && !valueWasEmittedByThisControl)) {
+      setText(propText)
+      setUnit(propUnit)
+      setError(null)
+    }
+
+    previousRangeKey.current = rangeKey
+    previousValueKey.current = valueKey
+    localEchoValueKey.current = null
+  }, [propText, propUnit, rangeKey, valueKey])
+
+  function emit(nextValue: DurationValue | undefined) {
+    localEchoValueKey.current = durationValueKey(nextValue)
+    onChange(nextValue)
+  }
 
   function handleBlur() {
     if (!text.trim()) {
       setError(messages.library.enterValue)
-      onChange(undefined)
+      emit(undefined)
       return
     }
     const res = parseLocaleDecimal(text)
     if (!res.ok || !Number.isFinite(res.value) || res.value <= 0) {
       setError(messages.library.invalidNumber)
-      onChange(undefined)
+      emit(undefined)
       return
     }
 
@@ -34,12 +70,12 @@ export function RangeSelector({ label, range, value, onChange }: RangeSelectorPr
     const ms = toMilliseconds(num, unit)
     if (ms < norm.minMs || ms > norm.maxMs) {
       setError(messages.library.valueMustBeBetween(formatDuration(range.min), formatDuration(range.max)))
-      onChange(undefined)
+      emit(undefined)
       return
     }
 
     setError(null)
-    onChange({ value: num, unit })
+    emit({ value: num, unit })
   }
 
   return (
@@ -57,7 +93,7 @@ export function RangeSelector({ label, range, value, onChange }: RangeSelectorPr
           onChange={(e) => {
             setText(e.target.value)
             setError(null)
-            onChange(undefined)
+            emit(undefined)
           }}
           onBlur={handleBlur}
           aria-label={label}
@@ -75,12 +111,12 @@ export function RangeSelector({ label, range, value, onChange }: RangeSelectorPr
                 const ms = toMilliseconds(num, nextUnit)
                 if (ms >= norm.minMs && ms <= norm.maxMs) {
                   setError(null)
-                  onChange({ value: num, unit: nextUnit })
+                  emit({ value: num, unit: nextUnit })
                   return
                 }
               }
             }
-            onChange(undefined)
+            emit(undefined)
           }}
         >
           <option value="minutes">{messages.comparator.timeUnitMinutes}</option>

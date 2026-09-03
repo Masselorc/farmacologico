@@ -2189,3 +2189,35 @@ Resolver integralmente todos os 16 blockers identificados na auditoria técnica 
 ### Commit
 
 - Mensagem autorizada: `fix(farmakit): fechar auditoria E10 da biblioteca`.
+
+## 2026-09-03 — E10.2 — Fechamento dos blockers residuais da Biblioteca
+
+### Base e escopo
+
+- Branch `main`; SHA-base e `origin/main` confirmados em `7a81eed4b3d32c497bf75c03e1f79f0c6793fc65` após `git fetch origin`.
+- E9 permanece fechada; E10 segue aberta para auditoria externa. E11 e E12 não foram iniciadas.
+- Nenhuma alteração em `FARMakit-especificacao-final.md`, `README.md`, `.token-optimizer/`, dataset oficial, engines, recurrence, simulation, reconstitution ou storage.
+
+### Correções
+
+- Builders de Single exigem `selectedProfile: LibraryProfileView`; removidos `profile`, `profileView` e fallback implícito. Official gera `library`; custom gera `custom_profile`; componentes de protocolo não repetem IDs fora de `source`.
+- `selectedPkParameters` e `pkParametersSnapshot` são validados pelos schemas canônicos antes da montagem do intent; `NaN`, `Infinity`, valores não positivos e Tmax negativo são rejeitados; Tmax `null`, zero e positivo finito são aceitos.
+- Filtro de origem percorre todos os `profileViews`; Blend usa sua própria origem; Single customizada sem perfis permanece visível em `user_defined`.
+- Card distingue `unknown`, `instant`, `value` e `range`; ficha bloqueia CTAs sem perfil com mensagem acessível; RangeSelector sincroniza faixa/valor sem emitir callback; Tmax unknown numérico e faixa de biodisponibilidade foram cobertos.
+- Erros de preparação na ficha são apresentados pelo catálogo pt-BR, sem expor `err.message` interno.
+
+### RED/GREEN e gates locais
+
+- Worktree limpo do SHA-base: `npm run test:e10` falhou em 11 testes novos; `npm run type-tests` falhou com quatro `@ts-expect-error` não utilizados, provando a regressão da API anterior.
+- GREEN focal: 3 arquivos novos, 28 testes; `npm run test:e10`: 10 arquivos, 93 testes.
+- `npm ci`, `npm run lint`, `npm run typecheck`, `npm run type-tests`, `npm test`: PASS; suíte completa com 89 arquivos e 729 testes.
+- `npm run test:e9`: 11 arquivos/56 testes; `test:e8`: 4/50; `test:e7`: 7/46; `test:e6`: 22/131; `test:e5`: 10/113; `test:e4`: 11/81 — todos PASS.
+- Build PASS: JS 816.23 kB (gzip 248.11 kB), CSS 28.63 kB (gzip 5.15 kB), precache 10 entradas (834.87 KiB). Warnings conhecidos de chunk grande e `INEFFECTIVE_DYNAMIC_IMPORT` permanecem não bloqueantes.
+- Boundaries PASS; Playwright PASS com 5 testes; `git diff --check` PASS; gates estáticos sem inline style, rede externa ou cast inseguro na Biblioteca.
+
+### Commit e CI
+
+- Commit solicitado: `fix(farmakit): fechar blockers residuais da E10`.
+- SHA final, push e execução remota serão registrados no relatório desta execução após o staging.
+
+E10.2 implementada; aguardando auditoria externa.

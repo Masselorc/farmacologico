@@ -1,10 +1,24 @@
 import { formatDuration, messages } from '../../../app/i18n/pt-BR.messages'
 import type { Duration, DurationRange } from '../../../domain/shared/types.datetime'
+import type { PharmacokineticProfile } from '../../../domain/library/types'
 import type { LibraryItemView } from '../lib/view'
 import { OriginBadge } from './OriginBadge'
 
 function isDurationRange(d: Duration): d is DurationRange {
   return 'min' in d
+}
+
+function formatTmaxSpecification(profile: PharmacokineticProfile): string {
+  switch (profile.tmaxSpec.kind) {
+    case 'unknown':
+      return messages.library.unspecified
+    case 'instant':
+      return messages.library.instantaneous
+    case 'value':
+      return formatDuration(profile.tmaxSpec.value)
+    case 'range':
+      return messages.library.rangeKind
+  }
 }
 
 export interface SubstanceCardProps {
@@ -51,11 +65,7 @@ export function SubstanceCard({ item, onSelect }: SubstanceCardProps) {
             </span>
             <span className="pk-metric">
               <strong>Tmax:</strong>{' '}
-              {primaryProfile.tmaxSpec.kind === 'value'
-                ? formatDuration(primaryProfile.tmaxSpec.value)
-                : primaryProfile.tmaxSpec.kind === 'instant'
-                  ? messages.library.instantaneous
-                  : messages.library.rangeKind}
+              {formatTmaxSpecification(primaryProfile)}
             </span>
           </div>
         ) : null}

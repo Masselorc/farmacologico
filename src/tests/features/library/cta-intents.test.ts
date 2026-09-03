@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { OFFICIAL_DATASET_V1 } from '../../../data/substances'
+import { buildLibraryView } from '../../../features/library/lib/view'
 import {
   createComparatorIntent,
   createProtocolIntent,
@@ -9,13 +10,14 @@ import type { SingleSubstance, BlendSubstance } from '../../../domain/library/ty
 describe('E10 — CTA Intents Semânticos (Fronteira E10 × E12)', () => {
   const retatrutida = OFFICIAL_DATASET_V1.substances.find((s) => s.id === 'retatrutida') as SingleSubstance
   const durateston = OFFICIAL_DATASET_V1.substances.find((s) => s.id === 'durateston-landergold') as BlendSubstance
+  const retatrutidaView = buildLibraryView(OFFICIAL_DATASET_V1).find((item) => item.id === 'retatrutida')!
+  const selectedProfile = retatrutidaView.profileViews[0]!
 
   describe('SingleSubstance CTAs', () => {
     it('produz LibraryComparatorIntent para Single sem doses, dose padrão ou amountMg', () => {
-      const profile = retatrutida.profiles[0]
       const intent = createComparatorIntent({
         substance: retatrutida,
-        profile,
+        selectedProfile,
         selection: {
           halfLifeMs: 6 * 86400000,
           tmaxMs: 2 * 86400000,
@@ -44,10 +46,9 @@ describe('E10 — CTA Intents Semânticos (Fronteira E10 × E12)', () => {
     })
 
     it('produz LibraryProtocolIntent para Single com 1 componente e proportion=1, sem totalDoseMg ou schedule', () => {
-      const profile = retatrutida.profiles[0]
       const intent = createProtocolIntent({
         substance: retatrutida,
-        profile,
+        selectedProfile,
         selection: {
           halfLifeMs: 6 * 86400000,
           tmaxMs: 2 * 86400000,
@@ -80,7 +81,9 @@ describe('E10 — CTA Intents Semânticos (Fronteira E10 × E12)', () => {
     it('PROIBIDO: createComparatorIntent rejeita BlendSubstance com erro explícito ou retorna null', () => {
       expect(() => {
         createComparatorIntent({
+          // @ts-expect-error BlendSubstance é proibida na API do Comparador.
           substance: durateston,
+          selectedProfile: undefined as never,
         })
       }).toThrow(/blend/i)
     })

@@ -22,6 +22,7 @@ import { RangeSelector } from '../../../features/library/components/RangeSelecto
 import { SubstanceSheet } from '../../../features/library/components/SubstanceSheet'
 import type { CustomProfile, CustomSubstance } from '../../../domain/data-management/types'
 import type { OfficialDataset, SingleSubstance } from '../../../domain/library/types'
+import type { LibraryProfileView } from '../../../features/library/lib/view'
 
 describe('E10.1 — Blocker 9: Schemas strict da Biblioteca', () => {
   it('profileOriginSchema deve rejeitar propriedades desconhecidas em todos os variantes', () => {
@@ -258,19 +259,33 @@ describe('E10.1 — Blocker 4: Builders não podem gerar intent com seleção in
   }
 
   it('createComparatorIntent lança erro semântico quando halfLife é range e não foi escolhida', () => {
+    const selectedProfile: LibraryProfileView = {
+      provenance: 'custom_profile',
+      customProfileId: 'cp-range',
+      owner: { type: 'custom', substanceId: rangeSubstance.id },
+      profile: rangeSubstance.profiles[0]!,
+    }
+
     expect(() =>
       createComparatorIntent({
         substance: rangeSubstance,
-        profile: rangeSubstance.profiles[0],
+        selectedProfile,
       }),
     ).toThrow()
   })
 
   it('createProtocolIntent lança erro semântico quando halfLife é range e não foi escolhida', () => {
+    const selectedProfile: LibraryProfileView = {
+      provenance: 'custom_profile',
+      customProfileId: 'cp-range',
+      owner: { type: 'custom', substanceId: rangeSubstance.id },
+      profile: rangeSubstance.profiles[0]!,
+    }
+
     expect(() =>
       createProtocolIntent({
         substance: rangeSubstance,
-        profile: rangeSubstance.profiles[0],
+        selectedProfile,
       }),
     ).toThrow()
   })
@@ -279,6 +294,7 @@ describe('E10.1 — Blocker 4: Builders não podem gerar intent com seleção in
 describe('E10.1 — Blocker 6: Snapshot do Blend fora da source do componente', () => {
   it('no LibraryProtocolIntent de Blend, pkParametersSnapshot fica no componente e NÃO dentro de source', () => {
     const blendSub = OFFICIAL_DATASET_V1.substances.find((s) => s.id === 'durateston-landergold')!
+    if (blendSub.kind !== 'blend') throw new Error('Fixture Durateston inválida')
     const intent = createProtocolIntent({
       substance: blendSub,
       dataset: OFFICIAL_DATASET_V1,
@@ -386,11 +402,12 @@ describe('E10.1 — Blocker 1 & 16: Proveniência de CustomProfile e tipagem est
   it('A. Official Substance + Official Profile gera source.type === library com ID oficial e datasetVersion', () => {
     const items = buildLibraryView(OFFICIAL_DATASET_V1)
     const retaItem = items.find((i) => i.id === 'retatrutida')!
-    const officialProfileView = retaItem.profileViews[0]
+    if (retaItem.substance.kind !== 'single') throw new Error('Fixture Retatrutida inválida')
+    const officialProfileView = retaItem.profileViews[0]!
 
     const intent = createComparatorIntent({
       substance: retaItem.substance,
-      profileView: officialProfileView,
+      selectedProfile: officialProfileView,
     })
 
     expect(intent.source.type).toBe('library')
@@ -404,6 +421,7 @@ describe('E10.1 — Blocker 1 & 16: Proveniência de CustomProfile e tipagem est
   it('B. Official Substance + CustomProfile gera source.type === custom_profile com customProfileId preservado', () => {
     const items = buildLibraryView(OFFICIAL_DATASET_V1, [], [customProfile])
     const retaItem = items.find((i) => i.id === 'retatrutida')!
+    if (retaItem.substance.kind !== 'single') throw new Error('Fixture Retatrutida inválida')
     expect(retaItem.profileViews.length).toBe(2)
 
     const userProfileView = retaItem.profileViews.find((pv) => pv.provenance === 'custom_profile')!
@@ -411,7 +429,7 @@ describe('E10.1 — Blocker 1 & 16: Proveniência de CustomProfile e tipagem est
 
     const compIntent = createComparatorIntent({
       substance: retaItem.substance,
-      profileView: userProfileView,
+      selectedProfile: userProfileView,
     })
 
     expect(compIntent.source.type).toBe('custom_profile')
@@ -423,7 +441,7 @@ describe('E10.1 — Blocker 1 & 16: Proveniência de CustomProfile e tipagem est
 
     const protoIntent = createProtocolIntent({
       substance: retaItem.substance,
-      profileView: userProfileView,
+      selectedProfile: userProfileView,
     })
 
     expect(protoIntent.components[0].source.type).toBe('custom_profile')
@@ -435,11 +453,12 @@ describe('E10.1 — Blocker 1 & 16: Proveniência de CustomProfile e tipagem est
   it('C. CustomSubstance + CustomProfile gera source.type === custom_profile', () => {
     const items = buildLibraryView(OFFICIAL_DATASET_V1, [customSubstance], [customProfile2])
     const customItem = items.find((i) => i.id === 'custom-sub-1')!
-    const pv = customItem.profileViews[0]
+    if (customItem.substance.kind !== 'single') throw new Error('Fixture custom inválida')
+    const pv = customItem.profileViews[0]!
 
     const compIntent = createComparatorIntent({
       substance: customItem.substance,
-      profileView: pv,
+      selectedProfile: pv,
     })
     expect(compIntent.source.type).toBe('custom_profile')
   })
@@ -563,11 +582,14 @@ describe('E10.1 — Blocker 13: Biodisponibilidade de referência exibida quando
 describe('E10.1 — Proibição de doses automáticas em intents', () => {
   it('nenhum intent de comparador ou protocolo possui doses preenchidas', () => {
     const retaSub = OFFICIAL_DATASET_V1.substances.find((s) => s.id === 'retatrutida')!
-    const compIntent = createComparatorIntent({ substance: retaSub })
+    if (retaSub.kind !== 'single') throw new Error('Fixture Retatrutida inválida')
+    const retaItem = buildLibraryView(OFFICIAL_DATASET_V1).find((item) => item.id === retaSub.id)!
+    const selectedProfile = retaItem.profileViews[0]!
+    const compIntent = createComparatorIntent({ substance: retaSub, selectedProfile })
     expect('doses' in compIntent).toBe(false)
     expect('amountMg' in compIntent).toBe(false)
 
-    const protoIntent = createProtocolIntent({ substance: retaSub })
+    const protoIntent = createProtocolIntent({ substance: retaSub, selectedProfile })
     for (const comp of protoIntent.components) {
       expect('doses' in comp).toBe(false)
       expect('amountMg' in comp).toBe(false)

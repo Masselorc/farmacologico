@@ -188,10 +188,14 @@ export function buildLibraryView(
   // 4. Filtrar por origem
   if (originFilter !== 'all') {
     visible = visible.filter((item) => {
-      if (originFilter === 'user_defined') {
-        return item.origin.kind === 'user_defined' || item.profiles.some((p) => p.origin.kind === 'user_defined')
+      if (item.kind === 'blend') {
+        return item.origin.kind === originFilter
       }
-      return item.origin.kind === originFilter
+
+      return (
+        item.profileViews.some((profileView) => profileView.profile.origin.kind === originFilter) ||
+        (item.profileViews.length === 0 && item.origin.kind === originFilter)
+      )
     })
   }
 
