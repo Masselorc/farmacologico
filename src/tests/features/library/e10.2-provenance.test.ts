@@ -148,12 +148,16 @@ describe('E10.2 — proveniência e validação dos builders', () => {
       ...officialProfile.profile,
       tmaxSpec: { kind: 'unknown' as const },
     }
+    const unknownSubstance = {
+      ...officialSubstance,
+      profiles: [unknownProfile],
+    }
     const unknownView = {
       ...officialProfile,
       profile: unknownProfile,
     }
     const intent = createComparatorIntent({
-      substance: officialSubstance,
+      substance: unknownSubstance,
       selectedProfile: unknownView,
       parameterSelection: { chosenTmax },
     })

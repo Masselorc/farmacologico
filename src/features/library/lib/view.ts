@@ -31,6 +31,17 @@ export function profileViewIdentity(view: LibraryProfileView): string {
   return `custom:${view.customProfileId}`
 }
 
+export type LibrarySubstanceProvenance =
+  | {
+      type: 'official'
+      substanceId: string
+      datasetVersion: number
+    }
+  | {
+      type: 'custom'
+      customSubstanceId: string
+    }
+
 export interface LibraryItemView {
   id: string
   slug: string
@@ -46,6 +57,7 @@ export interface LibraryItemView {
   color: PaletteColorId
   componentOnly: boolean
   deprecated: boolean
+  substanceProvenance: LibrarySubstanceProvenance
 }
 
 function normalizeSearchText(text: string): string {
@@ -136,6 +148,11 @@ export function buildLibraryView(
       color,
       componentOnly: isComponentOnly,
       deprecated: isDeprecated,
+      substanceProvenance: {
+        type: 'official',
+        substanceId: s.id,
+        datasetVersion: officialDataset.metadata.datasetVersion,
+      },
     })
   }
 
@@ -189,6 +206,10 @@ export function buildLibraryView(
       color: '#2563eb',
       componentOnly: false,
       deprecated: false,
+      substanceProvenance: {
+        type: 'custom',
+        customSubstanceId: cs.id,
+      },
     })
   }
 

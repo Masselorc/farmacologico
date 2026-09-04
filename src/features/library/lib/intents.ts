@@ -13,19 +13,18 @@ import type {
   PharmacokineticProfile,
   SingleSubstance,
 } from '../../../domain/library/types'
-import { OFFICIAL_DATASET_V1 } from '../../../data/substances'
 import { CURRENT_DATASET_VERSION } from '../../../domain/version'
 import { LEGACY_SUBSTANCE_COLORS } from '../../../data/substances/legacy.dataset'
 import { pkParametersSnapshotSchema, selectedPkParametersSchema } from '../../../validation/schemas/pk'
 import { resolveProfileParameters, type ProfileParameterSelectionInput } from './selection'
-import type { LibraryProfileView } from './view'
+import type { LibraryProfileView, LibrarySubstanceProvenance } from './view'
 
 export interface LibraryComparatorIntent {
   kind: 'comparator'
   name: string
   color: PaletteColorId
-  source: ScenarioSource
   displayUnit: MassUnit
+  source: ScenarioSource
   selectedPkParameters: SelectedPkParameters
 }
 
@@ -45,6 +44,7 @@ export interface LibraryProtocolIntent {
 
 export interface CreateComparatorIntentParams {
   substance: SingleSubstance
+  substanceProvenance?: LibrarySubstanceProvenance
   selectedProfile: LibraryProfileView
   parameterSelection?: ProfileParameterSelectionInput
   displayUnit?: MassUnit
@@ -53,6 +53,7 @@ export interface CreateComparatorIntentParams {
 
 export interface CreateSingleProtocolIntentParams {
   substance: SingleSubstance
+  substanceProvenance?: LibrarySubstanceProvenance
   selectedProfile: LibraryProfileView
   parameterSelection?: ProfileParameterSelectionInput
   dataset?: never
@@ -80,35 +81,113 @@ interface ValidatedProfileSelection {
 
 /**
  * Valida a invariante de identidade e proveniência: o perfil deve pertencer
- * estritamente à substância fornecida antes de qualquer resolução PK.
+ * estritamente à substância fornecida antes de qualquer resolução PK,
+ * e resolve o perfil canônico oficial quando aplicável.
  */
 export function assertSelectedProfileBelongsToSubstance(
   substance: SingleSubstance,
   selectedProfile: LibraryProfileView,
-): void {
+  substanceProvenance?: LibrarySubstanceProvenance,
+): PharmacokineticProfile {
+  // 1. Validação de namespace e proveniência
+  if (substanceProvenance) {
+    if (substanceProvenance.type === 'official') {
+      if (substanceProvenance.substanceId !== substance.id) {
+        throw new Error(
+          `Substância oficial ${substanceProvenance.substanceId} diverge do id ${substance.id}`,
+        )
+      }
+      if (selectedProfile.provenance === 'official') {
+        if (selectedProfile.substanceId !== substance.id) {
+          throw new Error(
+            `Perfil oficial ${selectedProfile.profileId} pertence à substância ${selectedProfile.substanceId}, não a ${substance.id}`,
+          )
+        }
+      } else if (selectedProfile.provenance === 'custom_profile') {
+        if (selectedProfile.owner.type !== 'official') {
+          throw new Error(
+            `Perfil customizado com owner.type 'custom' não pode ser associado a substância official no namespace`,
+          )
+        }
+        if (selectedProfile.owner.substanceId !== substance.id) {
+          throw new Error(
+            `Perfil customizado ${selectedProfile.customProfileId} pertence à substância ${selectedProfile.owner.substanceId}, não a ${substance.id}`,
+          )
+        }
+      }
+    } else if (substanceProvenance.type === 'custom') {
+      if (substanceProvenance.customSubstanceId !== substance.id) {
+        throw new Error(
+          `Substância customizada ${substanceProvenance.customSubstanceId} diverge do id ${substance.id}`,
+        )
+      }
+      if (selectedProfile.provenance === 'official') {
+        throw new Error(
+          `Perfil oficial não pode ser associado a substância customizada no namespace`,
+        )
+      } else if (selectedProfile.provenance === 'custom_profile') {
+        if (selectedProfile.owner.type !== 'custom') {
+          throw new Error(
+            `Perfil customizado com owner.type 'official' não pode ser associado a substância customizada no namespace`,
+          )
+        }
+        if (selectedProfile.owner.substanceId !== substance.id) {
+          throw new Error(
+            `Perfil customizado ${selectedProfile.customProfileId} pertence à substância ${selectedProfile.owner.substanceId}, não a ${substance.id}`,
+          )
+        }
+      }
+    }
+  } else {
+    // Caso substanceProvenance não seja explicitamente fornecido, valida as invariantes de identificador
+    if (selectedProfile.provenance === 'official') {
+      if (selectedProfile.substanceId !== substance.id) {
+        throw new Error(
+          `Perfil oficial ${selectedProfile.profileId} pertence à substância ${selectedProfile.substanceId}, não a ${substance.id}`,
+        )
+      }
+    } else if (selectedProfile.provenance === 'custom_profile') {
+      if (selectedProfile.owner.substanceId !== substance.id) {
+        throw new Error(
+          `Perfil customizado ${selectedProfile.customProfileId} pertence à substância ${selectedProfile.owner.substanceId}, não a ${substance.id}`,
+        )
+      }
+    }
+  }
+
+  // 2. Resolução do profile canônico e verificação de payload PK
   if (selectedProfile.provenance === 'official') {
-    if (selectedProfile.substanceId !== substance.id) {
+    const canonicalProfile = substance.profiles.find((p) => p.id === selectedProfile.profileId)
+    if (!canonicalProfile) {
       throw new Error(
-        `Perfil oficial ${selectedProfile.profileId} pertence à substância ${selectedProfile.substanceId}, não a ${substance.id}`,
+        `Perfil oficial ${selectedProfile.profileId} não encontrado na substância ${substance.id}`,
       )
     }
-  } else if (selectedProfile.provenance === 'custom_profile') {
-    if (selectedProfile.owner.substanceId !== substance.id) {
+
+    if (selectedProfile.profile.id !== canonicalProfile.id) {
       throw new Error(
-        `Perfil customizado ${selectedProfile.customProfileId} pertence à substância ${selectedProfile.owner.substanceId}, não a ${substance.id}`,
+        `Identidade do perfil selecionado (${selectedProfile.profile.id}) diverge do perfil canônico (${canonicalProfile.id})`,
       )
     }
-    const isOfficialSubstance = OFFICIAL_DATASET_V1.substances.some((s) => s.id === substance.id)
-    if (selectedProfile.owner.type === 'official' && !isOfficialSubstance) {
+
+    if (
+      selectedProfile.profile.route !== canonicalProfile.route ||
+      JSON.stringify(selectedProfile.profile.halfLife) !== JSON.stringify(canonicalProfile.halfLife) ||
+      JSON.stringify(selectedProfile.profile.tmaxSpec) !== JSON.stringify(canonicalProfile.tmaxSpec)
+    ) {
+      throw new Error('Payload farmacocinético diverge da definição canônica da substância')
+    }
+
+    return canonicalProfile
+  } else {
+    // custom_profile
+    if (selectedProfile.profile.id !== selectedProfile.customProfileId) {
       throw new Error(
-        `Perfil customizado com owner.type 'official' (${selectedProfile.owner.substanceId}) não pode ser associado a substância não-oficial ${substance.id}`,
+        `Perfil customizado ${selectedProfile.customProfileId} diverge de profile.id ${selectedProfile.profile.id}`,
       )
     }
-    if (selectedProfile.owner.type === 'custom' && isOfficialSubstance) {
-      throw new Error(
-        `Perfil customizado com owner.type 'custom' (${selectedProfile.owner.substanceId}) não pode ser associado a substância oficial ${substance.id}`,
-      )
-    }
+
+    return selectedProfile.profile
   }
 }
 
@@ -197,10 +276,14 @@ export function createComparatorIntent(params: CreateComparatorIntentParams): Li
   const single = params.substance
   const selectedProfile = params.selectedProfile
 
-  assertSelectedProfileBelongsToSubstance(single, selectedProfile)
+  const canonicalProfile = assertSelectedProfileBelongsToSubstance(
+    single,
+    selectedProfile,
+    params.substanceProvenance,
+  )
 
   const { selectedPkParameters, pkParametersSnapshot } = resolveAndValidateProfileSelection(
-    selectedProfile.profile,
+    canonicalProfile,
     params.parameterSelection,
   )
 
@@ -229,10 +312,14 @@ export function createProtocolIntent(params: CreateProtocolIntentParams): Librar
     }
     const selectedProfile = params.selectedProfile
 
-    assertSelectedProfileBelongsToSubstance(single, selectedProfile)
+    const canonicalProfile = assertSelectedProfileBelongsToSubstance(
+      single,
+      selectedProfile,
+      params.substanceProvenance,
+    )
 
     const { selectedPkParameters, pkParametersSnapshot } = resolveAndValidateProfileSelection(
-      selectedProfile.profile,
+      canonicalProfile,
       params.parameterSelection,
     )
 

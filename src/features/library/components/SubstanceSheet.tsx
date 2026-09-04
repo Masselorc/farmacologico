@@ -66,6 +66,7 @@ export function SubstanceSheet({ item, onClose }: SubstanceSheetProps) {
     try {
       const intent = createComparatorIntent({
         substance: item.substance,
+        substanceProvenance: item.substanceProvenance,
         selectedProfile: currentProfileView,
         parameterSelection: {
           chosenHalfLife,
@@ -96,6 +97,7 @@ export function SubstanceSheet({ item, onClose }: SubstanceSheetProps) {
         if (item.substance.kind !== 'single' || !currentProfile || !currentProfileView) return
         const intent = createProtocolIntent({
           substance: item.substance,
+          substanceProvenance: item.substanceProvenance,
           selectedProfile: currentProfileView,
           parameterSelection: {
             chosenHalfLife,
@@ -166,7 +168,7 @@ export function SubstanceSheet({ item, onClose }: SubstanceSheetProps) {
                 }}
               >
                 {item.profileViews.map((profileView, idx) => (
-                  <option key={profileView.profile.id} value={idx}>
+                  <option key={profileViewIdentity(profileView)} value={idx}>
                     {profileView.profile.id}{' '}
                     {profileView.profile.formulation ? `(${profileView.profile.formulation})` : ''}{' '}
                     {profileView.profile.ester ? `[${profileView.profile.ester}]` : ''}

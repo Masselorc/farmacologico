@@ -2277,3 +2277,62 @@ E10.2 implementada; aguardando auditoria externa.
 
 - Commit normativo: `fix(farmakit): garantir coerencia final da E10`.
 
+## 2026-09-04 — E10.4 — Fechamento da identidade canônica da Biblioteca
+
+### Base e escopo
+
+- Branch `main`; SHA-base e `origin/main` validados em `4d63cafd66b826720ea422e1922a431d523f10c9`.
+- Commit-base: `fix(farmakit): garantir coerencia final da E10`.
+- E9 permanece fechada; E10 concluída com fechamento cirúrgico da identidade canônica entre substance, profile e payload PK; E11 e E12 não foram iniciadas.
+- Nenhuma alteração em `FARMakit-especificacao-final.md`, `README.md`, `.token-optimizer/`, dataset oficial, resolver, engines, recurrence, simulation, reconstitution ou storage.
+
+### Fechamento dos blockers de identidade
+
+- **Blocker 1 (Identidade canônica official e rejeição de payload divergente)**:
+  - Para `selectedProfile.provenance === 'official'`, o builder não confia em `selectedProfile.profile` como autoridade científica. Resolve o perfil canônico oficial diretamente em `substance.profiles.find((p) => p.id === selectedProfile.profileId)`. Se não encontrado, lança erro explícito.
+  - Verifica consistência estrutural e científica entre `selectedProfile.profile` e o perfil canônico oficial (`id`, `route`, `halfLife` e `tmaxSpec`). Se houver divergência ou falsificação de payload PK, rejeita com erro explícito.
+  - A ciência (`selectedPkParameters` e `pkParametersSnapshot`) é derivada exclusivamente a partir do perfil canônico oficial.
+  - Para `selectedProfile.provenance === 'custom_profile'`, valida que `selectedProfile.profile.id === selectedProfile.customProfileId`.
+- **Blocker 2 (Namespace explícito da substância e eliminação de heurística por texto de ID)**:
+  - Criado o tipo `LibrarySubstanceProvenance` em `src/features/library/lib/view.ts`:
+    - Official: `{ type: 'official', substanceId: string, datasetVersion: number }`
+    - Custom: `{ type: 'custom', customSubstanceId: string }`
+  - `LibraryItemView` transporta explicitamente `substanceProvenance`.
+  - `buildLibraryView` preenche a proveniência no momento da agregação, sem inferência posterior.
+  - Removido completamente de `intents.ts` qualquer uso de `OFFICIAL_DATASET_V1.substances.some(...)`.
+  - Invariante formal de namespace:
+    - Substância official só aceita perfil official ou custom profile com `owner.type === 'official'`.
+    - Substância customizada só aceita custom profile com `owner.type === 'custom'`.
+    - Colisões textuais de ID entre namespaces diferentes (ex: `retatrutida` customizada vs `retatrutida` oficial) mantêm entidades totalmente isoladas.
+- **Blocker 3 (React key completa no seletor de perfis)**:
+  - No `SubstanceSheet.tsx`, a opção do `<select id="sheet-profile-select">` utiliza `<option key={profileViewIdentity(profileView)} value={idx}>`.
+  - Perfis oficiais e customizados que compartilhem o mesmo identificador textual (ex: `legacy-v1`) coexistem sem colisão de chave React e sem warnings no console.
+
+### RED / GREEN e gates locais
+
+- **Fase RED comprovada**:
+  - `e10.4-identity-regressions.test.tsx`: falhas observadas em tentativa de falsificação de payload oficial, colisão de namespaces official/custom e ausência de `substanceProvenance`.
+- **Fase GREEN e gates locais**:
+  - `npm run lint`: PASS (0 erros, 0 avisos).
+  - `npm run typecheck`: PASS (0 erros).
+  - `npm run type-tests`: PASS (0 erros).
+  - `npm run test:e10`: PASS (12 arquivos, 112 testes).
+  - `npm run test:e9`: PASS (11 arquivos, 56 testes).
+  - `npm run test:e8`: PASS (4 arquivos, 50 testes).
+  - `npm run test:e7`: PASS (7 arquivos, 46 testes).
+  - `npm run test:e6`: PASS (22 arquivos, 131 testes).
+  - `npm run test:e5`: PASS (10 arquivos, 113 testes).
+  - `npm run test:e4`: PASS (11 arquivos, 81 testes).
+  - `npm test`: PASS (91 arquivos, 748 testes).
+  - `npm run build`: PASS (Vite + PWA generateSW).
+  - `npm run check:build-boundaries`: PASS (9 arquivos em dist, 0 referências a `.token-optimizer`).
+  - `npm run test:e1`: PASS (5 testes Playwright em Chromium sob CSP e mobile 390px).
+  - `git diff --check`: PASS (0 erros).
+
+### Publicação e auditoria
+
+- Commit normativo: `fix(farmakit): fechar identidade canonica da E10`.
+- Push normal para `origin main` sem reescrita de histórico (`no amend`, `no force`).
+
+E10.4 implementada; aguardando auditoria externa.
+
