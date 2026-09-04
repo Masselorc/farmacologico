@@ -42,6 +42,18 @@ export type LibrarySubstanceProvenance =
       customSubstanceId: string
     }
 
+/**
+ * Constrói uma chave de identidade determinística para o LibraryItemView (§6, §9, E10.5).
+ */
+export function libraryItemIdentity(
+  item: Pick<LibraryItemView, 'substanceProvenance'>,
+): string {
+  if (item.substanceProvenance.type === 'official') {
+    return `official:${item.substanceProvenance.datasetVersion}:${item.substanceProvenance.substanceId}`
+  }
+  return `custom:${item.substanceProvenance.customSubstanceId}`
+}
+
 export interface LibraryItemView {
   id: string
   slug: string

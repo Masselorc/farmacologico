@@ -33,6 +33,7 @@ describe('E10.3 — Blocker 1: Coerência atômica entre SelectedPkParameters e 
   it('1. Perfil oficial exato deriva PK e snapshot coerentes em uma única operação', () => {
     const intent = createComparatorIntent({
       substance: retaSub,
+      substanceProvenance: retaItem.substanceProvenance,
       selectedProfile: retaProfileView,
     })
 
@@ -84,6 +85,11 @@ describe('E10.3 — Blocker 1: Coerência atômica entre SelectedPkParameters e 
 
     const intent = createComparatorIntent({
       substance: rangeSubstance,
+      substanceProvenance: {
+        type: 'official',
+        substanceId: rangeSubstance.id,
+        datasetVersion: 1,
+      },
       selectedProfile: rangeProfileView,
       parameterSelection: {
         chosenHalfLife: { value: 6, unit: 'days' },
@@ -133,6 +139,11 @@ describe('E10.3 — Blocker 1: Coerência atômica entre SelectedPkParameters e 
 
     const intent = createComparatorIntent({
       substance: unknownSubstance,
+      substanceProvenance: {
+        type: 'official',
+        substanceId: unknownSubstance.id,
+        datasetVersion: 1,
+      },
       selectedProfile: unknownProfileView,
       parameterSelection: {
         chosenTmax: 'instant',
@@ -178,6 +189,11 @@ describe('E10.3 — Blocker 1: Coerência atômica entre SelectedPkParameters e 
 
     const intent = createComparatorIntent({
       substance: unknownSubstance,
+      substanceProvenance: {
+        type: 'official',
+        substanceId: unknownSubstance.id,
+        datasetVersion: 1,
+      },
       selectedProfile: unknownProfileView,
       parameterSelection: {
         chosenTmax: { value: 12, unit: 'hours' },
@@ -206,6 +222,7 @@ describe('E10.3 — Blocker 2: Pertencimento e invariante de identidade (Cross-S
     expect(() => {
       createComparatorIntent({
         substance: retaSub,
+        substanceProvenance: retaItem.substanceProvenance,
         selectedProfile: enantatoProfileView,
       })
     }).toThrow(/pertence|mismatch/i)
@@ -213,6 +230,7 @@ describe('E10.3 — Blocker 2: Pertencimento e invariante de identidade (Cross-S
     expect(() => {
       createProtocolIntent({
         substance: retaSub,
+        substanceProvenance: retaItem.substanceProvenance,
         selectedProfile: enantatoProfileView,
       })
     }).toThrow(/pertence|mismatch/i)
@@ -236,6 +254,7 @@ describe('E10.3 — Blocker 2: Pertencimento e invariante de identidade (Cross-S
     expect(() => {
       createComparatorIntent({
         substance: enantatoSub,
+        substanceProvenance: enantatoItem.substanceProvenance,
         selectedProfile: customProfileView,
       })
     }).toThrow(/pertence|mismatch/i)
@@ -270,15 +289,17 @@ describe('E10.3 — Blocker 2: Pertencimento e invariante de identidade (Cross-S
     expect(() => {
       createComparatorIntent({
         substance: retaSub,
+        substanceProvenance: retaItem.substanceProvenance,
         selectedProfile: profileViewA,
       })
-    }).toThrow(/pertence|mismatch/i)
+    }).toThrow(/pertence|mismatch|associado/i)
   })
 
   it('4. Happy paths mantêm sucesso quando substância e perfil correspondem exatamente', () => {
     // Official + Official
     const comp1 = createComparatorIntent({
       substance: retaSub,
+      substanceProvenance: retaItem.substanceProvenance,
       selectedProfile: retaItem.profileViews[0]!,
     })
     expect(comp1.source.type).toBe('library')
@@ -298,6 +319,7 @@ describe('E10.3 — Blocker 2: Pertencimento e invariante de identidade (Cross-S
     const customProfileView = retaWithCustom.profileViews.find((pv) => pv.provenance === 'custom_profile')!
     const comp2 = createComparatorIntent({
       substance: retaSub,
+      substanceProvenance: retaWithCustom.substanceProvenance,
       selectedProfile: customProfileView,
     })
     expect(comp2.source.type).toBe('custom_profile')

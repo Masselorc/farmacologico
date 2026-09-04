@@ -269,6 +269,7 @@ describe('E10.1 — Blocker 4: Builders não podem gerar intent com seleção in
     expect(() =>
       createComparatorIntent({
         substance: rangeSubstance,
+        substanceProvenance: { type: 'custom', customSubstanceId: rangeSubstance.id },
         selectedProfile,
       }),
     ).toThrow()
@@ -285,6 +286,7 @@ describe('E10.1 — Blocker 4: Builders não podem gerar intent com seleção in
     expect(() =>
       createProtocolIntent({
         substance: rangeSubstance,
+        substanceProvenance: { type: 'custom', customSubstanceId: rangeSubstance.id },
         selectedProfile,
       }),
     ).toThrow()
@@ -407,6 +409,7 @@ describe('E10.1 — Blocker 1 & 16: Proveniência de CustomProfile e tipagem est
 
     const intent = createComparatorIntent({
       substance: retaItem.substance,
+      substanceProvenance: retaItem.substanceProvenance,
       selectedProfile: officialProfileView,
     })
 
@@ -429,6 +432,7 @@ describe('E10.1 — Blocker 1 & 16: Proveniência de CustomProfile e tipagem est
 
     const compIntent = createComparatorIntent({
       substance: retaItem.substance,
+      substanceProvenance: retaItem.substanceProvenance,
       selectedProfile: userProfileView,
     })
 
@@ -441,6 +445,7 @@ describe('E10.1 — Blocker 1 & 16: Proveniência de CustomProfile e tipagem est
 
     const protoIntent = createProtocolIntent({
       substance: retaItem.substance,
+      substanceProvenance: retaItem.substanceProvenance,
       selectedProfile: userProfileView,
     })
 
@@ -458,6 +463,7 @@ describe('E10.1 — Blocker 1 & 16: Proveniência de CustomProfile e tipagem est
 
     const compIntent = createComparatorIntent({
       substance: customItem.substance,
+      substanceProvenance: customItem.substanceProvenance,
       selectedProfile: pv,
     })
     expect(compIntent.source.type).toBe('custom_profile')
@@ -585,11 +591,19 @@ describe('E10.1 — Proibição de doses automáticas em intents', () => {
     if (retaSub.kind !== 'single') throw new Error('Fixture Retatrutida inválida')
     const retaItem = buildLibraryView(OFFICIAL_DATASET_V1).find((item) => item.id === retaSub.id)!
     const selectedProfile = retaItem.profileViews[0]!
-    const compIntent = createComparatorIntent({ substance: retaSub, selectedProfile })
+    const compIntent = createComparatorIntent({
+      substance: retaSub,
+      substanceProvenance: retaItem.substanceProvenance,
+      selectedProfile,
+    })
     expect('doses' in compIntent).toBe(false)
     expect('amountMg' in compIntent).toBe(false)
 
-    const protoIntent = createProtocolIntent({ substance: retaSub, selectedProfile })
+    const protoIntent = createProtocolIntent({
+      substance: retaSub,
+      substanceProvenance: retaItem.substanceProvenance,
+      selectedProfile,
+    })
     for (const comp of protoIntent.components) {
       expect('doses' in comp).toBe(false)
       expect('amountMg' in comp).toBe(false)

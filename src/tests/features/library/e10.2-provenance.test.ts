@@ -46,6 +46,11 @@ describe('E10.2 — proveniência e validação dos builders', () => {
   it('preserva official como library', () => {
     const intent = createComparatorIntent({
       substance: officialSubstance,
+      substanceProvenance: {
+        type: 'official',
+        substanceId: officialSubstance.id,
+        datasetVersion: OFFICIAL_DATASET_V1.metadata.datasetVersion,
+      },
       selectedProfile: officialProfile,
     })
 
@@ -68,6 +73,7 @@ describe('E10.2 — proveniência e validação dos builders', () => {
 
     const intent = createComparatorIntent({
       substance: item.substance,
+      substanceProvenance: item.substanceProvenance,
       selectedProfile,
     })
 
@@ -89,6 +95,7 @@ describe('E10.2 — proveniência e validação dos builders', () => {
 
     const intent = createProtocolIntent({
       substance: item.substance,
+      substanceProvenance: item.substanceProvenance,
       selectedProfile,
     })
 
@@ -114,6 +121,11 @@ describe('E10.2 — proveniência e validação dos builders', () => {
     expect(() =>
       createComparatorIntent({
         substance: officialSubstance,
+        substanceProvenance: {
+          type: 'official',
+          substanceId: officialSubstance.id,
+          datasetVersion: OFFICIAL_DATASET_V1.metadata.datasetVersion,
+        },
         selectedProfile: invalidView,
       }),
     ).toThrow()
@@ -135,6 +147,11 @@ describe('E10.2 — proveniência e validação dos builders', () => {
     expect(() =>
       createProtocolIntent({
         substance: officialSubstance,
+        substanceProvenance: {
+          type: 'official',
+          substanceId: officialSubstance.id,
+          datasetVersion: OFFICIAL_DATASET_V1.metadata.datasetVersion,
+        },
         selectedProfile: invalidView,
       }),
     ).toThrow()
@@ -158,6 +175,11 @@ describe('E10.2 — proveniência e validação dos builders', () => {
     }
     const intent = createComparatorIntent({
       substance: unknownSubstance,
+      substanceProvenance: {
+        type: 'official',
+        substanceId: unknownSubstance.id,
+        datasetVersion: OFFICIAL_DATASET_V1.metadata.datasetVersion,
+      },
       selectedProfile: unknownView,
       parameterSelection: { chosenTmax },
     })

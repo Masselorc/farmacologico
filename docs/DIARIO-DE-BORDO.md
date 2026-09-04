@@ -2336,3 +2336,62 @@ E10.2 implementada; aguardando auditoria externa.
 
 E10.4 implementada; aguardando auditoria externa.
 
+## 2026-09-04 — E10.5 — Namespace obrigatório e identidade visual da Biblioteca
+
+### Base e escopo
+
+- Branch `main`; SHA-base e `origin/main` validados em `1d99c9c0794f52896ed92d7196cbf6979b0c09ca`.
+- Commit-base: `fix(farmakit): fechar identidade canonica da E10`.
+- E9 e etapas anteriores permanecem fechadas; E10 concluída com fechamento do namespace obrigatório e identidade visual da Biblioteca; E11 e E12 não foram iniciadas.
+- Nenhuma alteração em `FARMakit-especificacao-final.md`, `README.md`, `.token-optimizer/`, dataset oficial, resolver, engines, recurrence, simulation, reconstitution ou storage.
+
+### Fechamento dos blockers de namespace e identidade visual
+
+- **Blocker 1 (`substanceProvenance` obrigatório nos builders de Single)**:
+  - `substanceProvenance: LibrarySubstanceProvenance` tornou-se estritamente obrigatório nos parâmetros de `createComparatorIntent` (`CreateComparatorIntentParams`) e no ramo Single de `createProtocolIntent` (`CreateSingleProtocolIntentParams`).
+  - Removidos todos os ramos de fallback em `assertSelectedProfileBelongsToSubstance`. Toda validação de pertencimento e proveniência opera com a proveniência formal da substância.
+  - Testes de tipo em `src/tests/types/library-intents.test-d.ts` validam com `@ts-expect-error` a rejeição em tempo de compilação caso `substanceProvenance` seja omitido.
+- **Blocker 2 (Vinculação estrita de `datasetVersion` entre profile e substance)**:
+  - Quando a substância possui proveniência `official`, é estritamente exigido que `selectedProfile.datasetVersion === substanceProvenance.datasetVersion`.
+  - Tentativas de associar perfis oficiais com versão divergente (ex.: perfil v2 ou v999 em substância v1) são rejeitadas com erro explícito.
+  - A fonte gerada nos intents (`source.datasetVersion`) reflete a versão canônica e validada do dataset oficial.
+- **Blocker 3 (`libraryItemIdentity` e chaves do grid visual da Biblioteca)**:
+  - Implementada e exportada a função pura `libraryItemIdentity` em `src/features/library/lib/view.ts`:
+    - Para `official`: `official:${datasetVersion}:${substanceId}`
+    - Para `custom`: `custom:${customSubstanceId}`
+  - No grid da `LibraryPage.tsx`, os cards são renderizados com `key={libraryItemIdentity(item)}` em vez de `key={item.id}`.
+  - Substâncias oficiais e customizadas com o mesmo identificador textual (ex.: `retatrutida`) coexistem pacificamente no grid, sem colisões de chave React, sem avisos no console e permitindo abrir e fechar a ficha técnica de cada entidade de maneira independente.
+
+### RED / GREEN e gates locais
+
+- **Fase RED comprovada**:
+  - `library-intents.test-d.ts`: compilação falhou ao omitir `substanceProvenance` sem anotação `@ts-expect-error`.
+  - `e10.5-namespace-regressions.test.tsx`: falhas observadas em testes de `datasetVersion` divergente e ausência de `libraryItemIdentity`.
+- **Fase GREEN e gates locais**:
+  - `npm run lint`: PASS (0 erros, 0 avisos).
+  - `npm run typecheck`: PASS (0 erros).
+  - `npm run type-tests`: PASS (0 erros).
+  - `npm run test:e10`: PASS (13 arquivos, 119 testes).
+  - `npm run test:e9`: PASS (11 arquivos, 56 testes).
+  - `npm run test:e8`: PASS (4 arquivos, 50 testes).
+  - `npm run test:e7`: PASS (7 arquivos, 46 testes).
+  - `npm run test:e6`: PASS (22 arquivos, 131 testes).
+  - `npm run test:e5`: PASS (10 arquivos, 113 testes).
+  - `npm run test:e4`: PASS (11 arquivos, 81 testes).
+  - `npm test`: PASS (92 arquivos, 755 testes).
+  - `npm run build`: PASS (Vite + PWA generateSW).
+  - `npm run check:build-boundaries`: PASS (9 arquivos em dist, 0 referências a `.token-optimizer`).
+  - `npm run test:e1`: PASS (5 testes Playwright em Chromium sob CSP e mobile 390px).
+  - `git diff --check`: PASS (0 erros).
+- **Auditoria de fronteiras e invariantes**:
+  - Zero `style={` em `src/features/library`.
+  - Zero chamadas de rede em `src/features/library` e `src/data/substances`.
+  - Zero casts inseguros (`as any`, `as unknown as`) em `src/features/library`.
+
+### Publicação e auditoria
+
+- Commit normativo: `fix(farmakit): tornar namespace da E10 obrigatorio`.
+- Push normal para `origin main` sem reescrita de histórico (`no amend`, `no force`).
+
+E10.5 implementada; aguardando auditoria externa.
+

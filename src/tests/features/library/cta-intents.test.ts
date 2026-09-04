@@ -17,6 +17,7 @@ describe('E10 — CTA Intents Semânticos (Fronteira E10 × E12)', () => {
     it('produz LibraryComparatorIntent para Single sem doses, dose padrão ou amountMg', () => {
       const intent = createComparatorIntent({
         substance: retatrutida,
+        substanceProvenance: retatrutidaView.substanceProvenance,
         selectedProfile,
       })
 
@@ -40,6 +41,7 @@ describe('E10 — CTA Intents Semânticos (Fronteira E10 × E12)', () => {
     it('produz LibraryProtocolIntent para Single com 1 componente e proportion=1, sem totalDoseMg ou schedule', () => {
       const intent = createProtocolIntent({
         substance: retatrutida,
+        substanceProvenance: retatrutidaView.substanceProvenance,
         selectedProfile,
       })
 
@@ -67,6 +69,7 @@ describe('E10 — CTA Intents Semânticos (Fronteira E10 × E12)', () => {
         createComparatorIntent({
           // @ts-expect-error BlendSubstance é proibida na API do Comparador.
           substance: durateston,
+          substanceProvenance: { type: 'official', substanceId: durateston.id, datasetVersion: 1 },
           selectedProfile: undefined as never,
         })
       }).toThrow(/blend/i)

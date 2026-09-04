@@ -7,10 +7,19 @@ import { LibrarySearch } from '../components/LibrarySearch'
 import { OriginFilter } from '../components/OriginFilter'
 import { SubstanceCard } from '../components/SubstanceCard'
 import { SubstanceSheet } from '../components/SubstanceSheet'
-import { buildLibraryView, type LibraryItemView, type OriginFilterKind } from '../lib/view'
+import { buildLibraryView, libraryItemIdentity, type LibraryItemView, type OriginFilterKind } from '../lib/view'
+import type { CustomProfile, CustomSubstance } from '../../../domain/data-management/types'
 import '../library.css'
 
-export function LibraryPage() {
+export interface LibraryPageProps {
+  customSubstances?: CustomSubstance[]
+  customProfiles?: CustomProfile[]
+}
+
+export function LibraryPage({
+  customSubstances: propsSubstances,
+  customProfiles: propsProfiles,
+}: LibraryPageProps = {}) {
   const [config, setConfig] = useState<ConfigPayload | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [originFilter, setOriginFilter] = useState<OriginFilterKind>('all')
@@ -33,10 +42,13 @@ export function LibraryPage() {
     }
   }, [])
 
+  const customSubstances = propsSubstances ?? config?.customSubstances ?? []
+  const customProfiles = propsProfiles ?? config?.customProfiles ?? []
+
   const items = buildLibraryView(
     OFFICIAL_DATASET_V1,
-    config?.customSubstances ?? [],
-    config?.customProfiles ?? [],
+    customSubstances,
+    customProfiles,
     searchQuery,
     originFilter,
   )
@@ -58,7 +70,7 @@ export function LibraryPage() {
           <div className="empty-results">{messages.library.noResults}</div>
         ) : (
           items.map((item) => (
-            <SubstanceCard key={item.id} item={item} onSelect={setSelectedItem} />
+            <SubstanceCard key={libraryItemIdentity(item)} item={item} onSelect={setSelectedItem} />
           ))
         )}
       </main>
