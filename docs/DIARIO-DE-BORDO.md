@@ -2395,3 +2395,82 @@ E10.4 implementada; aguardando auditoria externa.
 
 E10.5 implementada; aguardando auditoria externa.
 
+## 2026-09-04 — E11 — Protocolos
+
+### Base e escopo
+
+- Branch `main`; SHA-base e `origin/main` validados em `3895f9766872ec4ee760ccfda64ab400c854027b`.
+- Commit-base: `fix(farmakit): tornar namespace da E10 obrigatorio`.
+- E10 e etapas anteriores permanecem fechadas e aprovadas; E11 implementada integralmente (Protocolos, multi-fuso, CalculationWindow, chips PK às 20:00, arrasto civil, movimentação por teclado, Desfazer, KineticChart com Chart.js 4 e guias temporais); E12 não foi iniciada.
+- Nenhuma alteração em `FARMakit-especificacao-final.md`, `README.md`, `.token-optimizer/`, dataset oficial, resolver, imports/exports ou storage de histórico.
+
+### Funcionalidades implementadas na E11
+
+- **Rota funcional `#/protocolos`**:
+  - Substituído placeholder por módulo completo com abas "Calendário" e "Gráficos".
+  - Barra de ferramentas com botão "Novo protocolo", navegação temporal ("Mês anterior", "Mês seguinte", "Hoje") e seletor de visualização (Mês, Semana, Agenda).
+- **CRUD canônico de Protocolos**:
+  - `ProtocolDraft` e `ProtocolComponentDraft` com conversão bidirecional defensiva, validação via `protocolSchema` e persistência no `ConfigPayload` via `mutateConfigPayload`.
+  - Proporções somando 1 e cálculo rigoroso da dose do componente: `componentDoseMg = totalDoseMg * proportion`.
+  - Exclusão com modal de confirmação próprio e acessível (sem `window.confirm`).
+- **Calendário Multi-fuso e Views**:
+  - Suporte completo aos modos Mês (grade de 7 colunas Seg–Dom), Semana (7 dias com horários) e Agenda (lista cronológica com cards detalhados).
+  - Horários e datas interpretados no fuso configurado `calendarTimeZone` via `@js-temporal/polyfill`.
+  - Recorrência materializada sob demanda estritamente para a janela visível (`deriveViewDisplayWindow` e `collectWindowOccurrences`), nunca gerando as 520 semanas em memória.
+  - Suporte mobile com `DaySheet` (bottom sheet deslizante para o dia selecionado em telas <= 768px).
+- **Chips Farmacocinéticos às 20:00**:
+  - Avaliação diária em `calendarTimeZone` no instante `20:00:00.000` (`evaluateDayProtocolEstimates`).
+  - Lookback normativo individual por componente (`requiredPkLookback`), alimentando `stateAt` no instante de corte.
+  - Ocorrências do mês/janela anterior com impacto residual contribuem corretamente para a quantidade central (`centralMg`).
+  - Regra de corte visual: `centralMg < 0.01 mg` oculta; `centralMg >= 0.01 mg` visível com badge colorido, ordenada decrescente por quantidade.
+- **Movimentação Civil (Drag & Drop e Teclado) e Desfazer**:
+  - Arrasto civil com Pointer Events nativos, threshold de 7px para diferenciar clique de arraste, supressão de clique por 800ms e tratamento de `pointercancel`.
+  - Movimentação por teclado via setas (←, →, ↑, ↓, PageUp, PageDown) acionada por Enter/Espaço sobre o card com retorno de foco acessível e `aria-live`.
+  - Reagendamento seguro via `shiftSchedule`, preservando invariantes de ordenação de dias e periodicidade.
+  - `UndoBar` com contagem regressiva de 7 segundos, auto-dismiss, cancelamento e reatribuição ao novo reagendamento.
+- **Análise Farmacocinética e Gráficos (`KineticChart`)**:
+  - Análise em tempo real (`analyzeProtocolsLive`) com relógio de 1 segundo e amostragem determinística (`sampleForDisplay`, máximo 1200 pontos).
+  - 1 `SimulationInput` por componente de protocolo (Blend Landergold gerando 3 séries individuais).
+  - Alternância entre visão Combinada e Individual, seletor de intervalo de datas e checkboxes de protocolos ativos.
+  - Plugin de guias temporais para administrações contidas em `[displayWindow.startMs, displayWindow.endMs)` renderizado via `afterDatasetsDraw` do Chart.js.
+  - Acessibilidade com tabela oculta (`.sr-only`) refletindo os dados da curva para leitores de tela.
+- **Conformidade de Estilo e CSP**:
+  - Zero estilos inline (`style={{ ... }}`) na aplicação. As 21 cores da paleta mapeadas via seletores de atributo CSS `[data-color="#..."]`.
+  - Chart.js 4 registrado localmente sem CDN, compatível com a política CSP estrita.
+  - Layout totalmente responsivo testado em 320px, 375px, 390px, 430px, 768px, 1024px e 1440px, sem overflow horizontal.
+
+### Fronteira E11 × E12 estritamente respeitada
+
+- Zero `CalculationRecord` criados.
+- Zero gravações no histórico e zero chamadas a `addCalculationRecord`.
+- Nenhum botão "Salvar análise no histórico".
+- Nenhum handoff ou estado de roteamento de Biblioteca para Protocolos.
+- Nenhuma alteração em esquemas de import/export ou favoritos.
+
+### Validações executadas
+
+- `npm run lint`: PASS (0 erros, 0 avisos).
+- `npm run typecheck`: PASS (0 erros).
+- `npm run type-tests`: PASS (0 erros).
+- `npm run test:e11`: PASS (11 arquivos, 69 testes).
+- `npm run test:e10`: PASS (13 arquivos, 119 testes).
+- `npm run test:e9`: PASS (11 arquivos, 56 testes).
+- `npm run test:e8`: PASS (4 arquivos, 50 testes).
+- `npm run test:e7`: PASS (7 arquivos, 46 testes).
+- `npm run test:e6`: PASS (22 arquivos, 131 testes).
+- `npm run test:e5`: PASS (10 arquivos, 113 testes).
+- `npm run test:e4`: PASS (11 arquivos, 81 testes).
+- `npm test`: PASS (99 arquivos, 784 testes).
+- `npm run build`: PASS (Vite + PWA generateSW).
+- `npm run check:build-boundaries`: PASS (9 arquivos em dist, 0 referências a `.token-optimizer`).
+- `npm run test:e1`: PASS (7 testes Playwright em Chromium sob CSP e mobile 390px).
+- `git diff --check src/`: PASS (0 erros).
+
+### Publicação e auditoria
+
+- Commit normativo: `feat(farmakit): implementar protocolos E11`.
+- Push normal para `origin main` sem reescrita de histórico (`no amend`, `no force`).
+
+E11 implementada; aguardando auditoria externa.
+
+

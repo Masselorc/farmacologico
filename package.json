@@ -21,6 +21,7 @@
     "test:e8": "vitest run src/tests/features/reconstitution src/tests/domain/reconstitution.test.ts src/tests/validation/reconstitution.schemas.test.ts",
     "test:e9": "vitest run src/tests/features/comparator src/tests/features/charts src/tests/domain/pk.sampling.test.ts",
     "test:e10": "vitest run src/tests/data src/tests/features/library src/tests/validation/library.schemas.test.ts",
+    "test:e11": "vitest run src/tests/features/protocols src/tests/features/charts src/tests/domain/recurrence.test.ts src/tests/domain/simulation.test.ts src/tests/domain/pk.sampling.test.ts",
     "test:watch": "vitest",
     "test:e1": "playwright test",
     "check:build-boundaries": "node scripts/check-build-boundaries.mjs",

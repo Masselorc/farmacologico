@@ -13,7 +13,11 @@ const structuralRoutes = [
     heading: 'Reconstituir',
     placeholder: /Preencha os valores para visualizar o cálculo automaticamente\./,
   },
-  { navLabel: 'Protocolos', heading: 'Protocolos', placeholder: /prevista na E11\./ },
+  {
+    navLabel: 'Protocolos',
+    heading: 'Protocolos',
+    placeholder: /Planeje e acompanhe protocolos de administração/i,
+  },
   { navLabel: 'Histórico', heading: 'Histórico', placeholder: /prevista na E12\./ },
   { navLabel: 'Ajustes', heading: 'Ajustes', placeholder: /prevista na E6\/E13\./ },
 ]
@@ -325,5 +329,136 @@ test('Biblioteca E10 navega, filtra, exibe ficha, respeita regras de Blend e res
   expect(hasHorizontalScroll).toBe(false)
 
   // 8. CSP limpo e sem requisições de rede indevidas
+  expect(problems).toEqual([])
+})
+
+test('Protocolos E11 permite criar protocolo semanal, reagendar via teclado e reverter com Desfazer', async ({ page }) => {
+  const problems = watchProblems(page)
+
+  await page.addInitScript(() => {
+    const FIXED_TIME = new Date('2026-09-04T12:00:00.000Z').getTime()
+    Date.now = () => FIXED_TIME
+  })
+
+  await page.goto(`${BASE_PATH}#/protocolos`)
+  await expect(page.getByRole('heading', { name: 'Protocolos' })).toBeVisible()
+
+  // 1. Clica em "Novo protocolo"
+  await page.getByRole('button', { name: 'Novo protocolo' }).first().click()
+  const dialog = page.locator('.protocol-modal-dialog')
+  await expect(dialog).toBeVisible()
+
+  // 2. Preenche campos
+  await page.locator('#protocol-name').fill('Protocolo E2E Enantato')
+  await page.locator('#protocol-dose').fill('250')
+  await page.locator('#protocol-date').fill('2026-09-01')
+  await page.locator('#protocol-time').fill('08:00')
+
+  // Seleciona semanal recorrente e dia da semana Terça (Ter)
+  await page.getByRole('button', { name: 'Ter', exact: true }).click()
+
+  // Submete
+  await page.getByRole('button', { name: 'Criar protocolo' }).click()
+  await expect(dialog).toHaveCount(0)
+
+  // 3. Card do protocolo aparece na grade do calendário
+  const adminCard = page.locator('.protocol-admin-card', { hasText: 'Protocolo E2E Enantato' }).first()
+  await expect(adminCard).toBeVisible()
+  await expect(adminCard).toContainText('250 mg')
+
+  // 4. Reagenda via QuickMenu -> Mover
+  const menuTrigger = adminCard.locator('.protocol-quick-menu-trigger')
+  await menuTrigger.click()
+  await page.getByRole('menuitem', { name: 'Mover protocolo' }).click()
+
+  const moveDialog = page.locator('.protocol-keyboard-move-dialog')
+  await expect(moveDialog).toBeVisible()
+
+  // Move +1 dia usando o botão stepper
+  await page.getByRole('button', { name: '+1 dia' }).click()
+  await page.getByRole('button', { name: 'Salvar alterações' }).click()
+  await expect(moveDialog).toHaveCount(0)
+
+  // 5. UndoBar aparece com botão "Desfazer"
+  const undoBar = page.locator('.protocol-undo-bar')
+  await expect(undoBar).toBeVisible()
+  await expect(undoBar).toContainText('Protocolo E2E Enantato')
+
+  // Clica em "Desfazer"
+  await page.getByRole('button', { name: 'Desfazer' }).click()
+  await expect(undoBar).toHaveCount(0)
+
+  // 6. Zero inline styles
+  const inlineStyles = await page.evaluate(() => {
+    const root = document.querySelector('.protocols-page')
+    return root ? root.querySelectorAll('[style]').length : 0
+  })
+  expect(inlineStyles).toBe(0)
+
+  expect(problems).toEqual([])
+})
+
+test('Protocolos E11 aba Gráficos renderiza KineticChart sob CSP e sem overflow em 390px', async ({ page }) => {
+  const problems = watchProblems(page)
+
+  await page.addInitScript(() => {
+    const FIXED_TIME = new Date('2026-09-04T12:00:00.000Z').getTime()
+    Date.now = () => FIXED_TIME
+  })
+
+  await page.goto(`${BASE_PATH}#/protocolos`)
+  await expect(page.getByRole('heading', { name: 'Protocolos' })).toBeVisible()
+
+  // Adiciona um protocolo para visualização gráfica
+  const newBtn = page.getByRole('button', { name: 'Novo protocolo' }).first()
+  await newBtn.click()
+  await page.locator('#protocol-name').fill('Protocolo Chart E2E')
+  await page.locator('#protocol-dose').fill('200')
+  await page.locator('#protocol-date').fill('2026-09-01')
+  await page.locator('#protocol-time').fill('08:00')
+  await page.getByRole('button', { name: 'Criar protocolo' }).click()
+
+  // Alterna para a aba Gráficos
+  await page.getByRole('tab', { name: 'Gráficos' }).click()
+
+  // Canvas do KineticChart presente e visível
+  const canvas = page.locator('.kinetic-chart-frame canvas')
+  await expect(canvas).toBeVisible()
+
+  // Prova pintura de pixels sob CSP
+  const painted = await page.evaluate(() => {
+    const canvasEl = document.querySelector<HTMLCanvasElement>('.kinetic-chart-frame canvas')
+    if (canvasEl === null) return -1
+    const ctx = canvasEl.getContext('2d')
+    if (ctx === null) return -1
+    const { width, height } = canvasEl
+    const data = ctx.getImageData(0, 0, width, height).data
+    let count = 0
+    for (let i = 3; i < data.length; i += 4 * 17) {
+      if (data[i] > 0) count++
+    }
+    return count
+  })
+  expect(painted).toBeGreaterThan(100)
+
+  // Zero inline styles na aba Gráficos (ignorando canvas técnico do Chart.js)
+  const inlineStyles = await page.evaluate(() => {
+    const root = document.querySelector('.protocols-page')
+    if (!root) return []
+    const elements = Array.from(root.querySelectorAll('[style]')).filter(
+      (el) => el.tagName.toLowerCase() !== 'canvas',
+    )
+    return elements.map((el) => el.outerHTML)
+  })
+  expect(inlineStyles).toHaveLength(0)
+
+  // Responsividade mobile (390px x 844px) sem overflow horizontal
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.waitForTimeout(300)
+  const hasHorizontalScroll = await page.evaluate(() => {
+    return document.documentElement.scrollWidth > document.documentElement.clientWidth
+  })
+  expect(hasHorizontalScroll).toBe(false)
+
   expect(problems).toEqual([])
 })
